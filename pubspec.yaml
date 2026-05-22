@@ -1,0 +1,28 @@
+name: multiview_desktop
+description: "Single-engine multi-window Flutter desktop library based on ViewCollection."
+
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  plugin:
+    platforms:
+      macos:
+        pluginClass: MultiviewDesktopPlugin
+
+  uses-material-design: true
