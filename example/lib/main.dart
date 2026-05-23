@@ -4,7 +4,9 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 import 'pages/home.dart';
 import 'utils/theme_config.dart';
 
-void main() => runMultiApp(const MainWindowRoot());
+void main() => runMultiApp(const MainWindowRoot(),
+    config: MultiAppConfig(closeMode: CloseMode.cascade)
+);
 
 // ---------------------------------------------------------------------------
 // Root widget for the main window

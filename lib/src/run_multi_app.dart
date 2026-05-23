@@ -18,10 +18,20 @@ import 'window_options.dart';
 ///
 /// [home] is rendered in the initial (main) OS window.  Additional windows
 /// are opened via [addWindow].
-void runMultiApp(Widget home) {
+void runMultiApp(Widget home, {MultiAppConfig? config}) {
   WidgetsFlutterBinding.ensureInitialized();
-  runWidget(createMultiViewRoot(home));
+  runWidget(createMultiViewRoot(home, config ?? _defaultConfig));
 }
+
+MultiAppConfig _defaultConfig = MultiAppConfig(closeMode: CloseMode.cascade);
+
+class MultiAppConfig {
+  final CloseMode closeMode;
+
+  MultiAppConfig({required this.closeMode});
+}
+
+enum CloseMode { none, cascade, force }
 
 /// Opens a new OS window showing [child].
 ///
@@ -35,5 +45,4 @@ void runMultiApp(Widget home) {
 ///   child: const Text('Open settings'),
 /// )
 /// ```
-Future<void> addWindow(Widget child, {WindowOptions? options}) =>
-    MultiViewDesktop.addWindow(child, options: options);
+Future<void> addWindow(Widget child, {WindowOptions? options}) => MultiViewDesktop.addWindow(child, options: options);

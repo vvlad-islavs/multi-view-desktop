@@ -4,6 +4,7 @@ import 'dart:ui' show FlutterView;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:multiview_desktop/multiview_desktop.dart';
 
 import 'view_scope.dart';
 import 'window_communicator.dart';
@@ -20,7 +21,7 @@ _MultiViewRootState? _rootState;
 _MultiViewRootState? get globalRootState => _rootState;
 
 /// Creates the root multi-view widget.  Used by [runMultiApp] only.
-Widget createMultiViewRoot(Widget home) => _MultiViewRoot(home: home);
+Widget createMultiViewRoot(Widget home, MultiAppConfig config) => _MultiViewRoot(home: home, config: config);
 
 // ---------------------------------------------------------------------------
 // _MultiViewRoot
@@ -32,9 +33,10 @@ Widget createMultiViewRoot(Widget home) => _MultiViewRoot(home: home);
 /// opened or closed.  Each child is wrapped in a [ViewScope] so that any
 /// descendant can call [MultiViewDesktop.getCurrentId].
 class _MultiViewRoot extends StatefulWidget {
-  const _MultiViewRoot({required this.home});
+  const _MultiViewRoot({required this.home, required this.config});
 
   final Widget home;
+  final MultiAppConfig config;
 
   @override
   State<_MultiViewRoot> createState() => _MultiViewRootState();
@@ -44,13 +46,13 @@ class _MultiViewRoot extends StatefulWidget {
 // _MultiViewRootState
 // ---------------------------------------------------------------------------
 
-class _MultiViewRootState extends State<_MultiViewRoot>
-    with WidgetsBindingObserver {
-  static const MethodChannel _staticChannel =
-      MethodChannel('multiview_desktop');
+class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObserver {
+  static const MethodChannel _staticChannel = MethodChannel('multiview_desktop');
 
   // The main FlutterView (viewId > 0), captured at startup.
   FlutterView? _mainView;
+
+  int get _mainId => _mainView?.viewId ?? 1;
 
   // viewId -> widget for all secondary views.
   final Map<int, Widget> _views = {};
@@ -65,8 +67,8 @@ class _MultiViewRootState extends State<_MultiViewRoot>
   // viewId -> listener list.
   final Map<int, ObserverList<WindowListener>> _listeners = {};
 
-  // viewId -> completer resolved when the window finishes closing.
-  final Map<int, Completer<void>> _closeCompleters = {};
+  // viewId -> completer: true = closed, false = cancelled (preventClose).
+  final Map<int, Completer<bool>> _closeCompleters = {};
 
   // --------------------------------------------------------------------------
 
@@ -80,10 +82,7 @@ class _MultiViewRootState extends State<_MultiViewRoot>
     // Prefer viewId > 0 (real ViewController surface); fall back to first.
     final initial = WidgetsBinding.instance.platformDispatcher.views;
     if (initial.isNotEmpty) {
-      _mainView = initial.firstWhere(
-        (v) => v.viewId != 0,
-        orElse: () => initial.first,
-      );
+      _mainView = initial.firstWhere((v) => v.viewId != 0, orElse: () => initial.first);
     }
   }
 
@@ -115,8 +114,7 @@ class _MultiViewRootState extends State<_MultiViewRoot>
       return;
     }
 
-    final gone =
-        _views.keys.where((id) => dispatcher.view(id: id) == null).toList();
+    final gone = _views.keys.where((id) => dispatcher.view(id: id) == null).toList();
 
     if (gone.isNotEmpty) {
       setState(() {
@@ -149,19 +147,26 @@ class _MultiViewRootState extends State<_MultiViewRoot>
           _applyOptions(viewId, options);
         }
       }
+      await _setMainPreConfirmClose(false);
+    } else if (eventName == 'main-preconfirm-close') {
+      final int? viewId = call.arguments['viewId'] as int?;
+      if (viewId == _mainId && viewId != null) {
+        switch (widget.config.closeMode) {
+          case CloseMode.none:
+            await _removeViewsNone();
+            break;
+          case CloseMode.cascade:
+            await _removeViewsCascade();
+            break;
+          case CloseMode.force:
+            await _removeViewsForce();
+            break;
+        }
+      }
     } else if (eventName == 'confirm-close') {
       // Internal event, not forwarded to WindowListener.
       final int? viewId = call.arguments['viewId'] as int?;
       if (viewId != null) {
-        if (viewId == 1) {
-          for (final id in _views.keys.toList()) {
-            if (id == 1) continue;
-            await removeView(id);
-          }
-          await Future.wait(_closeCompleters.values.map((c) => c.future));
-          await _onConfirmClose(viewId);
-          return;
-        }
         await _onConfirmClose(viewId);
       }
     } else {
@@ -176,13 +181,34 @@ class _MultiViewRootState extends State<_MultiViewRoot>
 
   Future<void> _onConfirmClose(int viewId) async {
     WindowCommunicator.disposeView(viewId);
-    await _staticChannel.invokeMethod<void>(
-      'confirmClose',
-      {'viewId': viewId, 'confirmClose': true},
-    );
-    await _staticChannel.invokeMethod<void>('closeWindow', {'viewId': viewId});
-    _closeCompleters[viewId]?.complete();
+    await setConfirmClose(viewId, true);
+    await removeView(viewId);
+    _closeCompleters[viewId]?.complete(true);
+    // don't remove viewId completer here
+  }
+
+  /// Aborts the cascade close that is waiting on [viewId].
+  ///
+  /// Completing the completer with `false` causes the cascade loop to `return`
+  /// early, leaving the main window open. All other pending completers are
+  /// also cleared so that a later independent close of those windows does not
+  /// unexpectedly resume the (already aborted) cascade.
+  Future<void> cancelCascade(int viewId) async {
+    await _setMainPreConfirmClose(false);
+    final completer = _closeCompleters[viewId];
+    if (completer == null || completer.isCompleted) return;
+
+    // Abort the cascade: the loop awaiting this completer will see false and
+    // return without closing the main window.
+    completer.complete(false);
+
+    // Clear remaining completers so their future completion (e.g. user later
+    // closes those windows independently) does not re-trigger the cascade.
     _closeCompleters.remove(viewId);
+    for (final c in _closeCompleters.values) {
+      if (!c.isCompleted) c.complete(false);
+    }
+    _closeCompleters.clear();
   }
 
   // --------------------------------------------------------------------------
@@ -191,6 +217,7 @@ class _MultiViewRootState extends State<_MultiViewRoot>
 
   void _dispatchViewEvent(int viewId, String eventName) {
     final list = _listeners[viewId];
+    debugPrint('Event $eventName отправлен в слушатели view с id $viewId');
     if (list == null) return;
     for (final l in List<WindowListener>.from(list)) {
       l.onWindowEvent(eventName);
@@ -266,17 +293,48 @@ class _MultiViewRootState extends State<_MultiViewRoot>
       await invoke('setSkipTaskbar', {'isSkipTaskbar': true});
     }
     if (opts.minimumSize != null) {
-      await invoke('setMinimumSize', {
-        'width': opts.minimumSize!.width,
-        'height': opts.minimumSize!.height,
-      });
+      await invoke('setMinimumSize', {'width': opts.minimumSize!.width, 'height': opts.minimumSize!.height});
     }
     if (opts.maximumSize != null) {
-      await invoke('setMaximumSize', {
-        'width': opts.maximumSize!.width,
-        'height': opts.maximumSize!.height,
-      });
+      await invoke('setMaximumSize', {'width': opts.maximumSize!.width, 'height': opts.maximumSize!.height});
     }
+  }
+
+  Future<void> _removeViewsNone() async {
+    await _setMainPreConfirmClose(true);
+    await removeView(_mainId);
+  }
+
+  Future<void> _removeViewsCascade() async {
+    final allViews = List.from(_views.keys.toList().reversed);
+
+    for (final id in allViews) {
+      if (id == _mainId) continue;
+      _closeCompleters[id] = Completer<bool>();
+      await focus(id);
+      await removeView(id);
+
+      final closed = await _closeCompleters[id]!.future;
+      _closeCompleters.remove(id);
+      if (!closed) return;
+    }
+
+    await _setMainPreConfirmClose(true);
+    await removeView(_mainId);
+  }
+
+  Future<void> _removeViewsForce() async {
+    _closeCompleters.clear();
+    for (final id in _views.keys.toList()) {
+      if (id == _mainId) continue;
+      await setPreventClose(id, false);
+      await setConfirmClose(id, true);
+      await removeView(id);
+    }
+
+    await _setMainPreConfirmClose(true);
+    await setPreventClose(_mainId, false);
+    await removeView(_mainId);
   }
 
   // --------------------------------------------------------------------------
@@ -305,18 +363,30 @@ class _MultiViewRootState extends State<_MultiViewRoot>
     }
   }
 
-  Future<void> removeView(int viewId) async {
-    if (viewId != 1) {
-      _closeCompleters[viewId] = Completer<void>();
-    }
-    await _staticChannel
-        .invokeMethod<void>('closeWindow', {'viewId': viewId});
+  Future<void> removeView(int viewId) async =>
+      await _staticChannel.invokeMethod<void>('closeWindow', {'viewId': viewId});
+
+  Future<void> focus(int viewId) async => await _staticChannel.invokeMethod<void>('focus', _args(viewId));
+
+  Future<void> _setMainPreConfirmClose(bool isPreConfirm) async =>
+      _staticChannel.invokeMethod<void>('mainPreConfirmClose', _args(_mainId, {'mainPreConfirmClose': isPreConfirm}));
+
+  Future<void> setConfirmClose(int viewId, bool isConfirm) async =>
+      await _staticChannel.invokeMethod<void>('confirmClose', _args(viewId, {'confirmClose': isConfirm}));
+
+  Future<void> setPreventClose(int viewId, bool isPreventClose) async =>
+      await _staticChannel.invokeMethod<void>('setPreventClose', _args(viewId, {'isPreventClose': isPreventClose}));
+
+  /// Builds an argument map that always includes the [viewId] so the native
+  /// side can route the call to the right OS window.
+  static Map<String, dynamic> _args(int viewId, [Map<String, dynamic>? extra]) {
+    final map = <String, dynamic>{'viewId': viewId};
+    if (extra != null) map.addAll(extra);
+    return map;
   }
 
   void addListener(int viewId, WindowListener listener) {
-    _listeners
-        .putIfAbsent(viewId, () => ObserverList<WindowListener>())
-        .add(listener);
+    _listeners.putIfAbsent(viewId, () => ObserverList<WindowListener>()).add(listener);
   }
 
   void removeListener(int viewId, WindowListener listener) {
@@ -335,6 +405,7 @@ class _MultiViewRootState extends State<_MultiViewRoot>
     if (_mainView != null) {
       views.add(
         View(
+          key: ValueKey('view_$_mainId'),
           view: _mainView!,
           child: ViewScope(viewId: _mainView!.viewId, child: widget.home),
         ),
@@ -346,6 +417,7 @@ class _MultiViewRootState extends State<_MultiViewRoot>
       if (flutterView != null) {
         views.add(
           View(
+            key: ValueKey('view_${entry.key}'),
             view: flutterView,
             child: ViewScope(viewId: entry.key, child: entry.value),
           ),
