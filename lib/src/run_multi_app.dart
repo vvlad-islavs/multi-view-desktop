@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import 'multi_view_desktop.dart';
@@ -17,21 +18,37 @@ import 'window_options.dart';
 /// ```
 ///
 /// [home] is rendered in the initial (main) OS window.  Additional windows
-/// are opened via [addWindow].
+/// are opened via [openWindow].
 void runMultiApp(Widget home, {MultiAppConfig? config}) {
   WidgetsFlutterBinding.ensureInitialized();
-  runWidget(createMultiViewRoot(home, config ?? _defaultConfig));
+  runWidget(createMultiViewRoot(home, config ?? MultiAppConfig.defaultConfig()));
 }
-
-MultiAppConfig _defaultConfig = MultiAppConfig(closeMode: CloseMode.cascade);
 
 class MultiAppConfig {
-  final CloseMode closeMode;
+  final CloseMode mainCloseMode;
+  final WindowOptions preferredOptions;
 
-  MultiAppConfig({required this.closeMode});
+  MultiAppConfig._({this.mainCloseMode = CloseMode.cascade, this.preferredOptions = const WindowOptions()});
+
+  factory MultiAppConfig({CloseMode? closeMode, WindowOptions? options}) =>
+      MultiAppConfig._(mainCloseMode: closeMode ?? CloseMode.cascade, preferredOptions: options ?? WindowOptions());
+
+  @internal
+  factory MultiAppConfig.defaultConfig() => MultiAppConfig._();
 }
 
-enum CloseMode { none, cascade, force }
+enum CloseMode {
+  /// soft close only main window.
+  ///
+  /// Cycle: close handle -> preventClose (if enabled)  -> confirm-close -> close window
+  none,
+  /// soft close all windows from last to first with full close-cycle
+  ///
+  /// Cycle: close handle -> preventClose (if enabled) -> confirm-close -> close window
+  cascade,
+  /// force close all secondary without close-cycle excluding main window
+  force,
+}
 
 /// Opens a new OS window showing [child].
 ///
@@ -45,4 +62,5 @@ enum CloseMode { none, cascade, force }
 ///   child: const Text('Open settings'),
 /// )
 /// ```
-Future<void> addWindow(Widget child, {WindowOptions? options}) => MultiViewDesktop.addWindow(child, options: options);
+Future<void> openWindow(Widget child, {WindowOptions? options}) =>
+    MultiViewDesktop.addWindow(child, options: options, parent: null);

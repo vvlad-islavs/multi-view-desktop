@@ -9,7 +9,7 @@ Single-engine multi-window Flutter desktop library based on ViewCollection.
   s.license          = { :type => 'MIT' }
   s.author           = { 'Your Company' => 'email@example.com' }
   s.source           = { :path => '.' }
-  s.source_files     = 'Classes/**/*'
+  s.source_files     = 'multiview_desktop/Sources/multiview_desktop/**/*'
   s.dependency 'FlutterMacOS'
 
   s.platform = :osx, '10.14'

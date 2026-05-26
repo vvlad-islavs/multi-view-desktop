@@ -6,10 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 
-import 'view_scope.dart';
-import 'window_communicator.dart';
-import 'window_listener.dart';
-import 'window_options.dart';
+import 'utils/calc_window_position.dart';
 
 // ---------------------------------------------------------------------------
 // Internal global accessor used by MultiViewDesktop and addWindow().
@@ -57,6 +54,8 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   // viewId -> widget for all secondary views.
   final Map<int, Widget> _views = {};
 
+  Map<int, Widget> get views => _views;
+
   // token -> widget, entries waiting for the native "viewCreated" event.
   final Map<int, Widget> _pending = {};
   int _nextToken = 0;
@@ -79,10 +78,21 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     _staticChannel.setMethodCallHandler(_onStaticCall);
     WidgetsBinding.instance.addObserver(this);
 
-    // Prefer viewId > 0 (real ViewController surface); fall back to first.
-    final initial = WidgetsBinding.instance.platformDispatcher.views;
-    if (initial.isNotEmpty) {
-      _mainView = initial.firstWhere((v) => v.viewId != 0, orElse: () => initial.first);
+    _initMainView();
+  }
+
+  void _initMainView() {
+    // Snapshot to avoid concurrent-modification errors on the live views set.
+    final initial = WidgetsBinding.instance.platformDispatcher.views.toList();
+    if (initial.isEmpty) return;
+
+    _mainView = initial.firstWhere((v) => v.viewId != 0, orElse: () => initial.first);
+    _applyOptionsToMain();
+
+    if (!kReleaseMode) {
+      // Close all secondary views after restart
+      final orphaned = initial.where((v) => v.viewId != _mainView!.viewId && v.viewId != 0).toList();
+      _removeSecondaryViewsForceAfterRestart(orphaned.map((e) => e.viewId).toList());
     }
   }
 
@@ -106,11 +116,13 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
 
     if (_mainView == null && dispatcher.views.isNotEmpty) {
       setState(() => _mainView = realView ?? dispatcher.views.first);
+      _applyOptionsToMain();
       return;
     }
 
     if (_mainView != null && _mainView!.viewId == 0 && realView != null) {
       setState(() => _mainView = realView);
+      _applyOptionsToMain();
       return;
     }
 
@@ -137,6 +149,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     final String eventName = call.arguments['eventName'] as String;
 
     if (eventName == 'viewCreated') {
+      // Internal event, not forwarded to WindowListener.
       final int viewId = call.arguments['viewId'] as int;
       final int token = call.arguments['token'] as int;
       final widget = _pending.remove(token);
@@ -149,9 +162,10 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
       }
       await _setMainPreConfirmClose(false);
     } else if (eventName == 'main-preconfirm-close') {
+      // Internal event, not forwarded to WindowListener.
       final int? viewId = call.arguments['viewId'] as int?;
       if (viewId == _mainId && viewId != null) {
-        switch (widget.config.closeMode) {
+        switch (widget.config.mainCloseMode) {
           case CloseMode.none:
             await _removeViewsNone();
             break;
@@ -260,6 +274,8 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   // Internal helpers
   // --------------------------------------------------------------------------
 
+  Future<void> _applyOptionsToMain() => _applyOptions(_mainId, widget.config.preferredOptions);
+
   void _handleClose(int viewId) {
     if (!mounted) return;
     WindowCommunicator.disposeView(viewId);
@@ -276,6 +292,18 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
       return _staticChannel.invokeMethod<void>(method, args);
     }
 
+    if (opts.size != null) {
+      await invoke('setSize', {'width': opts.size!.width, 'height': opts.size!.height});
+    }
+    if (opts.alignment != null) {
+      await setAlignment(viewId, alignment: opts.alignment!);
+    }
+    if (opts.minimumSize != null) {
+      await invoke('setMinimumSize', {'width': opts.minimumSize!.width, 'height': opts.minimumSize!.height});
+    }
+    if (opts.maximumSize != null) {
+      await invoke('setMaximumSize', {'width': opts.maximumSize!.width, 'height': opts.maximumSize!.height});
+    }
     if (opts.title != null) await invoke('setTitle', {'title': opts.title});
     if (opts.titleBarStyle != null) {
       await invoke('setTitleBarStyle', {
@@ -292,12 +320,6 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     if (opts.skipTaskbar) {
       await invoke('setSkipTaskbar', {'isSkipTaskbar': true});
     }
-    if (opts.minimumSize != null) {
-      await invoke('setMinimumSize', {'width': opts.minimumSize!.width, 'height': opts.minimumSize!.height});
-    }
-    if (opts.maximumSize != null) {
-      await invoke('setMaximumSize', {'width': opts.maximumSize!.width, 'height': opts.maximumSize!.height});
-    }
   }
 
   Future<void> _removeViewsNone() async {
@@ -305,11 +327,23 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     await removeView(_mainId);
   }
 
+  /// Returns all secondary view IDs: registered ones plus native "orphaned"
+  /// views that survived a hot restart (present in the platform dispatcher
+  /// but absent from [_views]).
+  List<int> _allSecondaryIds() {
+    final dispatcher = WidgetsBinding.instance.platformDispatcher;
+    final registered = _views.keys.where((id) => id != _mainId);
+    final orphaned = dispatcher.views
+        .toList()
+        .map((v) => v.viewId)
+        .where((id) => id != _mainId && id != 0 && !_views.containsKey(id));
+    return {...registered, ...orphaned}.toList();
+  }
+
   Future<void> _removeViewsCascade() async {
-    final allViews = List.from(_views.keys.toList().reversed);
+    final allViews = _allSecondaryIds().reversed.toList();
 
     for (final id in allViews) {
-      if (id == _mainId) continue;
       _closeCompleters[id] = Completer<bool>();
       await focus(id);
       await removeView(id);
@@ -325,16 +359,39 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
 
   Future<void> _removeViewsForce() async {
     _closeCompleters.clear();
-    for (final id in _views.keys.toList()) {
-      if (id == _mainId) continue;
+    for (final id in _allSecondaryIds()) {
       await setPreventClose(id, false);
       await setConfirmClose(id, true);
       await removeView(id);
     }
 
     await _setMainPreConfirmClose(true);
-    await setPreventClose(_mainId, false);
+    // not disabled in main view
+    // await setPreventClose(_mainId, false);
     await removeView(_mainId);
+  }
+
+  Future<Offset?> _calculateOffFromAlign(int viewId, {required Alignment alignment}) async {
+    final sizeResult = await _staticChannel.invokeMethod<Map>('getBounds', {'viewId': viewId});
+    if (sizeResult != null) {
+      final windowSize = Size((sizeResult['width'] as num).toDouble(), (sizeResult['height'] as num).toDouble());
+      return calcWindowPosition(windowSize, alignment);
+    }
+    return null;
+  }
+
+  Future<void> _removeSecondaryViewsForceAfterRestart(List<int> ids) async {
+    _closeCompleters.clear();
+    for (final id in ids) {
+      // Stale entries (e.g. old main window ID after hot restart) are no longer
+      // in the native windows dict, so calls may return NO_WINDOW. Ignore such
+      // errors — the view will be cleaned up by the engine on its own.
+      try {
+        await setPreventClose(id, false);
+        await setConfirmClose(id, true);
+        await removeView(id);
+      } catch (_) {}
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -342,24 +399,41 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   // --------------------------------------------------------------------------
 
   Future<void> addView(Widget child, {WindowOptions? options}) async {
+    final localOpt = options ?? widget.config.preferredOptions;
+
     final int token = _nextToken++;
     _pending[token] = child;
-    if (options != null) _pendingOptions[token] = options;
+    _pendingOptions[token] = localOpt;
 
+    Offset? pos;
+    final windowSize = Size(localOpt.size?.width ?? 800.0, localOpt.size?.height ?? 600.0);
+    if (localOpt.alignment != null) {
+      pos = await calcWindowPosition(windowSize, localOpt.alignment!);
+    }
     try {
       await _staticChannel.invokeMethod<void>('createWindow', {
         'token': token,
-        'width': options?.size?.width ?? 800.0,
-        'height': options?.size?.height ?? 600.0,
-        'title': options?.title ?? '',
-        'center': options?.center ?? true,
-        'titleBarStyle': options?.titleBarStyle?.name ?? 'normal',
-        'windowButtonVisibility': options?.windowButtonVisibility ?? true,
+        'width': windowSize.width,
+        'height': windowSize.height,
+        'title': localOpt.title ?? '',
+        'position': pos == null ? null : {'x': pos.dx, 'y': pos.dy},
+        'titleBarStyle': localOpt.titleBarStyle?.name ?? 'normal',
+        'windowButtonVisibility': localOpt.windowButtonVisibility ?? true,
       });
     } catch (e) {
       _pending.remove(token);
       _pendingOptions.remove(token);
       rethrow;
+    }
+  }
+
+  Future<void> setPosition(int viewId, {required Offset pos}) async =>
+      await _staticChannel.invokeMethod<void>('setPosition', _args(viewId, {'x': pos.dx, 'y': pos.dy}));
+
+  Future<void> setAlignment(int viewId, {required Alignment alignment}) async {
+    final pos = await _calculateOffFromAlign(viewId, alignment: alignment);
+    if (pos != null) {
+      await setPosition(viewId, pos: pos);
     }
   }
 
@@ -401,7 +475,6 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   Widget build(BuildContext context) {
     final dispatcher = WidgetsBinding.instance.platformDispatcher;
     final views = <Widget>[];
-
     if (_mainView != null) {
       views.add(
         View(
@@ -413,13 +486,14 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     }
 
     for (final entry in _views.entries) {
-      final flutterView = dispatcher.view(id: entry.key);
+      final int id = entry.key;
+      final flutterView = dispatcher.view(id: id);
       if (flutterView != null) {
         views.add(
           View(
-            key: ValueKey('view_${entry.key}'),
+            key: ValueKey('view_$id'),
             view: flutterView,
-            child: ViewScope(viewId: entry.key, child: entry.value),
+            child: ViewScope(viewId: id, child: entry.value),
           ),
         );
       }

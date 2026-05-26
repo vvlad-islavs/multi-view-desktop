@@ -28,5 +28,7 @@ public class MultiviewDesktopPlugin: NSObject, FlutterPlugin {
        let vc = window.contentViewController as? FlutterViewController {
       impl.registerWindow(window, viewId: vc.viewIdentifier)
     }
+
+    MvdScreenRetrieverPlugin.register(with: registrar.messenger)
   }
 }

@@ -10,7 +10,7 @@ class WindowOptions {
     this.size,
     this.minimumSize,
     this.maximumSize,
-    this.center = true,
+    this.alignment = Alignment.center,
     this.backgroundColor = Colors.transparent,
     this.skipTaskbar = false,
     this.titleBarStyle,
@@ -23,7 +23,9 @@ class WindowOptions {
   final Size? size;
   final Size? minimumSize;
   final Size? maximumSize;
-  final bool center;
+  final Alignment? alignment;
+
+
   final Color backgroundColor;
   final bool skipTaskbar;
   final TitleBarStyle? titleBarStyle;

@@ -1,6 +1,55 @@
 import Cocoa
 import FlutterMacOS
 
+// MARK: - NSRect coordinate helpers
+
+/// Extends NSRect with a `topLeft` property that converts between Cocoa
+/// (Y-up, origin at bottom-left of primary screen) and Flutter/logical
+/// (Y-down, origin at top-left of primary screen) coordinate spaces.
+///
+/// The getter returns the Flutter top-left point for the rect.
+/// The setter moves the rect so that its top-left corner is at the given
+/// Flutter point, picking the best target screen by overlap area.
+extension NSRect {
+    var topLeft: CGPoint {
+        get {
+            func overlapArea(_ r: CGRect) -> CGFloat {
+                if r.isNull || r.isEmpty { return 0 }
+                return r.width * r.height
+            }
+            let screens = NSScreen.screens
+            let targetScreen: NSScreen? = screens.max {
+                overlapArea(self.intersection($0.frame)) < overlapArea(self.intersection($1.frame))
+            } ?? NSScreen.main ?? screens.first
+            let sf = targetScreen?.frame
+                ?? NSScreen.main?.frame
+                ?? NSScreen.screens.first?.frame
+                ?? CGRect(x: 0, y: 0, width: 1920, height: 1080)
+            return CGPoint(x: origin.x, y: sf.maxY - origin.y - size.height)
+        }
+        set {
+            func overlapArea(_ r: CGRect) -> CGFloat {
+                if r.isNull || r.isEmpty { return 0 }
+                return r.width * r.height
+            }
+            let screens = NSScreen.screens
+            // Pick the screen that would contain the most of the window after the move.
+            let targetScreen: NSScreen? = screens.max {
+                let o0 = CGPoint(x: newValue.x, y: $0.frame.maxY - newValue.y - size.height)
+                let o1 = CGPoint(x: newValue.x, y: $1.frame.maxY - newValue.y - size.height)
+                return overlapArea(CGRect(origin: o0, size: size).intersection($0.frame))
+                     < overlapArea(CGRect(origin: o1, size: size).intersection($1.frame))
+            } ?? NSScreen.main ?? screens.first
+            let sf = targetScreen?.frame
+                ?? NSScreen.main?.frame
+                ?? NSScreen.screens.first?.frame
+                ?? CGRect(x: 0, y: 0, width: 1920, height: 1080)
+            origin.x = newValue.x
+            origin.y = sf.maxY - newValue.y - size.height
+        }
+    }
+}
+
 // MARK: - Per-window state
 
 private class WindowState {
@@ -85,7 +134,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         let width = args["width"] as? CGFloat ?? 800
         let height = args["height"] as? CGFloat ?? 600
         let title = args["title"] as? String ?? ""
-        let center = args["center"] as? Bool ?? true
+        let position = args["position"] as? [String: Any]
         let titleBarStyleName = args["titleBarStyle"] as? String ?? "normal"
         let windowButtonVisibility = args["windowButtonVisibility"] as? Bool ?? true
 
@@ -117,7 +166,13 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             newWindow.titlebarAppearsTransparent = true
         }
 
-        if center {
+        if let position,
+           let x = cgFloat(from: position["x"]),
+           let y = cgFloat(from: position["y"]) {
+            var frameRect = newWindow.frame
+            frameRect.topLeft = CGPoint(x: x, y: y)
+            newWindow.setFrameOrigin(frameRect.origin)
+        } else {
             newWindow.center()
         }
 
@@ -408,10 +463,10 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
         case "getBounds":
             let frame = window.frame
-            let screenHeight = (window.screen ?? NSScreen.main!).frame.height
+            let tl = frame.topLeft
             result([
-                       "x": frame.origin.x,
-                       "y": screenHeight - frame.origin.y - frame.height,
+                       "x": tl.x,
+                       "y": tl.y,
                        "width": frame.width,
                        "height": frame.height,
                    ])
@@ -426,10 +481,11 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             result(nil)
 
         case "setPosition":
-            let x = args?["x"] as? CGFloat ?? window.frame.origin.x
-            let y = args?["y"] as? CGFloat ?? window.frame.origin.y
-            let screenHeight = (window.screen ?? NSScreen.main!).frame.height
-            window.setFrameOrigin(NSPoint(x: x, y: screenHeight - y - window.frame.height))
+            var frameRect = window.frame
+            if let x = args?["x"] as? CGFloat, let y = args?["y"] as? CGFloat {
+                frameRect.topLeft = CGPoint(x: x, y: y)
+                window.setFrameOrigin(frameRect.origin)
+            }
             result(nil)
 
         case "center":
@@ -643,6 +699,22 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     private func viewIdForWindow(_ window: NSWindow) -> Int64? {
         windows.first(where: { $0.value === window })?.key
+    }
+
+    private func cgFloat(from value: Any?) -> CGFloat? {
+        if let v = value as? CGFloat {
+            return v
+        }
+        if let v = value as? NSNumber {
+            return CGFloat(truncating: v)
+        }
+        if let v = value as? Double {
+            return CGFloat(v)
+        }
+        if let v = value as? Int {
+            return CGFloat(v)
+        }
+        return nil
     }
 
     private func int64(from args: [String: Any], key: String) -> Int64 {

@@ -1,21 +1,15 @@
 PODS:
   - FlutterMacOS (1.0.0)
-  - multiview_desktop (1.0.0):
-    - FlutterMacOS
 
 DEPENDENCIES:
   - FlutterMacOS (from `Flutter/ephemeral`)
-  - multiview_desktop (from `Flutter/ephemeral/.symlinks/plugins/multiview_desktop/macos`)
 
 EXTERNAL SOURCES:
   FlutterMacOS:
     :path: Flutter/ephemeral
-  multiview_desktop:
-    :path: Flutter/ephemeral/.symlinks/plugins/multiview_desktop/macos
 
 SPEC CHECKSUMS:
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
-  multiview_desktop: d9772e2ce58e724e32ba2be2862969fe1d5ae2a8
 
 PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
 

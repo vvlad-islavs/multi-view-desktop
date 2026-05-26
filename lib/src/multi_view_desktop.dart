@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'resize_edge.dart';
 import 'title_bar_style.dart';
+import 'utils/calc_window_position.dart';
 import 'view_root.dart' show globalRootState;
 import 'view_scope.dart';
 import 'window_listener.dart';
@@ -60,6 +62,9 @@ class MultiViewDesktop {
   /// Returns the numeric OS view-ID of the window that owns [context].
   static int getCurrentId(BuildContext context) => ViewScope.of(context).viewId;
 
+  /// Returns all active view ids
+  static List<int> get allViewsIds => globalRootState?.views.keys.toList() ?? [];
+
   // -------------------------------------------------------------------------
   // Window lifecycle
   // -------------------------------------------------------------------------
@@ -72,7 +77,10 @@ class MultiViewDesktop {
   ///
   /// This method can be called from any context, including callbacks and
   /// timers that have no [BuildContext].
-  static Future<void> addWindow(Widget child, {WindowOptions? options}) async {
+  @internal
+  static Future<void> addWindow(Widget child, {WindowOptions? options, int? parent}) async {
+    //TODO: use parent id. Example in MultiWindow experimental feature.
+    // https://github.com/flutter/flutter/blob/master/examples/multiple_windows/lib/app/main_window.dart
     await globalRootState?.addView(child, options: options);
   }
 
@@ -97,9 +105,9 @@ class MultiViewDesktop {
   /// emits a `confirm-close` event instead.  Once the confirmation flag is
   /// set and preventClose is cleared, calling this again actually closes the
   /// window.
-  static Future<void> closeAllWindowsCascade() async {
-    // await globalRootState?.removeViewsCascade();
-  }
+  // static Future<void> closeAllWindowsCascade() async {
+  //   // await globalRootState?.removeViewsCascade();
+  // }
 
   /// Returns whether programmatic (and native) close is currently blocked for
   /// the window that owns [context].
@@ -235,11 +243,15 @@ class MultiViewDesktop {
   }
 
   static Future<void> setPosition(BuildContext context, Offset position) async {
-    await _safeInvokeMethod<void>('setPosition', _args(getCurrentId(context), {'x': position.dx, 'y': position.dy}));
+    await globalRootState?.setPosition(getCurrentId(context), pos: position);
   }
 
   static Future<void> center(BuildContext context) async {
-    await _safeInvokeMethod<void>('center', _args(getCurrentId(context)));
+    await globalRootState?.setAlignment(getCurrentId(context), alignment: Alignment.center);
+  }
+
+  static Future<void> setAlignment(BuildContext context, Alignment alignment) async {
+    await globalRootState?.setAlignment(getCurrentId(context), alignment: alignment);
   }
 
   static Future<void> setMinimumSize(BuildContext context, Size size) async {

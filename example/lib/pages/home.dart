@@ -87,7 +87,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
 
   Future<T?> _mountedFuture<T>(FutureOr<T> Function(BuildContext) future, BuildContext context) async {
     if (!mounted) return null;
-    return  future(context);
+    return future(context);
   }
 
   Future<void> _refreshState() async {
@@ -151,7 +151,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
 
     // Show a confirmation dialog. The user can accept (remove preventClose and
     // close the window) or decline (explicitly cancel a pending cascade close).
-    if (_dialogKey.currentContext?.mounted ?? false) return;
+    // if (_dialogKey.currentContext?.mounted ?? false) return;
     final accept = await showDialog<bool>(
       context: context,
       builder: (_) {
@@ -171,15 +171,15 @@ class _HomePageState extends State<HomePage> with WindowListener {
     if (accept == true) {
       await MultiViewDesktop.setPreventClose(context, false);
       // if (MultiViewDesktop.getCurrentId(context) == 1) {
-        // await MultiViewDesktop.closeAllWindowsCascade();
-        // await MultiViewDesktop.closeWindow(context);
+      // await MultiViewDesktop.closeAllWindowsCascade();
+      // await MultiViewDesktop.closeWindow(context);
       // } else {
-        await MultiViewDesktop.closeWindow(context);
+      await MultiViewDesktop.closeWindow(context);
       // }
     } else {
       // Explicitly cancel any pending cascade close so the main window stays
       // open and no stale completers fire later.
-      // MultiViewDesktop.cancelCascadeClose(context);
+      MultiViewDesktop.cancelCascadeClose(context);
     }
   }
 
@@ -237,200 +237,211 @@ class _HomePageState extends State<HomePage> with WindowListener {
   @override
   Widget build(BuildContext context) {
     final windowId = MultiViewDesktop.getCurrentId(context);
+
     final isDark = themeConfig.themeMode == ThemeMode.dark;
 
-    return Scaffold(
-      appBar: _titleBarHidden
-          ? null
-          : AppBar(title: Text('Window $windowId'), backgroundColor: Theme.of(context).colorScheme.inversePrimary),
-      body: ListView(
-        children: [
-          // ----------------------------------------------------------------
-          // Theme (shared across all windows - no IPC needed!)
-          // ----------------------------------------------------------------
-          _section('SHARED STATE (same isolate)', [
-            _tile(
-              'ThemeMode',
-              subtitle: themeConfig.themeMode.name,
-              trailing: Switch(
-                value: isDark,
-                onChanged: (_) {
-                  themeConfig.setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark);
-                  // Brightness is applied by each window via its own listener.
-                  final mode = themeConfig.themeMode;
-                  MultiViewDesktop.setBrightness(context, mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
+    return SafeArea(
+      child: Scaffold(
+        appBar: _titleBarHidden
+            ? null
+            : AppBar(title: Text('Window $windowId'), backgroundColor: Theme.of(context).colorScheme.inversePrimary),
+        body: ListView(
+          children: [
+            // ----------------------------------------------------------------
+            // Theme (shared across all windows - no IPC needed!)
+            // ----------------------------------------------------------------
+            _section('SHARED STATE (same isolate)', [
+              _tile(
+                'ThemeMode',
+                subtitle: themeConfig.themeMode.name,
+                trailing: Switch(
+                  value: isDark,
+                  onChanged: (_) => themeConfig.setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark),
+                ),
+              ),
+            ]),
+
+            // ----------------------------------------------------------------
+            // Window management
+            // ----------------------------------------------------------------
+            _section('WINDOW MANAGEMENT', [
+              _tile(
+                'addWindow',
+                subtitle: 'Open a new OS window (same engine)',
+                onTap: () {
+
+                  openWindow(
+                    const _SecondaryWindowRoot(),
+                    options: const WindowOptions(size: Size(760, 560)),
+                  );
                 },
               ),
-            ),
-          ]),
-
-          // ----------------------------------------------------------------
-          // Window management
-          // ----------------------------------------------------------------
-          _section('WINDOW MANAGEMENT', [
-            _tile(
-              'addWindow',
-              subtitle: 'Open a new OS window (same engine)',
-              onTap: () => addWindow(
-                const _SecondaryWindowRoot(),
-                options: const WindowOptions(size: Size(760, 560), center: true),
+              if (windowId != 0)
+                _tile('closeWindow', subtitle: 'Close this window', onTap: () => MultiViewDesktop.closeWindow(context)),
+              _tile('center', onTap: () => MultiViewDesktop.center(context)),
+              _tile('setAlignment', subtitle: 'Tap a position on the grid below'),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: _AlignmentGrid(onSelected: (alignment) => MultiViewDesktop.setAlignment(context, alignment)),
               ),
-            ),
-            if (windowId != 0)
-              _tile('closeWindow', subtitle: 'Close this window', onTap: () => MultiViewDesktop.closeWindow(context)),
-            _tile('center', onTap: () => MultiViewDesktop.center(context)),
-            _tile(
-              'setSize',
-              subtitle: '760 x 560',
-              onTap: () => MultiViewDesktop.setSize(context, const Size(760, 560)),
-            ),
-            _tile(
-              'setTitle',
-              subtitle: 'Window $windowId (demo)',
-              onTap: () => MultiViewDesktop.setTitle(context, 'Window $windowId (demo)'),
-            ),
-            _tile(
-              'getBounds',
-              onTap: () async {
-                final b = await MultiViewDesktop.getBounds(context);
-                if (!context.mounted) return;
-                _log(
-                  'bounds: ${b.left.toInt()},${b.top.toInt()} '
-                  '${b.width.toInt()}x${b.height.toInt()}',
-                );
-              },
-            ),
-          ]),
+              _tile(
+                'setSize',
+                subtitle: '760 x 560',
+                onTap: () => MultiViewDesktop.setSize(context, const Size(760, 560)),
+              ),
+              _tile(
+                'setTitle',
+                subtitle: 'Window $windowId (demo)',
+                onTap: () => MultiViewDesktop.setTitle(context, 'Window $windowId (demo)'),
+              ),
+              _tile(
+                'getBounds',
+                onTap: () async {
+                  final b = await MultiViewDesktop.getBounds(context);
+                  if (!context.mounted) return;
+                  _log(
+                    'bounds: ${b.left.toInt()},${b.top.toInt()} '
+                    '${b.width.toInt()}x${b.height.toInt()}',
+                  );
+                },
+              ),
+            ]),
 
-          // ----------------------------------------------------------------
-          // Title bar
-          // ----------------------------------------------------------------
-          _section('TITLE BAR', [
-            _switchTile('titleBarStyle hidden', _titleBarHidden, (v) async {
-              await MultiViewDesktop.setTitleBarStyle(context, v ? TitleBarStyle.hidden : TitleBarStyle.normal);
-              setState(() => _titleBarHidden = v);
-            }),
-            _tile(
-              'setAsFrameless',
-              subtitle: 'Remove frame entirely',
-              onTap: () {
-                MultiViewDesktop.setAsFrameless(context);
-                setState(() => _titleBarHidden = true);
-              },
-            ),
-          ]),
+            // ----------------------------------------------------------------
+            // Title bar
+            // ----------------------------------------------------------------
+            _section('TITLE BAR', [
+              _switchTile('titleBarStyle hidden', _titleBarHidden, (v) async {
+                await MultiViewDesktop.setTitleBarStyle(context, v ? TitleBarStyle.hidden : TitleBarStyle.normal);
+                setState(() => _titleBarHidden = v);
+              }),
+              _tile(
+                'setAsFrameless',
+                subtitle: 'Remove frame entirely',
+                onTap: () {
+                  MultiViewDesktop.setAsFrameless(context);
+                  setState(() => _titleBarHidden = true);
+                },
+              ),
+            ]),
 
-          // ----------------------------------------------------------------
-          // Visibility states
-          // ----------------------------------------------------------------
-          _section('VISIBILITY', [
-            _switchTile('fullScreen', _isFullScreen, (v) => MultiViewDesktop.setFullScreen(context, v)),
-            _switchTile(
-              'maximized',
-              _isMaximized,
-              (v) => v ? MultiViewDesktop.maximize(context) : MultiViewDesktop.unmaximize(context),
-            ),
-            if (!Platform.isMacOS) _tile('minimize', onTap: () => MultiViewDesktop.minimize(context)),
-            _switchTile('alwaysOnTop', _isAlwaysOnTop, (v) => MultiViewDesktop.setAlwaysOnTop(context, v)),
-            _switchTile('skipTaskbar', _isSkipTaskbar, (v) => MultiViewDesktop.setSkipTaskbar(context, v)),
-          ]),
+            // ----------------------------------------------------------------
+            // Visibility states
+            // ----------------------------------------------------------------
+            _section('VISIBILITY', [
+              _switchTile('fullScreen', _isFullScreen, (v) => MultiViewDesktop.setFullScreen(context, v)),
+              _switchTile(
+                'maximized',
+                _isMaximized,
+                (v) => v ? MultiViewDesktop.maximize(context) : MultiViewDesktop.unmaximize(context),
+              ),
+              _tile('minimize', onTap: () => MultiViewDesktop.minimize(context)),
+              _switchTile('alwaysOnTop', _isAlwaysOnTop, (v) => MultiViewDesktop.setAlwaysOnTop(context, v)),
+              _switchTile('skipTaskbar', _isSkipTaskbar, (v) => MultiViewDesktop.setSkipTaskbar(context, v)),
+            ]),
 
-          // ----------------------------------------------------------------
-          // Capabilities
-          // ----------------------------------------------------------------
-          _section('WINDOW CAPABILITIES', [
-            _switchTile('resizable', _isResizable, (v) => MultiViewDesktop.setResizable(context, v)),
-            if (Platform.isMacOS) _switchTile('movable', _isMovable, (v) => MultiViewDesktop.setMovable(context, v)),
-            _switchTile('minimizable', _isMinimizable, (v) => MultiViewDesktop.setMinimizable(context, v)),
-            _switchTile('maximizable', _isMaximizable, (v) => MultiViewDesktop.setMaximizable(context, v)),
-            _switchTile('closable', _isClosable, (v) => MultiViewDesktop.setClosable(context, v)),
-            _switchTile('preventClose', _isPreventClose, (v) async {
-              await MultiViewDesktop.setPreventClose(context, v);
-              // When disabling preventClose, reset confirmClose so the
-              // next closeWindow() goes through the confirm-close flow.
-              // if (!v) await MultiViewDesktop.confirmClose(context, confirmed: false);
-            }),
-          ]),
+            // ----------------------------------------------------------------
+            // Capabilities
+            // ----------------------------------------------------------------
+            _section('WINDOW CAPABILITIES', [
+              _switchTile('resizable', _isResizable, (v) => MultiViewDesktop.setResizable(context, v)),
+              if (Platform.isMacOS) _switchTile('movable', _isMovable, (v) => MultiViewDesktop.setMovable(context, v)),
+              _switchTile('minimizable', _isMinimizable, (v) => MultiViewDesktop.setMinimizable(context, v)),
+              _switchTile('maximizable', _isMaximizable, (v) => MultiViewDesktop.setMaximizable(context, v)),
+              _switchTile('closable', _isClosable, (v) => MultiViewDesktop.setClosable(context, v)),
+              _switchTile('preventClose', _isPreventClose, (v) async {
+                await MultiViewDesktop.setPreventClose(context, v);
+                // When disabling preventClose, reset confirmClose so the
+                // next closeWindow() goes through the confirm-close flow.
+                // if (!v) await MultiViewDesktop.confirmClose(context, confirmed: false);
+              }),
+            ]),
 
-          // ----------------------------------------------------------------
-          // Appearance
-          // ----------------------------------------------------------------
-          _section('APPEARANCE', [
-            if (Platform.isMacOS)
-              _switchTile('hasShadow', _hasShadow, (v) => MultiViewDesktop.setHasShadow(context, v)),
-            _tile(
-              'opacity',
-              subtitle: _opacity.toStringAsFixed(2),
-              trailing: SizedBox(
-                width: 180,
-                child: Slider(
-                  value: _opacity,
-                  min: 0.2,
-                  max: 1.0,
-                  divisions: 8,
-                  onChanged: (v) {
-                    setState(() => _opacity = v);
-                    MultiViewDesktop.setOpacity(context, v);
-                  },
+            // ----------------------------------------------------------------
+            // Appearance
+            // ----------------------------------------------------------------
+            _section('APPEARANCE', [
+              if (Platform.isMacOS)
+                _switchTile('hasShadow', _hasShadow, (v) => MultiViewDesktop.setHasShadow(context, v)),
+              _tile(
+                'opacity',
+                subtitle: _opacity.toStringAsFixed(2),
+                trailing: SizedBox(
+                  width: 180,
+                  child: Slider(
+                    value: _opacity,
+                    min: 0.2,
+                    max: 1.0,
+                    divisions: 8,
+                    onChanged: (v) {
+                      setState(() => _opacity = v);
+                      MultiViewDesktop.setOpacity(context, v);
+                    },
+                  ),
                 ),
               ),
-            ),
-            _tile(
-              'setBackgroundColor',
-              subtitle: 'Set window background transparent',
-              onTap: () => MultiViewDesktop.setBackgroundColor(context, Colors.transparent),
-            ),
-          ]),
+              _tile(
+                'setBackgroundColor',
+                subtitle: 'Set window background transparent',
+                onTap: () => MultiViewDesktop.setBackgroundColor(context, Colors.transparent),
+              ),
+            ]),
 
-          // ----------------------------------------------------------------
-          // WindowCommunicator
-          // ----------------------------------------------------------------
-          _section('WINDOW COMMUNICATOR', [
-            _tile(
-              'broadcast to all windows',
-              subtitle: '"${_msgController.text}"',
-              onTap: () {
-                WindowCommunicator.broadcast({'from': windowId, 'text': _msgController.text});
-              },
-            ),
-            _tile(
-              'send to specific window',
-              subtitle: _targetViewId != null ? 'target: window $_targetViewId' : 'tap to pick target window',
-              onTap: () async {
-                final picked = await _showWindowPicker(context, windowId);
-                if (picked == null) return;
-                setState(() => _targetViewId = picked);
-                WindowCommunicator.send(picked, {'from': windowId, 'text': _msgController.text});
-              },
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: TextField(
-                controller: _msgController,
-                decoration: const InputDecoration(
-                  labelText: 'Message text',
-                  border: OutlineInputBorder(),
-                  isDense: true,
+            // ----------------------------------------------------------------
+            // WindowCommunicator
+            // ----------------------------------------------------------------
+            _section('WINDOW COMMUNICATOR', [
+              _tile(
+                'broadcast to all windows',
+                subtitle: '"${_msgController.text}"',
+                onTap: () {
+                  WindowCommunicator.broadcast({'from': windowId, 'text': _msgController.text});
+                },
+              ),
+              _tile(
+                'send to specific window',
+                subtitle: _targetViewId != null ? 'target: window $_targetViewId' : 'tap to pick target window',
+                onTap: () async {
+                  final picked = await _showWindowPicker(context, windowId);
+                  if (picked == null) return;
+                  setState(() => _targetViewId = picked);
+                  WindowCommunicator.send(picked, {'from': windowId, 'text': _msgController.text});
+                },
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: TextField(
+                  controller: _msgController,
+                  decoration: const InputDecoration(
+                    labelText: 'Message text',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
                 ),
               ),
-            ),
-            _tile('Message log', subtitle: _messageLog.isEmpty ? '(no messages yet)' : _messageLog.take(6).join('\n')),
-            _tile('clear log', onTap: () => setState(() => _messageLog.clear())),
-          ]),
+              _tile(
+                'Message log',
+                subtitle: _messageLog.isEmpty ? '(no messages yet)' : _messageLog.take(6).join('\n'),
+              ),
+              _tile('clear log', onTap: () => setState(() => _messageLog.clear())),
+            ]),
 
-          // ----------------------------------------------------------------
-          // WindowListener event log
-          // ----------------------------------------------------------------
-          _section('WINDOW EVENTS (WindowListener)', [
-            _tile(
-              'Event log',
-              subtitle: _eventLog.isEmpty ? '(no events yet - interact with the window)' : _eventLog.take(8).join('\n'),
-            ),
-            _tile('clear log', onTap: () => setState(() => _eventLog.clear())),
-          ]),
+            // ----------------------------------------------------------------
+            // WindowListener event log
+            // ----------------------------------------------------------------
+            _section('WINDOW EVENTS (WindowListener)', [
+              _tile(
+                'Event log',
+                subtitle: _eventLog.isEmpty
+                    ? '(no events yet - interact with the window)'
+                    : _eventLog.take(8).join('\n'),
+              ),
+              _tile('clear log', onTap: () => setState(() => _eventLog.clear())),
+            ]),
 
-          const SizedBox(height: 32),
-        ],
+            const SizedBox(height: 32),
+          ],
+        ),
       ),
     );
   }
@@ -457,8 +468,9 @@ class _WindowPickerDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     // All open view IDs are accessible via PlatformDispatcher since we share
     // one engine.  We filter out the calling window.
-    final allIds = ui.PlatformDispatcher.instance.views.map((v) => v.viewId).where((id) => id != excludeId && id != 0).toList()
-      ..sort();
+    final allIds =
+        ui.PlatformDispatcher.instance.views.map((v) => v.viewId).where((id) => id != excludeId && id != 0).toList()
+          ..sort();
 
     return AlertDialog(
       title: const Text('Select target window'),
@@ -474,6 +486,69 @@ class _WindowPickerDialog extends StatelessWidget {
               ),
       ),
       actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel'))],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Alignment grid widget
+// ---------------------------------------------------------------------------
+
+/// 3×3 grid that lets the user pick one of the nine standard [Alignment]
+/// values and immediately calls [onSelected] with it.
+class _AlignmentGrid extends StatefulWidget {
+  const _AlignmentGrid({required this.onSelected});
+
+  final ValueChanged<Alignment> onSelected;
+
+  @override
+  State<_AlignmentGrid> createState() => _AlignmentGridState();
+}
+
+class _AlignmentGridState extends State<_AlignmentGrid> {
+  Alignment? _active;
+
+  static const _alignments = [
+    (Alignment.topLeft, 'TL'),
+    (Alignment.topCenter, 'TC'),
+    (Alignment.topRight, 'TR'),
+    (Alignment.centerLeft, 'CL'),
+    (Alignment.center, 'C'),
+    (Alignment.centerRight, 'CR'),
+    (Alignment.bottomLeft, 'BL'),
+    (Alignment.bottomCenter, 'BC'),
+    (Alignment.bottomRight, 'BR'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    return SizedBox(
+      child: GridView.count(
+        shrinkWrap: true,
+        crossAxisCount: 3,
+        mainAxisExtent: 40,
+        physics: const NeverScrollableScrollPhysics(),
+        mainAxisSpacing: 4,
+        crossAxisSpacing: 4,
+        childAspectRatio: 2.6,
+        children: _alignments.map((entry) {
+          final (alignment, label) = entry;
+          final selected = _active == alignment;
+          return FilledButton.tonal(
+              style: FilledButton.styleFrom(
+                padding: EdgeInsets.zero,
+                backgroundColor: selected ? color.withValues(alpha: 0.2) : null,
+                side: selected ? BorderSide(color: color) : null,
+              ),
+              onPressed: () {
+                setState(() => _active = alignment);
+                widget.onSelected(alignment);
+              },
+              child: Text(label, style: const TextStyle(fontSize: 12)),
+          );
+        }).toList(),
+      ),
     );
   }
 }
@@ -506,6 +581,13 @@ class _SecondaryWindowRootState extends State<_SecondaryWindowRoot> {
       final mode = ThemeMode.values.firstWhere((m) => m.name == msg['value'], orElse: () => ThemeMode.light);
       MultiViewDesktop.setBrightness(context, mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
     });
+
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => MultiViewDesktop.setBrightness(
+        context,
+        themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light,
+      ),
+    );
   }
 
   @override
