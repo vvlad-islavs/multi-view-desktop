@@ -17,7 +17,7 @@ class ThemeConfig extends ChangeNotifier {
     notifyListeners();
 
     // Broadcast so every window can update its native brightness.
-    WindowCommunicator.broadcast({'type': 'themeMode', 'value': mode.name});
+    MultiViewDesktop.communicator.broadcast({'type': 'themeMode', 'value': mode.name});
   }
 }
 

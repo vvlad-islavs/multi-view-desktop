@@ -15,7 +15,12 @@ import 'utils/calc_window_position.dart';
 _MultiViewRootState? _rootState;
 
 // ignore: library_private_types_in_public_api
-_MultiViewRootState? get globalRootState => _rootState;
+_MultiViewRootState get globalRootState {
+  if(_rootState == null){
+    throw Exception('globalRootState not initialized. Use runMultiApp instead of runApp or runWidget');
+  }
+  return _rootState!;
+}
 
 /// Creates the root multi-view widget.  Used by [runMultiApp] only.
 Widget createMultiViewRoot(Widget home, MultiAppConfig config) => _MultiViewRoot(home: home, config: config);
@@ -30,12 +35,18 @@ Widget createMultiViewRoot(Widget home, MultiAppConfig config) => _MultiViewRoot
 /// opened or closed.  Each child is wrapped in a [ViewScope] so that any
 /// descendant can call [MultiViewDesktop.getCurrentId].
 class _MultiViewRoot extends StatefulWidget {
-  _MultiViewRoot({required this.home, required this.config, CascadeCloseService? cascadeCloseService})
-    : cascadeCloseService = cascadeCloseService ?? CascadeCloseService();
+  _MultiViewRoot({
+    required this.home,
+    required this.config,
+    CascadeCloseService? cascadeCloseService,
+    WindowCommunicatorImpl? communicator,
+  }) : cascadeCloseService = cascadeCloseService ?? CascadeCloseService(),
+       communicator = communicator ?? WindowCommunicatorImpl();
 
   final Widget home;
   final MultiAppConfig config;
   final CascadeCloseService cascadeCloseService;
+  final WindowCommunicatorImpl communicator;
 
   @override
   State<_MultiViewRoot> createState() => _MultiViewRootState();
@@ -67,6 +78,10 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
 
   // viewId -> listener list.
   final Map<int, ObserverList<WindowListener>> _listeners = {};
+
+  WindowCommunicatorImpl get communicator => widget.communicator;
+
+  CascadeCloseService get _cascadeCloseService => widget.cascadeCloseService;
 
   // --------------------------------------------------------------------------
 
@@ -196,10 +211,10 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   }
 
   Future<void> _onConfirmClose(int viewId) async {
-    WindowCommunicator.disposeView(viewId);
+    communicator.disposeView(viewId);
     await setConfirmClose(viewId, true);
     await removeView(viewId);
-    widget.cascadeCloseService.completeWindow(viewId);
+    _cascadeCloseService.completeWindow(viewId);
   }
 
   /// Aborts the cascade close that is waiting on [viewId].
@@ -210,7 +225,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   /// unexpectedly resume the (already aborted) cascade.
   Future<void> cancelCascade(int viewId) async {
     await _setMainPreConfirmClose(false);
-    widget.cascadeCloseService.abort(viewId);
+    _cascadeCloseService.abort(viewId);
   }
 
   // --------------------------------------------------------------------------
@@ -219,7 +234,6 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
 
   void _dispatchViewEvent(int viewId, String eventName) {
     final list = _listeners[viewId];
-    debugPrint('Event $eventName отправлен в слушатели view с id $viewId');
     if (list == null) return;
     for (final l in List<WindowListener>.from(list)) {
       l.onWindowEvent(eventName);
@@ -286,7 +300,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
 
   void _handleClose(int viewId) {
     if (!mounted) return;
-    WindowCommunicator.disposeView(viewId);
+    communicator.disposeView(viewId);
     setState(() {
       _views.remove(viewId);
       _listeners.remove(viewId);
@@ -355,11 +369,11 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     final allViews = _allSecondaryIds().reversed.toList();
 
     for (final id in allViews) {
-      widget.cascadeCloseService.attachWindow(id);
+      _cascadeCloseService.attachWindow(id);
       await focus(id);
       await removeView(id);
 
-      final closed = await widget.cascadeCloseService.waitWindow(id);
+      final closed = await _cascadeCloseService.waitWindow(id);
       if (!closed) return;
     }
 
@@ -368,7 +382,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   }
 
   Future<void> _removeViewsForce() async {
-    widget.cascadeCloseService.clear();
+    _cascadeCloseService.clear();
     for (final id in _allSecondaryIds()) {
       await setPreventClose(id, false);
       await removeView(id);
@@ -381,7 +395,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   }
 
   Future<void> _destroyAllViewsForce() async {
-    widget.cascadeCloseService.clear();
+    _cascadeCloseService.clear();
     for (final id in _allSecondaryIds()) {
       await setPreventClose(id, false);
       await removeView(id);
@@ -402,7 +416,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   }
 
   Future<void> _removeSecondaryViewsForceAfterRestart(List<int> ids) async {
-    widget.cascadeCloseService.clear();
+    _cascadeCloseService.clear();
     for (final id in ids) {
       // Stale entries (e.g. old main window ID after hot restart) are no longer
       // in the native windows dict, so calls may return NO_WINDOW. Ignore such
@@ -536,6 +550,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   }
 }
 
+@internal
 class CascadeCloseService {
   CascadeCloseService();
 
@@ -571,4 +586,99 @@ class CascadeCloseService {
   }
 
   void detachWindow(int id) => _closeCompleters.remove(id);
+}
+
+@internal
+class WindowCommunicatorImpl extends WindowCommunicator {
+  WindowCommunicatorImpl();
+
+  // Per-view streams, keyed by viewId.
+  final Map<int, StreamController<dynamic>> _viewControllers = {};
+
+  final Map<int, Map<int, StreamController<dynamic>>> _linkedViewControllers = {};
+
+  // Single broadcast stream shared across all views.
+  final StreamController<dynamic> _broadcastController = StreamController<dynamic>.broadcast();
+
+  // -------------------------------------------------------------------------
+  // Point-to-point
+  // -------------------------------------------------------------------------
+
+  @override
+  Stream<dynamic> onDirect(BuildContext context, {int? viewId}) {
+    final currentViewId = MultiViewDesktop.getCurrentId(context);
+    int listenableId = viewId ?? currentViewId;
+    int? parentId = viewId == null || viewId == currentViewId ? null : currentViewId;
+
+    final stream = _getStreamById(listenableId, parentId: parentId);
+    return stream;
+  }
+
+  Stream<dynamic> _getStreamById(int viewId, {int? parentId}) {
+    if (parentId != null) {
+      _linkedViewControllers
+          .putIfAbsent(parentId, () => {})
+          .putIfAbsent(viewId, () => StreamController<dynamic>.broadcast());
+
+      return _linkedViewControllers[parentId]![viewId]!.stream;
+    }
+
+    _viewControllers.putIfAbsent(viewId, () => StreamController<dynamic>.broadcast());
+    return _viewControllers[viewId]!.stream;
+  }
+
+  @override
+  void send(int targetViewId, dynamic message) {
+    _viewControllers[targetViewId]?.add(message);
+
+    for (final children in _linkedViewControllers.values) {
+      for (final entry in children.entries) {
+        if (entry.key == targetViewId) {
+          entry.value.add(message);
+        }
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Broadcast
+  // -------------------------------------------------------------------------
+
+  @override
+  Stream<dynamic> get onBroadcast => _broadcastController.stream;
+
+  @override
+  void broadcast(dynamic message) {
+    _broadcastController.add(message);
+  }
+
+  // -------------------------------------------------------------------------
+  // Internal cleanup
+  // -------------------------------------------------------------------------
+
+  /// Closes and removes the per-view stream and children for [viewId].
+  ///
+  /// Called automatically by the library when a view is removed from the
+  /// [ViewCollection].  Do not call this manually.
+  @internal
+  Future<void> disposeView(int viewId) async {
+    _viewControllers.remove(viewId)?.close();
+    await _disposeLinkedView(viewId);
+  }
+
+  Future<void> _disposeLinkedView(int parentViewId) async {
+    for (final entry in _linkedViewControllers[parentViewId]?.entries ?? <MapEntry<int, StreamController<dynamic>>>[]) {
+      await entry.value.close();
+    }
+    _linkedViewControllers.remove(parentViewId);
+  }
+
+  @override
+  Future<void> dispose() async {
+    for (final view in _viewControllers.keys) {
+      await disposeView(view);
+    }
+    _viewControllers.clear();
+    _linkedViewControllers.clear();
+  }
 }

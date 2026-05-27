@@ -42,7 +42,7 @@ class _MainWindowRootState extends State<MainWindowRoot> {
     super.initState();
     themeConfig.addListener(_onThemeChanged);
 
-    WindowCommunicator.onBroadcast.listen((msg) {
+    MultiViewDesktop.communicator.onBroadcast.listen((msg) {
       if (msg is! Map) return;
       if (msg['type'] != 'themeMode') return;
       if (!mounted) return;

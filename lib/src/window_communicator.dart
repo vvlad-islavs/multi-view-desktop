@@ -1,5 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:multiview_desktop/multiview_desktop.dart';
+
 /// In-process message bus between views.
 ///
 /// Because [runMultiApp] uses a single Flutter engine and a single Dart
@@ -26,44 +30,13 @@ import 'dart:async';
 /// // In any view - listen for broadcasts
 /// WindowCommunicator.onBroadcast.listen((msg) => print(msg));
 /// ```
-class WindowCommunicator {
-  WindowCommunicator._();
-
-  // Per-view streams, keyed by viewId.
-  static final Map<int, StreamController<dynamic>> _viewControllers = {};
-
-  // Single broadcast stream shared across all views.
-  static final StreamController<dynamic> _broadcastController =
-      StreamController<dynamic>.broadcast();
-
-  // -------------------------------------------------------------------------
-  // Point-to-point
-  // -------------------------------------------------------------------------
-
+abstract class WindowCommunicator {
   /// Returns a broadcast [Stream] of messages sent to [viewId] via [send].
   ///
   /// Multiple callers with the same [viewId] share the same stream instance.
   /// Subscriptions are persistent across callers - no need to re-subscribe
   /// when the sender changes.
-  static Stream<dynamic> listen(int viewId) {
-    _viewControllers.putIfAbsent(
-      viewId,
-      () => StreamController<dynamic>.broadcast(),
-    );
-    return _viewControllers[viewId]!.stream;
-  }
-
-  /// Delivers [message] to every active listener registered for [targetViewId]
-  /// via [listen].
-  ///
-  /// If no one is listening the message is silently dropped.
-  static void send(int targetViewId, dynamic message) {
-    _viewControllers[targetViewId]?.add(message);
-  }
-
-  // -------------------------------------------------------------------------
-  // Broadcast
-  // -------------------------------------------------------------------------
+  Stream<dynamic> onDirect(BuildContext context, {int? viewId});
 
   /// A broadcast [Stream] that receives every message sent via [broadcast].
   ///
@@ -73,26 +46,20 @@ class WindowCommunicator {
   ///   if (msg is Map && msg['theme'] != null) applyTheme(msg['theme']);
   /// });
   /// ```
-  static Stream<dynamic> get onBroadcast => _broadcastController.stream;
+  Stream<dynamic> get onBroadcast;
+
+  /// Delivers [message] to every active listener registered for [targetViewId]
+  /// via [listen].
+  ///
+  /// If no one is listening the message is silently dropped
+  void send(int viewId, dynamic message);
 
   /// Delivers [message] to every active [onBroadcast] subscriber in every
   /// view simultaneously.
   ///
   /// Use this for global application events such as theme changes, logout
   /// signals, or refresh requests that should affect all open windows at once.
-  static void broadcast(dynamic message) {
-    _broadcastController.add(message);
-  }
+  void broadcast(dynamic message);
 
-  // -------------------------------------------------------------------------
-  // Internal cleanup
-  // -------------------------------------------------------------------------
-
-  /// Closes and removes the per-view stream for [viewId].
-  ///
-  /// Called automatically by the library when a view is removed from the
-  /// [ViewCollection].  Do not call this manually.
-  static void disposeView(int viewId) {
-    _viewControllers.remove(viewId)?.close();
-  }
+  Future<void> dispose();
 }

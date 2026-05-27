@@ -59,14 +59,25 @@ class _HomePageState extends State<HomePage> with WindowListener {
       _refreshState();
       debugPrint('Init homePage');
       MultiViewDesktop.addListener(context, this);
-      final myId = MultiViewDesktop.getCurrentId(context);
 
-      _commSub = WindowCommunicator.listen(myId).listen((msg) {
+      _commSub = MultiViewDesktop.communicator.onDirect(context).listen((msg) {
         if (!mounted) return;
         setState(() => _messageLog.insert(0, '[direct] $msg'));
       });
 
-      _broadcastSub = WindowCommunicator.onBroadcast.listen((msg) {
+      _broadcastSub = MultiViewDesktop.communicator.onBroadcast.listen((msg) {
+        if (!mounted) return;
+        // Theme changes are handled separately.
+        if (msg is Map && msg['type'] == 'themeMode') return;
+        setState(() => _messageLog.insert(0, '[broadcast] $msg'));
+      });
+
+      _commSub = MultiViewDesktop.communicator.onDirect(context, viewId: 3).listen((msg) {
+        if (!mounted) return;
+        setState(() => _messageLog.insert(0, '[direct] $msg'));
+      });
+
+      _broadcastSub = MultiViewDesktop.communicator.onBroadcast.listen((msg) {
         if (!mounted) return;
         // Theme changes are handled separately.
         if (msg is Map && msg['type'] == 'themeMode') return;
@@ -433,7 +444,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 'broadcast to all windows',
                 subtitle: '"${_msgController.text}"',
                 onTap: () {
-                  WindowCommunicator.broadcast({'from': windowId, 'text': _msgController.text});
+                  MultiViewDesktop.communicator.broadcast({'from': windowId, 'text': _msgController.text});
                 },
               ),
               _tile(
@@ -443,7 +454,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   final picked = await _showWindowPicker(context, windowId);
                   if (picked == null) return;
                   setState(() => _targetViewId = picked);
-                  WindowCommunicator.send(picked, {'from': windowId, 'text': _msgController.text});
+                  MultiViewDesktop.communicator.send(picked, {'from': windowId, 'text': _msgController.text});
                 },
               ),
               Padding(
@@ -612,7 +623,7 @@ class _SecondaryWindowRootState extends State<_SecondaryWindowRoot> {
     super.initState();
     themeConfig.addListener(_onThemeChanged);
     // Also listen for broadcast theme changes to update native brightness.
-    WindowCommunicator.onBroadcast.listen((msg) {
+    MultiViewDesktop.communicator.onBroadcast.listen((msg) {
       if (msg is! Map) return;
       if (msg['type'] != 'themeMode') return;
       if (!mounted) return;
