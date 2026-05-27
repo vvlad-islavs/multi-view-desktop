@@ -26,12 +26,12 @@ void runMultiApp(Widget home, {MultiAppConfig? config}) {
 
 class MultiAppConfig {
   final CloseMode mainCloseMode;
-  final WindowOptions preferredOptions;
+  final WindowOptions globalOptions;
 
-  MultiAppConfig._({this.mainCloseMode = CloseMode.cascade, this.preferredOptions = const WindowOptions()});
+  MultiAppConfig._({this.mainCloseMode = CloseMode.cascade, this.globalOptions = const WindowOptions()});
 
-  factory MultiAppConfig({CloseMode? closeMode, WindowOptions? options}) =>
-      MultiAppConfig._(mainCloseMode: closeMode ?? CloseMode.cascade, preferredOptions: options ?? WindowOptions());
+  factory MultiAppConfig({CloseMode closeMode = CloseMode.cascade, WindowOptions? globalOptions}) =>
+      MultiAppConfig._(mainCloseMode: closeMode, globalOptions: globalOptions ?? WindowOptions());
 
   @internal
   factory MultiAppConfig.defaultConfig() => MultiAppConfig._();
@@ -42,12 +42,17 @@ enum CloseMode {
   ///
   /// Cycle: close handle -> preventClose (if enabled)  -> confirm-close -> close window
   none,
+
   /// soft close all windows from last to first with full close-cycle
   ///
   /// Cycle: close handle -> preventClose (if enabled) -> confirm-close -> close window
   cascade,
-  /// force close all secondary without close-cycle excluding main window
-  force,
+
+  /// force close all secondary windows without close-cycle excluding main window
+  forceSecondary,
+
+  /// force close all windows without close-cycle
+  destroy,
 }
 
 /// Opens a new OS window showing [child].

@@ -34,10 +34,11 @@ class _HomePageState extends State<HomePage> with WindowListener {
   bool _isMaximizable = true;
   bool _isClosable = true;
   bool _isPreventClose = false;
-  bool _isSkipTaskbar = false;
+  bool _isHideFromCollection = false;
   double _opacity = 1.0;
   bool _hasShadow = true;
   bool _titleBarHidden = false;
+  bool _titleBarButtonVisibility = true;
 
   // Communication log
   final List<String> _messageLog = [];
@@ -102,9 +103,10 @@ class _HomePageState extends State<HomePage> with WindowListener {
     final maxi = await _mountedFuture(MultiViewDesktop.isMaximizable, contextLocal);
     final clos = await _mountedFuture(MultiViewDesktop.isClosable, contextLocal);
     final prev = await _mountedFuture(MultiViewDesktop.isPreventClose, contextLocal);
-    final skip = await _mountedFuture(MultiViewDesktop.isSkipTaskbar, contextLocal);
+    final skip = await _mountedFuture(MultiViewDesktop.isHideFromCollection, contextLocal);
     final op = await _mountedFuture(MultiViewDesktop.getOpacity, contextLocal);
     final shadow = await _mountedFuture(MultiViewDesktop.hasShadow, contextLocal);
+    final titleBarStyle = await _mountedFuture(MultiViewDesktop.getTitleBarStyle, contextLocal);
     if (!mounted) return;
     setState(() {
       _isFullScreen = fs ?? _isFullScreen;
@@ -116,9 +118,11 @@ class _HomePageState extends State<HomePage> with WindowListener {
       _isMaximizable = maxi ?? _isMaximizable;
       _isClosable = clos ?? _isClosable;
       _isPreventClose = prev ?? _isPreventClose;
-      _isSkipTaskbar = skip ?? _isSkipTaskbar;
+      _isHideFromCollection = skip ?? _isHideFromCollection;
       _opacity = op ?? _opacity;
       _hasShadow = shadow ?? _hasShadow;
+      _titleBarHidden = titleBarStyle?.style == TitleBarStyle.hidden;
+      _titleBarButtonVisibility = titleBarStyle?.buttonVisibility ?? _titleBarButtonVisibility;
     });
   }
 
@@ -147,11 +151,10 @@ class _HomePageState extends State<HomePage> with WindowListener {
   @override
   void onWindowClose() async {
     if (!mounted) return;
-    setState(() => _eventLog.insert(0, 'close (blocked by preventClose)'));
 
-    // Show a confirmation dialog. The user can accept (remove preventClose and
+    // Show a confirmation dialog. can accept (remove preventClose and
     // close the window) or decline (explicitly cancel a pending cascade close).
-    // if (_dialogKey.currentContext?.mounted ?? false) return;
+    if (_dialogKey.currentContext?.mounted ?? false) return;
     final accept = await showDialog<bool>(
       context: context,
       builder: (_) {
@@ -260,19 +263,29 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 ),
               ),
             ]),
+            ListenableBuilder(
+              listenable: sharedConfig,
+              builder: (context, _) {
+                return _switchTile('hideAppFromTaskbar', sharedConfig.isHideAppFromTaskbar, (v) async {
+                  await MultiViewDesktop.hideAppFromTaskbar(v);
+                  sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
+                });
+              },
+            ),
 
             // ----------------------------------------------------------------
             // Window management
             // ----------------------------------------------------------------
             _section('WINDOW MANAGEMENT', [
               _tile(
-                'addWindow',
+                'openWindow',
                 subtitle: 'Open a new OS window (same engine)',
                 onTap: () {
-
                   openWindow(
                     const _SecondaryWindowRoot(),
-                    options: const WindowOptions(size: Size(760, 560)),
+                    options: const WindowOptions(
+                      size: Size(1000, 700),
+                    ),
                   );
                 },
               ),
@@ -312,15 +325,25 @@ class _HomePageState extends State<HomePage> with WindowListener {
             // ----------------------------------------------------------------
             _section('TITLE BAR', [
               _switchTile('titleBarStyle hidden', _titleBarHidden, (v) async {
-                await MultiViewDesktop.setTitleBarStyle(context, v ? TitleBarStyle.hidden : TitleBarStyle.normal);
-                setState(() => _titleBarHidden = v);
+                await MultiViewDesktop.setTitleBarStyle(
+                  context,
+                  v ? TitleBarStyle.hidden : TitleBarStyle.normal,
+                  windowButtonVisibility: !_titleBarButtonVisibility,
+                );
+              }),
+              _switchTile('titleBarButtonVisibility', !_titleBarButtonVisibility, (v) async {
+                await MultiViewDesktop.setTitleBarStyle(
+                  context,
+                  _titleBarHidden ? TitleBarStyle.hidden : TitleBarStyle.normal,
+                  windowButtonVisibility: v,
+                );
               }),
               _tile(
                 'setAsFrameless',
                 subtitle: 'Remove frame entirely',
-                onTap: () {
-                  MultiViewDesktop.setAsFrameless(context);
-                  setState(() => _titleBarHidden = true);
+                onTap: () async {
+                  await MultiViewDesktop.setAsFrameless(context);
+                  await _refreshState();
                 },
               ),
             ]),
@@ -337,7 +360,12 @@ class _HomePageState extends State<HomePage> with WindowListener {
               ),
               _tile('minimize', onTap: () => MultiViewDesktop.minimize(context)),
               _switchTile('alwaysOnTop', _isAlwaysOnTop, (v) => MultiViewDesktop.setAlwaysOnTop(context, v)),
-              _switchTile('skipTaskbar', _isSkipTaskbar, (v) => MultiViewDesktop.setSkipTaskbar(context, v)),
+              if (Platform.isMacOS)
+                _switchTile(
+                  'hideFromCollection',
+                  _isHideFromCollection,
+                  (v) => MultiViewDesktop.hideFromCollection(context, v),
+                ),
             ]),
 
             // ----------------------------------------------------------------
@@ -349,12 +377,11 @@ class _HomePageState extends State<HomePage> with WindowListener {
               _switchTile('minimizable', _isMinimizable, (v) => MultiViewDesktop.setMinimizable(context, v)),
               _switchTile('maximizable', _isMaximizable, (v) => MultiViewDesktop.setMaximizable(context, v)),
               _switchTile('closable', _isClosable, (v) => MultiViewDesktop.setClosable(context, v)),
-              _switchTile('preventClose', _isPreventClose, (v) async {
-                await MultiViewDesktop.setPreventClose(context, v);
-                // When disabling preventClose, reset confirmClose so the
-                // next closeWindow() goes through the confirm-close flow.
-                // if (!v) await MultiViewDesktop.confirmClose(context, confirmed: false);
-              }),
+              _switchTile(
+                'preventClose',
+                _isPreventClose,
+                (v) async => await MultiViewDesktop.setPreventClose(context, v),
+              ),
             ]),
 
             // ----------------------------------------------------------------
@@ -536,16 +563,16 @@ class _AlignmentGridState extends State<_AlignmentGrid> {
           final (alignment, label) = entry;
           final selected = _active == alignment;
           return FilledButton.tonal(
-              style: FilledButton.styleFrom(
-                padding: EdgeInsets.zero,
-                backgroundColor: selected ? color.withValues(alpha: 0.2) : null,
-                side: selected ? BorderSide(color: color) : null,
-              ),
-              onPressed: () {
-                setState(() => _active = alignment);
-                widget.onSelected(alignment);
-              },
-              child: Text(label, style: const TextStyle(fontSize: 12)),
+            style: FilledButton.styleFrom(
+              padding: EdgeInsets.zero,
+              backgroundColor: selected ? color.withValues(alpha: 0.2) : null,
+              side: selected ? BorderSide(color: color) : null,
+            ),
+            onPressed: () {
+              setState(() => _active = alignment);
+              widget.onSelected(alignment);
+            },
+            child: Text(label, style: const TextStyle(fontSize: 12)),
           );
         }).toList(),
       ),

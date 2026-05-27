@@ -180,21 +180,28 @@ class MultiViewDesktop {
     );
   }
 
+  static Future<({TitleBarStyle? style, bool? buttonVisibility})> getTitleBarStyle(BuildContext context) async {
+    final mapResult = await _safeInvokeMethod<Map<Object?, Object?>>('getTitleBarStyle', _args(getCurrentId(context)));
+
+    return (
+      style: _barStyleFromJson(mapResult?['style'] as String?),
+      buttonVisibility: mapResult?['windowButtonVisibility'] as bool?,
+    );
+  }
+
+  static TitleBarStyle _barStyleFromJson(String? styleStr) {
+    if (styleStr == 'hidden') return TitleBarStyle.hidden;
+    return TitleBarStyle.normal;
+  }
+
   /// Removes the window frame (title bar + border) entirely.
   static Future<void> setAsFrameless(BuildContext context) async {
     await _safeInvokeMethod<void>('setAsFrameless', _args(getCurrentId(context)));
   }
 
   static Future<void> setBackgroundColor(BuildContext context, Color color) async {
-    await _safeInvokeMethod<void>(
-      'setBackgroundColor',
-      _args(getCurrentId(context), {
-        'backgroundColorA': (color.a * 255).round(),
-        'backgroundColorR': (color.r * 255).round(),
-        'backgroundColorG': (color.g * 255).round(),
-        'backgroundColorB': (color.b * 255).round(),
-      }),
-    );
+    await globalRootState?.setBackgroundColor(getCurrentId(context), color);
+
   }
 
   static Future<void> setBrightness(BuildContext context, Brightness brightness) async {
@@ -392,12 +399,26 @@ class MultiViewDesktop {
     await _safeInvokeMethod<void>('setAlwaysOnTop', _args(getCurrentId(context), {'isAlwaysOnTop': isAlwaysOnTop}));
   }
 
-  static Future<bool> isSkipTaskbar(BuildContext context) async {
-    return await _safeInvokeMethod<bool>('isSkipTaskbar', _args(getCurrentId(context))) ?? false;
+  /// Only for macos
+  static Future<bool> isHideFromCollection(BuildContext context) async {
+    return await _safeInvokeMethod<bool>('isHideFromCollection', _args(getCurrentId(context))) ?? false;
   }
 
-  static Future<void> setSkipTaskbar(BuildContext context, bool isSkipTaskbar) async {
-    await _safeInvokeMethod<void>('setSkipTaskbar', _args(getCurrentId(context), {'isSkipTaskbar': isSkipTaskbar}));
+  /// Only for macos
+  static Future<void> hideFromCollection(BuildContext context, bool isHideFromCollection) async {
+    await _safeInvokeMethod<void>(
+      'hideFromCollection',
+      _args(getCurrentId(context), {'isHideFromCollection': isHideFromCollection}),
+    );
+  }
+
+  static Future<bool> isHideAppFromTaskbar() async {
+    final res = await _safeInvokeMethod('isHideAppFromTaskbar', _args(1));
+    return res ?? false;
+  }
+
+  static Future<void> hideAppFromTaskbar(bool isHideAppFromTaskbar) async {
+    await _safeInvokeMethod<void>('hideAppFromTaskbar', _args(1,{'isHideAppFromTaskbar': isHideAppFromTaskbar}));
   }
 
   // -------------------------------------------------------------------------

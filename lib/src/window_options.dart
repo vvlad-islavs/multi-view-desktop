@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show internal;
 import 'package:flutter/material.dart';
 
 import 'title_bar_style.dart';
@@ -11,8 +12,8 @@ class WindowOptions {
     this.minimumSize,
     this.maximumSize,
     this.alignment = Alignment.center,
-    this.backgroundColor = Colors.transparent,
-    this.skipTaskbar = false,
+    this.backgroundColor,
+    this.hideAppFromTaskbar,
     this.titleBarStyle,
     this.windowButtonVisibility,
     this.title,
@@ -24,13 +25,12 @@ class WindowOptions {
   final Size? minimumSize;
   final Size? maximumSize;
   final Alignment? alignment;
-
-
-  final Color backgroundColor;
-  final bool skipTaskbar;
+  final Color? backgroundColor;
+  final bool? hideAppFromTaskbar;
   final TitleBarStyle? titleBarStyle;
   final bool? windowButtonVisibility;
   final String? title;
   final bool? fullScreen;
   final bool? alwaysOnTop;
+
 }

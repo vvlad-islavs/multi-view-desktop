@@ -8,7 +8,15 @@ void main() => runMultiApp(
   const MainWindowRoot(),
   config: MultiAppConfig(
     closeMode: CloseMode.cascade,
-    options: WindowOptions(minimumSize: Size(800, 600), size: Size(1200, 1000)),
+    globalOptions: WindowOptions(
+      minimumSize: Size(800, 600),
+      size: Size(800, 600),
+      alignment: Alignment.center,
+      hideAppFromTaskbar: false,
+      titleBarStyle: TitleBarStyle.normal,
+      windowButtonVisibility: true,
+      title: 'Windows title'
+    ),
   ),
 );
 
@@ -42,12 +50,14 @@ class _MainWindowRootState extends State<MainWindowRoot> {
       MultiViewDesktop.setBrightness(context, mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
     });
 
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => MultiViewDesktop.setBrightness(
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await MultiViewDesktop.setBrightness(
         context,
         themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light,
-      ),
-    );
+      );
+
+      sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
+    });
   }
 
   @override

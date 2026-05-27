@@ -14,9 +14,12 @@ extension NSRect {
     var topLeft: CGPoint {
         get {
             func overlapArea(_ r: CGRect) -> CGFloat {
-                if r.isNull || r.isEmpty { return 0 }
+                if r.isNull || r.isEmpty {
+                    return 0
+                }
                 return r.width * r.height
             }
+
             let screens = NSScreen.screens
             let targetScreen: NSScreen? = screens.max {
                 overlapArea(self.intersection($0.frame)) < overlapArea(self.intersection($1.frame))
@@ -29,16 +32,19 @@ extension NSRect {
         }
         set {
             func overlapArea(_ r: CGRect) -> CGFloat {
-                if r.isNull || r.isEmpty { return 0 }
+                if r.isNull || r.isEmpty {
+                    return 0
+                }
                 return r.width * r.height
             }
+
             let screens = NSScreen.screens
             // Pick the screen that would contain the most of the window after the move.
             let targetScreen: NSScreen? = screens.max {
                 let o0 = CGPoint(x: newValue.x, y: $0.frame.maxY - newValue.y - size.height)
                 let o1 = CGPoint(x: newValue.x, y: $1.frame.maxY - newValue.y - size.height)
                 return overlapArea(CGRect(origin: o0, size: size).intersection($0.frame))
-                     < overlapArea(CGRect(origin: o1, size: size).intersection($1.frame))
+                    < overlapArea(CGRect(origin: o1, size: size).intersection($1.frame))
             } ?? NSScreen.main ?? screens.first
             let sf = targetScreen?.frame
                 ?? NSScreen.main?.frame
@@ -375,31 +381,62 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             window.title = args?["title"] as? String ?? ""
             result(nil)
 
+        case "getTitleBarStyle":
+            let titleBarStyle: String = window.titleVisibility == .hidden ? "hidden" : "normal"
+
+            let buttonVisibility: Bool? =
+                (window.standardWindowButton(.closeButton)?.isHidden ?? true)
+                    && (window.standardWindowButton(.miniaturizeButton)?.isHidden ?? true)
+                    && (window.standardWindowButton(.zoomButton)?.isHidden ?? true)
+            let res: [String: Any] = [
+                "style": titleBarStyle,
+                "windowButtonVisibility": buttonVisibility as Any
+            ]
+
+            result(res)
+
         case "setTitleBarStyle":
-            let style = args?["titleBarStyle"] as? String ?? "normal"
-            let buttonVisibility = args?["windowButtonVisibility"] as? Bool ?? true
-            if style == "hidden" {
-                window.styleMask.insert(.fullSizeContentView)
+            let titleBarStyle: String = args?["titleBarStyle"] as? String ?? "normal"
+            let buttonVisibility: Bool = args?["windowButtonVisibility"] as? Bool ?? true
+
+            if titleBarStyle == "hidden" {
                 window.titleVisibility = .hidden
                 window.titlebarAppearsTransparent = true
-                if !buttonVisibility {
-                    window.standardWindowButton(.closeButton)?.isHidden = true
-                    window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-                    window.standardWindowButton(.zoomButton)?.isHidden = true
-                }
+                window.styleMask.insert(.fullSizeContentView)
             } else {
                 window.titleVisibility = .visible
                 window.titlebarAppearsTransparent = false
-                window.standardWindowButton(.closeButton)?.isHidden = false
-                window.standardWindowButton(.miniaturizeButton)?.isHidden = false
-                window.standardWindowButton(.zoomButton)?.isHidden = false
+                window.styleMask.remove(.fullSizeContentView)
             }
+
+            window.isOpaque = false
+            window.hasShadow = true
+
+            let titleBarView: NSView = (window.standardWindowButton(.closeButton)?.superview)!.superview!
+            titleBarView.isHidden = false
+
+            window.standardWindowButton(.closeButton)?.isHidden = !buttonVisibility
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = !buttonVisibility
+            window.standardWindowButton(.zoomButton)?.isHidden = !buttonVisibility
+
             result(nil)
 
         case "setAsFrameless":
-            window.styleMask = [.fullSizeContentView, .resizable]
+            window.styleMask.insert(.fullSizeContentView)
             window.titleVisibility = .hidden
-            window.titlebarAppearsTransparent = true
+            window.isOpaque = true
+            window.hasShadow = false
+            window.backgroundColor = NSColor.clear
+
+            if window.styleMask.contains(.titled) {
+                let titleBarView: NSView = (window.standardWindowButton(.closeButton)?.superview)!.superview!
+                titleBarView.isHidden = true
+            }
+
+            window.standardWindowButton(.closeButton)?.isHidden = true
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            window.standardWindowButton(.zoomButton)?.isHidden = true
+
             result(nil)
 
         case "show":
@@ -572,11 +609,19 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             window.level = (args?["isAlwaysOnTop"] as? Bool ?? false) ? .floating : .normal
             result(nil)
 
-        case "isSkipTaskbar":
+        case "isHideAppFromTaskbar":
+            result(NSApplication.shared.activationPolicy() == .accessory)
+
+        case "hideAppFromTaskbar":
+            let isSkipTaskbar: Bool = args?["isHideAppFromTaskbar"] as? Bool ?? false
+            NSApplication.shared.setActivationPolicy(isSkipTaskbar ? .accessory : .regular)
+            result(nil)
+
+        case "isHideFromCollection":
             result(window.collectionBehavior.contains(.ignoresCycle))
 
-        case "setSkipTaskbar":
-            let v = args?["isSkipTaskbar"] as? Bool ?? false
+        case "hideFromCollection":
+            let v = args?["isHideFromCollection"] as? Bool ?? false
             if v {
                 window.collectionBehavior.insert(.ignoresCycle)
                 window.collectionBehavior.insert(.transient)

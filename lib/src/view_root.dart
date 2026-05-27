@@ -30,10 +30,12 @@ Widget createMultiViewRoot(Widget home, MultiAppConfig config) => _MultiViewRoot
 /// opened or closed.  Each child is wrapped in a [ViewScope] so that any
 /// descendant can call [MultiViewDesktop.getCurrentId].
 class _MultiViewRoot extends StatefulWidget {
-  const _MultiViewRoot({required this.home, required this.config});
+  _MultiViewRoot({required this.home, required this.config, CascadeCloseService? cascadeCloseService})
+    : cascadeCloseService = cascadeCloseService ?? CascadeCloseService();
 
   final Widget home;
   final MultiAppConfig config;
+  final CascadeCloseService cascadeCloseService;
 
   @override
   State<_MultiViewRoot> createState() => _MultiViewRootState();
@@ -66,9 +68,6 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   // viewId -> listener list.
   final Map<int, ObserverList<WindowListener>> _listeners = {};
 
-  // viewId -> completer: true = closed, false = cancelled (preventClose).
-  final Map<int, Completer<bool>> _closeCompleters = {};
-
   // --------------------------------------------------------------------------
 
   @override
@@ -90,7 +89,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     _applyOptionsToMain();
 
     if (!kReleaseMode) {
-      // Close all secondary views after restart
+      // Close all secondary views after hot restart
       final orphaned = initial.where((v) => v.viewId != _mainView!.viewId && v.viewId != 0).toList();
       _removeSecondaryViewsForceAfterRestart(orphaned.map((e) => e.viewId).toList());
     }
@@ -172,8 +171,11 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
           case CloseMode.cascade:
             await _removeViewsCascade();
             break;
-          case CloseMode.force:
+          case CloseMode.forceSecondary:
             await _removeViewsForce();
+            break;
+          case CloseMode.destroy:
+            await _destroyAllViewsForce();
             break;
         }
       }
@@ -197,8 +199,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     WindowCommunicator.disposeView(viewId);
     await setConfirmClose(viewId, true);
     await removeView(viewId);
-    _closeCompleters[viewId]?.complete(true);
-    // don't remove viewId completer here
+    widget.cascadeCloseService.completeWindow(viewId);
   }
 
   /// Aborts the cascade close that is waiting on [viewId].
@@ -209,20 +210,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   /// unexpectedly resume the (already aborted) cascade.
   Future<void> cancelCascade(int viewId) async {
     await _setMainPreConfirmClose(false);
-    final completer = _closeCompleters[viewId];
-    if (completer == null || completer.isCompleted) return;
-
-    // Abort the cascade: the loop awaiting this completer will see false and
-    // return without closing the main window.
-    completer.complete(false);
-
-    // Clear remaining completers so their future completion (e.g. user later
-    // closes those windows independently) does not re-trigger the cascade.
-    _closeCompleters.remove(viewId);
-    for (final c in _closeCompleters.values) {
-      if (!c.isCompleted) c.complete(false);
-    }
-    _closeCompleters.clear();
+    widget.cascadeCloseService.abort(viewId);
   }
 
   // --------------------------------------------------------------------------
@@ -274,7 +262,27 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   // Internal helpers
   // --------------------------------------------------------------------------
 
-  Future<void> _applyOptionsToMain() => _applyOptions(_mainId, widget.config.preferredOptions);
+  /// Params:
+  /// - [preferred]: options for new window
+  /// - [global]: global options
+  WindowOptions _compareGlobalAndNewOpts({WindowOptions? preferred, required WindowOptions global}) {
+    if (preferred == null) return global;
+    return WindowOptions(
+      size: preferred.size ?? global.size,
+      minimumSize: preferred.minimumSize ?? global.minimumSize,
+      maximumSize: preferred.maximumSize ?? global.maximumSize,
+      alignment: preferred.alignment ?? global.alignment,
+      backgroundColor: preferred.backgroundColor ?? global.backgroundColor,
+      hideAppFromTaskbar: preferred.hideAppFromTaskbar ?? global.hideAppFromTaskbar,
+      titleBarStyle: preferred.titleBarStyle ?? global.titleBarStyle,
+      windowButtonVisibility: preferred.windowButtonVisibility ?? global.windowButtonVisibility,
+      title: preferred.title ?? global.title,
+      fullScreen: preferred.fullScreen ?? global.fullScreen,
+      alwaysOnTop: preferred.alwaysOnTop ?? global.alwaysOnTop,
+    );
+  }
+
+  Future<void> _applyOptionsToMain() => _applyOptions(_mainId, widget.config.globalOptions);
 
   void _handleClose(int viewId) {
     if (!mounted) return;
@@ -298,6 +306,9 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     if (opts.alignment != null) {
       await setAlignment(viewId, alignment: opts.alignment!);
     }
+    if (opts.backgroundColor != null) {
+      await setBackgroundColor(viewId, opts.backgroundColor!);
+    }
     if (opts.minimumSize != null) {
       await invoke('setMinimumSize', {'width': opts.minimumSize!.width, 'height': opts.minimumSize!.height});
     }
@@ -317,8 +328,8 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     if (opts.fullScreen != null) {
       await invoke('setFullScreen', {'isFullScreen': opts.fullScreen});
     }
-    if (opts.skipTaskbar) {
-      await invoke('setSkipTaskbar', {'isSkipTaskbar': true});
+    if (opts.hideAppFromTaskbar ?? false) {
+      await invoke('hideAppFromTaskbar', {'isHideAppFromTaskbar': true});
     }
   }
 
@@ -344,12 +355,11 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     final allViews = _allSecondaryIds().reversed.toList();
 
     for (final id in allViews) {
-      _closeCompleters[id] = Completer<bool>();
+      widget.cascadeCloseService.attachWindow(id);
       await focus(id);
       await removeView(id);
 
-      final closed = await _closeCompleters[id]!.future;
-      _closeCompleters.remove(id);
+      final closed = await widget.cascadeCloseService.waitWindow(id);
       if (!closed) return;
     }
 
@@ -358,16 +368,27 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   }
 
   Future<void> _removeViewsForce() async {
-    _closeCompleters.clear();
+    widget.cascadeCloseService.clear();
     for (final id in _allSecondaryIds()) {
       await setPreventClose(id, false);
-      await setConfirmClose(id, true);
       await removeView(id);
     }
 
     await _setMainPreConfirmClose(true);
     // not disabled in main view
     // await setPreventClose(_mainId, false);
+    await removeView(_mainId);
+  }
+
+  Future<void> _destroyAllViewsForce() async {
+    widget.cascadeCloseService.clear();
+    for (final id in _allSecondaryIds()) {
+      await setPreventClose(id, false);
+      await removeView(id);
+    }
+
+    await _setMainPreConfirmClose(true);
+    await setPreventClose(_mainId, false);
     await removeView(_mainId);
   }
 
@@ -381,7 +402,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   }
 
   Future<void> _removeSecondaryViewsForceAfterRestart(List<int> ids) async {
-    _closeCompleters.clear();
+    widget.cascadeCloseService.clear();
     for (final id in ids) {
       // Stale entries (e.g. old main window ID after hot restart) are no longer
       // in the native windows dict, so calls may return NO_WINDOW. Ignore such
@@ -399,32 +420,44 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   // --------------------------------------------------------------------------
 
   Future<void> addView(Widget child, {WindowOptions? options}) async {
-    final localOpt = options ?? widget.config.preferredOptions;
+    final comparedOpts = _compareGlobalAndNewOpts(preferred: options, global: widget.config.globalOptions);
 
     final int token = _nextToken++;
     _pending[token] = child;
-    _pendingOptions[token] = localOpt;
+    _pendingOptions[token] = comparedOpts;
 
     Offset? pos;
-    final windowSize = Size(localOpt.size?.width ?? 800.0, localOpt.size?.height ?? 600.0);
-    if (localOpt.alignment != null) {
-      pos = await calcWindowPosition(windowSize, localOpt.alignment!);
+    final windowSize = Size(comparedOpts.size?.width ?? 800.0, comparedOpts.size?.height ?? 600.0);
+    if (comparedOpts.alignment != null) {
+      pos = await calcWindowPosition(windowSize, comparedOpts.alignment!);
     }
     try {
       await _staticChannel.invokeMethod<void>('createWindow', {
         'token': token,
         'width': windowSize.width,
         'height': windowSize.height,
-        'title': localOpt.title ?? '',
+        'title': comparedOpts.title ?? '',
         'position': pos == null ? null : {'x': pos.dx, 'y': pos.dy},
-        'titleBarStyle': localOpt.titleBarStyle?.name ?? 'normal',
-        'windowButtonVisibility': localOpt.windowButtonVisibility ?? true,
+        'titleBarStyle': comparedOpts.titleBarStyle?.name ?? 'normal',
+        'windowButtonVisibility': comparedOpts.windowButtonVisibility ?? true,
       });
     } catch (e) {
       _pending.remove(token);
       _pendingOptions.remove(token);
       rethrow;
     }
+  }
+
+  Future<void> setBackgroundColor(int viewId, Color color) async {
+    await _staticChannel.invokeMethod<void>(
+      'setBackgroundColor',
+      _args(viewId, {
+        'backgroundColorA': (color.a * 255).round(),
+        'backgroundColorR': (color.r * 255).round(),
+        'backgroundColorG': (color.g * 255).round(),
+        'backgroundColorB': (color.b * 255).round(),
+      }),
+    );
   }
 
   Future<void> setPosition(int viewId, {required Offset pos}) async =>
@@ -501,4 +534,41 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
 
     return ViewCollection(views: views);
   }
+}
+
+class CascadeCloseService {
+  CascadeCloseService();
+
+  // viewId -> completer: true = closed, false = cancelled (preventClose).
+  final Map<int, Completer<bool>> _closeCompleters = {};
+
+  void clear() => _closeCompleters.clear();
+
+  void abort(int id) {
+    final completer = _closeCompleters[id];
+    if (completer == null || completer.isCompleted) return;
+
+    completer.complete(false);
+
+    // Clear remaining completers so their future completion (e.g. user later
+    // closes those windows independently) does not re-trigger the cascade.
+    _closeCompleters.remove(id);
+    for (final c in _closeCompleters.values) {
+      if (!c.isCompleted) c.complete(false);
+    }
+    clear();
+  }
+
+  void attachWindow(int id) => _closeCompleters[id] = Completer<bool>();
+
+  void completeWindow(int id) => _closeCompleters[id]?.complete(true);
+
+  Future<bool> waitWindow(int id) async {
+    final res = await _closeCompleters[id]?.future ?? false;
+    detachWindow(id);
+
+    return res;
+  }
+
+  void detachWindow(int id) => _closeCompleters.remove(id);
 }

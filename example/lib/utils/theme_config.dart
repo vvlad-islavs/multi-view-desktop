@@ -21,5 +21,17 @@ class ThemeConfig extends ChangeNotifier {
   }
 }
 
+class SharedParams extends ChangeNotifier {
+  bool _isHideAppFromTaskbar = false;
+
+  bool get isHideAppFromTaskbar => _isHideAppFromTaskbar;
+
+  set isHideAppFromTaskbar(bool newValue) {
+    _isHideAppFromTaskbar = newValue;
+    notifyListeners();
+  }
+}
+
 /// Single global instance shared by all views.
 final themeConfig = ThemeConfig();
+final sharedConfig = SharedParams();
