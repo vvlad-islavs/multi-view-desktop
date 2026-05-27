@@ -188,6 +188,21 @@ class _HomePageState extends State<HomePage> with WindowListener {
 
   // Helpers ------------------------------------------------------------------
 
+  void _progressBarExample() async {
+    final progressLimit = 100;
+    final progressStep = 5;
+    debugPrint('Progress example started');
+    for (int i = 0; i < progressLimit; i += progressStep) {
+      final progress = i / 100;
+      debugPrint('Progress: $progress');
+      await MultiViewDesktop.setProgressBar(progress);
+      await Future.delayed(Duration(milliseconds: 100));
+    }
+    debugPrint('Progress completed');
+    await Future.delayed(const Duration(milliseconds: 1000));
+    await MultiViewDesktop.setProgressBar(-1);
+  }
+
   void _log(String entry) => setState(() => _messageLog.insert(0, '[self] $entry'));
 
   Widget _section(String title, List<Widget> items) {
@@ -262,16 +277,16 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   onChanged: (_) => themeConfig.setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark),
                 ),
               ),
+              ListenableBuilder(
+                listenable: sharedConfig,
+                builder: (context, _) {
+                  return _switchTile('hideAppFromTaskbar', sharedConfig.isHideAppFromTaskbar, (v) async {
+                    await MultiViewDesktop.hideAppFromTaskbar(v);
+                    sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
+                  });
+                },
+              ),
             ]),
-            ListenableBuilder(
-              listenable: sharedConfig,
-              builder: (context, _) {
-                return _switchTile('hideAppFromTaskbar', sharedConfig.isHideAppFromTaskbar, (v) async {
-                  await MultiViewDesktop.hideAppFromTaskbar(v);
-                  sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
-                });
-              },
-            ),
 
             // ----------------------------------------------------------------
             // Window management
@@ -281,12 +296,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 'openWindow',
                 subtitle: 'Open a new OS window (same engine)',
                 onTap: () {
-                  openWindow(
-                    const _SecondaryWindowRoot(),
-                    options: const WindowOptions(
-                      size: Size(1000, 700),
-                    ),
-                  );
+                  openWindow(const _SecondaryWindowRoot(), options: const WindowOptions(size: Size(1000, 700)));
                 },
               ),
               if (windowId != 0)
@@ -366,6 +376,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   _isHideFromCollection,
                   (v) => MultiViewDesktop.hideFromCollection(context, v),
                 ),
+              if (!Platform.isLinux) _tile('progressBarExample', onTap: () => _progressBarExample()),
             ]),
 
             // ----------------------------------------------------------------

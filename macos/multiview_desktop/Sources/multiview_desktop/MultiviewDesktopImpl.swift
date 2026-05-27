@@ -684,7 +684,43 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             NSApp.dockTile.badgeLabel = args?["label"] as? String
             result(nil)
 
-        case "setProgressBar", "setIgnoreMouseEvents", "startResizing":
+        case "setProgressBar":
+            let progress: CGFloat = CGFloat(truncating: args?["progress"] as? NSNumber ?? 0)
+            let dockTile: NSDockTile = NSApp.dockTile
+
+            let firstTime = dockTile.contentView == nil || dockTile.contentView?.subviews.count == 0
+            if firstTime {
+                let imageView = NSImageView()
+                imageView.image = NSApp.applicationIconImage
+                dockTile.contentView = imageView
+
+                let frame = NSMakeRect(0.0, 0.0, dockTile.size.width, 15.0)
+                let progressIndicator = NSProgressIndicator(frame: frame)
+                progressIndicator.style = .bar
+                progressIndicator.isIndeterminate = false
+                progressIndicator.minValue = 0
+                progressIndicator.maxValue = 1
+                progressIndicator.isHidden = false
+                dockTile.contentView?.addSubview(progressIndicator)
+            }
+
+            let progressIndicator = dockTile.contentView!.subviews.last as! NSProgressIndicator
+            if progress < 0 {
+                progressIndicator.isHidden = true
+            } else if progress > 1 {
+                progressIndicator.isHidden = false
+                progressIndicator.isIndeterminate = true
+                progressIndicator.doubleValue = 1
+            } else {
+                progressIndicator.isHidden = false
+                progressIndicator.doubleValue = Double(progress)
+            }
+            dockTile.display()
+
+            result(nil)
+
+        case "setIgnoreMouseEvents", "startResizing":
+            //TODO
             result(nil)
 
         case "startDragging":

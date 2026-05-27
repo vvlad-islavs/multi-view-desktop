@@ -201,7 +201,6 @@ class MultiViewDesktop {
 
   static Future<void> setBackgroundColor(BuildContext context, Color color) async {
     await globalRootState?.setBackgroundColor(getCurrentId(context), color);
-
   }
 
   static Future<void> setBrightness(BuildContext context, Brightness brightness) async {
@@ -399,26 +398,13 @@ class MultiViewDesktop {
     await _safeInvokeMethod<void>('setAlwaysOnTop', _args(getCurrentId(context), {'isAlwaysOnTop': isAlwaysOnTop}));
   }
 
-  /// Only for macos
-  static Future<bool> isHideFromCollection(BuildContext context) async {
-    return await _safeInvokeMethod<bool>('isHideFromCollection', _args(getCurrentId(context))) ?? false;
-  }
-
-  /// Only for macos
-  static Future<void> hideFromCollection(BuildContext context, bool isHideFromCollection) async {
-    await _safeInvokeMethod<void>(
-      'hideFromCollection',
-      _args(getCurrentId(context), {'isHideFromCollection': isHideFromCollection}),
-    );
-  }
-
   static Future<bool> isHideAppFromTaskbar() async {
     final res = await _safeInvokeMethod('isHideAppFromTaskbar', _args(1));
     return res ?? false;
   }
 
   static Future<void> hideAppFromTaskbar(bool isHideAppFromTaskbar) async {
-    await _safeInvokeMethod<void>('hideAppFromTaskbar', _args(1,{'isHideAppFromTaskbar': isHideAppFromTaskbar}));
+    await _safeInvokeMethod<void>('hideAppFromTaskbar', _args(1, {'isHideAppFromTaskbar': isHideAppFromTaskbar}));
   }
 
   // -------------------------------------------------------------------------
@@ -446,6 +432,17 @@ class MultiViewDesktop {
   // macOS-specific
   // -------------------------------------------------------------------------
 
+  static Future<bool> isHideFromCollection(BuildContext context) async {
+    return await _safeInvokeMethod<bool>('isHideFromCollection', _args(getCurrentId(context))) ?? false;
+  }
+
+  static Future<void> hideFromCollection(BuildContext context, bool isHideFromCollection) async {
+    await _safeInvokeMethod<void>(
+      'hideFromCollection',
+      _args(getCurrentId(context), {'isHideFromCollection': isHideFromCollection}),
+    );
+  }
+
   static Future<bool> isVisibleOnAllWorkspaces(BuildContext context) async {
     return await _safeInvokeMethod<bool>('isVisibleOnAllWorkspaces', _args(getCurrentId(context))) ?? false;
   }
@@ -469,8 +466,8 @@ class MultiViewDesktop {
   // Progress bar (Windows / macOS)
   // -------------------------------------------------------------------------
 
-  static Future<void> setProgressBar(BuildContext context, double progress) async {
-    await _safeInvokeMethod<void>('setProgressBar', _args(getCurrentId(context), {'progress': progress}));
+  static Future<void> setProgressBar(double progress) async {
+    await _kChannel.invokeMethod<void>('setProgressBar', _args(1, {'progress': progress}));
   }
 
   // -------------------------------------------------------------------------
