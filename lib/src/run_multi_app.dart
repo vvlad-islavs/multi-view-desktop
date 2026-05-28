@@ -21,7 +21,7 @@ import 'window_options.dart';
 /// are opened via [openWindow].
 void runMultiApp(Widget home, {MultiAppConfig? config}) {
   WidgetsFlutterBinding.ensureInitialized();
-  runWidget(createMultiViewRoot(home, config ?? MultiAppConfig.defaultConfig()));
+  runWidget(createMultiViewRoot(home, config ?? MultiAppConfig._defaultConfig()));
 }
 
 class MultiAppConfig {
@@ -33,8 +33,7 @@ class MultiAppConfig {
   factory MultiAppConfig({CloseMode closeMode = CloseMode.cascade, WindowOptions? globalOptions}) =>
       MultiAppConfig._(mainCloseMode: closeMode, globalOptions: globalOptions ?? WindowOptions());
 
-  @internal
-  factory MultiAppConfig.defaultConfig() => MultiAppConfig._();
+  factory MultiAppConfig._defaultConfig() => MultiAppConfig._();
 }
 
 enum CloseMode {

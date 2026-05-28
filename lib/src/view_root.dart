@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
+import 'package:multiview_desktop/src/native_channel.dart';
+import 'package:multiview_desktop/src/views_manager.dart';
 
 import 'utils/calc_window_position.dart';
 
@@ -16,7 +18,7 @@ _MultiViewRootState? _rootState;
 
 // ignore: library_private_types_in_public_api
 _MultiViewRootState get globalRootState {
-  if(_rootState == null){
+  if (_rootState == null) {
     throw Exception('globalRootState not initialized. Use runMultiApp instead of runApp or runWidget');
   }
   return _rootState!;
@@ -35,18 +37,10 @@ Widget createMultiViewRoot(Widget home, MultiAppConfig config) => _MultiViewRoot
 /// opened or closed.  Each child is wrapped in a [ViewScope] so that any
 /// descendant can call [MultiViewDesktop.getCurrentId].
 class _MultiViewRoot extends StatefulWidget {
-  _MultiViewRoot({
-    required this.home,
-    required this.config,
-    CascadeCloseService? cascadeCloseService,
-    WindowCommunicatorImpl? communicator,
-  }) : cascadeCloseService = cascadeCloseService ?? CascadeCloseService(),
-       communicator = communicator ?? WindowCommunicatorImpl();
+  const _MultiViewRoot({required this.home, required this.config});
 
   final Widget home;
   final MultiAppConfig config;
-  final CascadeCloseService cascadeCloseService;
-  final WindowCommunicatorImpl communicator;
 
   @override
   State<_MultiViewRoot> createState() => _MultiViewRootState();
@@ -57,31 +51,13 @@ class _MultiViewRoot extends StatefulWidget {
 // ---------------------------------------------------------------------------
 
 class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObserver {
-  static const MethodChannel _staticChannel = MethodChannel('multiview_desktop');
+  late final _ViewsManagerImpl _viewsManagerImpl;
 
-  // The main FlutterView (viewId > 0), captured at startup.
-  FlutterView? _mainView;
+  WindowCommunicator get communicator => _viewsManagerImpl.communicator;
 
-  int get _mainId => _mainView?.viewId ?? 1;
+  ViewsManager get manager => _viewsManagerImpl;
 
-  // viewId -> widget for all secondary views.
-  final Map<int, Widget> _views = {};
-
-  Map<int, Widget> get views => _views;
-
-  // token -> widget, entries waiting for the native "viewCreated" event.
-  final Map<int, Widget> _pending = {};
-  int _nextToken = 0;
-
-  // token -> WindowOptions for pending views.
-  final Map<int, WindowOptions> _pendingOptions = {};
-
-  // viewId -> listener list.
-  final Map<int, ObserverList<WindowListener>> _listeners = {};
-
-  WindowCommunicatorImpl get communicator => widget.communicator;
-
-  CascadeCloseService get _cascadeCloseService => widget.cascadeCloseService;
+  List<int> get allViewsId => _viewsManagerImpl.views.keys.toList();
 
   // --------------------------------------------------------------------------
 
@@ -89,7 +65,11 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   void initState() {
     super.initState();
     _rootState = this;
-    _staticChannel.setMethodCallHandler(_onStaticCall);
+    _viewsManagerImpl = _ViewsManagerImpl(
+      config: widget.config,
+      cascadeCloseService: _CascadeCloseService(),
+      communicator: _WindowCommunicatorImpl(),
+    );
     WidgetsBinding.instance.addObserver(this);
 
     _initMainView();
@@ -100,13 +80,13 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     final initial = WidgetsBinding.instance.platformDispatcher.views.toList();
     if (initial.isEmpty) return;
 
-    _mainView = initial.firstWhere((v) => v.viewId != 0, orElse: () => initial.first);
+    _viewsManagerImpl.mainView = initial.firstWhere((v) => v.viewId != 0, orElse: () => initial.first);
     _applyOptionsToMain();
 
     if (!kReleaseMode) {
       // Close all secondary views after hot restart
-      final orphaned = initial.where((v) => v.viewId != _mainView!.viewId && v.viewId != 0).toList();
-      _removeSecondaryViewsForceAfterRestart(orphaned.map((e) => e.viewId).toList());
+      final orphaned = initial.where((v) => v.viewId != _viewsManagerImpl.mainId && v.viewId != 0).toList();
+      _viewsManagerImpl.removeSecondaryViewsForceAfterRestart(orphaned.map((e) => e.viewId).toList());
     }
   }
 
@@ -128,21 +108,22 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     final nonZero = dispatcher.views.where((v) => v.viewId != 0);
     final FlutterView? realView = nonZero.isEmpty ? null : nonZero.first;
 
-    if (_mainView == null && dispatcher.views.isNotEmpty) {
-      setState(() => _mainView = realView ?? dispatcher.views.first);
+    if (_viewsManagerImpl.mainView == null && dispatcher.views.isNotEmpty) {
+      setState(() => _viewsManagerImpl.mainView = realView ?? dispatcher.views.first);
       _applyOptionsToMain();
       return;
     }
 
-    if (_mainView != null && _mainView!.viewId == 0 && realView != null) {
-      setState(() => _mainView = realView);
+    if (_viewsManagerImpl.mainView != null && _viewsManagerImpl.mainId == 0 && realView != null) {
+      setState(() => _viewsManagerImpl.mainView = realView);
       _applyOptionsToMain();
       return;
     }
 
-    final gone = _views.keys.where((id) => dispatcher.view(id: id) == null).toList();
+    final gone = _viewsManagerImpl.views.keys.where((id) => dispatcher.view(id: id) == null).toList();
 
     if (gone.isNotEmpty) {
+      debugPrint('Окна к удалению: $gone');
       setState(() {
         for (final id in gone) {
           _handleClose(id);
@@ -154,364 +135,23 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   }
 
   // --------------------------------------------------------------------------
-  // Static channel (native -> Dart)
-  // --------------------------------------------------------------------------
-
-  Future<dynamic> _onStaticCall(MethodCall call) async {
-    if (call.method != 'onEvent') return null;
-
-    final String eventName = call.arguments['eventName'] as String;
-
-    if (eventName == 'viewCreated') {
-      // Internal event, not forwarded to WindowListener.
-      final int viewId = call.arguments['viewId'] as int;
-      final int token = call.arguments['token'] as int;
-      final widget = _pending.remove(token);
-      final options = _pendingOptions.remove(token);
-      if (widget != null && mounted) {
-        setState(() => _views[viewId] = widget);
-        if (options != null) {
-          _applyOptions(viewId, options);
-        }
-      }
-      await _setMainPreConfirmClose(false);
-    } else if (eventName == 'main-preconfirm-close') {
-      // Internal event, not forwarded to WindowListener.
-      final int? viewId = call.arguments['viewId'] as int?;
-      if (viewId == _mainId && viewId != null) {
-        switch (widget.config.mainCloseMode) {
-          case CloseMode.none:
-            await _removeViewsNone();
-            break;
-          case CloseMode.cascade:
-            await _removeViewsCascade();
-            break;
-          case CloseMode.forceSecondary:
-            await _removeViewsForce();
-            break;
-          case CloseMode.destroy:
-            await _destroyAllViewsForce();
-            break;
-        }
-      }
-    } else if (eventName == 'confirm-close') {
-      // Internal event, not forwarded to WindowListener.
-      final int? viewId = call.arguments['viewId'] as int?;
-      if (viewId != null) {
-        await _onConfirmClose(viewId);
-      }
-    } else {
-      final int? viewId = call.arguments['viewId'] as int?;
-      if (viewId != null) {
-        _dispatchViewEvent(viewId, eventName);
-      }
-    }
-
-    return null;
-  }
-
-  Future<void> _onConfirmClose(int viewId) async {
-    communicator.disposeView(viewId);
-    await setConfirmClose(viewId, true);
-    await removeView(viewId);
-    _cascadeCloseService.completeWindow(viewId);
-  }
-
-  /// Aborts the cascade close that is waiting on [viewId].
-  ///
-  /// Completing the completer with `false` causes the cascade loop to `return`
-  /// early, leaving the main window open. All other pending completers are
-  /// also cleared so that a later independent close of those windows does not
-  /// unexpectedly resume the (already aborted) cascade.
-  Future<void> cancelCascade(int viewId) async {
-    await _setMainPreConfirmClose(false);
-    _cascadeCloseService.abort(viewId);
-  }
-
-  // --------------------------------------------------------------------------
-  // Per-view event dispatch
-  // --------------------------------------------------------------------------
-
-  void _dispatchViewEvent(int viewId, String eventName) {
-    final list = _listeners[viewId];
-    if (list == null) return;
-    for (final l in List<WindowListener>.from(list)) {
-      l.onWindowEvent(eventName);
-      _dispatchListenerEvent(l, eventName);
-    }
-  }
-
-  void _dispatchListenerEvent(WindowListener listener, String eventName) {
-    switch (eventName) {
-      case 'focus':
-        listener.onWindowFocus();
-      case 'blur':
-        listener.onWindowBlur();
-      case 'maximize':
-        listener.onWindowMaximize();
-      case 'unmaximize':
-        listener.onWindowUnmaximize();
-      case 'minimize':
-        listener.onWindowMinimize();
-      case 'restore':
-        listener.onWindowRestore();
-      case 'resize':
-        listener.onWindowResize();
-      case 'resized':
-        listener.onWindowResized();
-      case 'move':
-        listener.onWindowMove();
-      case 'moved':
-        listener.onWindowMoved();
-      case 'enter-full-screen':
-        listener.onWindowEnterFullScreen();
-      case 'leave-full-screen':
-        listener.onWindowLeaveFullScreen();
-      case 'close':
-        listener.onWindowClose();
-    }
-  }
-
-  // --------------------------------------------------------------------------
   // Internal helpers
   // --------------------------------------------------------------------------
 
-  /// Params:
-  /// - [preferred]: options for new window
-  /// - [global]: global options
-  WindowOptions _compareGlobalAndNewOpts({WindowOptions? preferred, required WindowOptions global}) {
-    if (preferred == null) return global;
-    return WindowOptions(
-      size: preferred.size ?? global.size,
-      minimumSize: preferred.minimumSize ?? global.minimumSize,
-      maximumSize: preferred.maximumSize ?? global.maximumSize,
-      alignment: preferred.alignment ?? global.alignment,
-      backgroundColor: preferred.backgroundColor ?? global.backgroundColor,
-      hideAppFromTaskbar: preferred.hideAppFromTaskbar ?? global.hideAppFromTaskbar,
-      titleBarStyle: preferred.titleBarStyle ?? global.titleBarStyle,
-      windowButtonVisibility: preferred.windowButtonVisibility ?? global.windowButtonVisibility,
-      title: preferred.title ?? global.title,
-      fullScreen: preferred.fullScreen ?? global.fullScreen,
-      alwaysOnTop: preferred.alwaysOnTop ?? global.alwaysOnTop,
-    );
-  }
-
-  Future<void> _applyOptionsToMain() => _applyOptions(_mainId, widget.config.globalOptions);
+  Future<void> _applyOptionsToMain() =>
+      _viewsManagerImpl.applyOptions(_viewsManagerImpl.mainId, opts: widget.config.globalOptions);
 
   void _handleClose(int viewId) {
     if (!mounted) return;
-    communicator.disposeView(viewId);
+    debugPrint('Окна удаляется: $viewId');
+    _viewsManagerImpl.disposeView(viewId);
+    setState(() {});
+  }
+
+  void addView(int viewId, Widget child) {
     setState(() {
-      _views.remove(viewId);
-      _listeners.remove(viewId);
+      _viewsManagerImpl.views[viewId] = child;
     });
-  }
-
-  Future<void> _applyOptions(int viewId, WindowOptions opts) async {
-    Future<void> invoke(String method, [Map<String, dynamic>? extra]) {
-      final args = <String, dynamic>{'viewId': viewId};
-      if (extra != null) args.addAll(extra);
-      return _staticChannel.invokeMethod<void>(method, args);
-    }
-
-    if (opts.size != null) {
-      await invoke('setSize', {'width': opts.size!.width, 'height': opts.size!.height});
-    }
-    if (opts.alignment != null) {
-      await setAlignment(viewId, alignment: opts.alignment!);
-    }
-    if (opts.backgroundColor != null) {
-      await setBackgroundColor(viewId, opts.backgroundColor!);
-    }
-    if (opts.minimumSize != null) {
-      await invoke('setMinimumSize', {'width': opts.minimumSize!.width, 'height': opts.minimumSize!.height});
-    }
-    if (opts.maximumSize != null) {
-      await invoke('setMaximumSize', {'width': opts.maximumSize!.width, 'height': opts.maximumSize!.height});
-    }
-    if (opts.title != null) await invoke('setTitle', {'title': opts.title});
-    if (opts.titleBarStyle != null) {
-      await invoke('setTitleBarStyle', {
-        'titleBarStyle': opts.titleBarStyle!.name,
-        'windowButtonVisibility': opts.windowButtonVisibility ?? true,
-      });
-    }
-    if (opts.alwaysOnTop != null) {
-      await invoke('setAlwaysOnTop', {'isAlwaysOnTop': opts.alwaysOnTop});
-    }
-    if (opts.fullScreen != null) {
-      await invoke('setFullScreen', {'isFullScreen': opts.fullScreen});
-    }
-    if (opts.hideAppFromTaskbar ?? false) {
-      await invoke('hideAppFromTaskbar', {'isHideAppFromTaskbar': true});
-    }
-  }
-
-  Future<void> _removeViewsNone() async {
-    await _setMainPreConfirmClose(true);
-    await removeView(_mainId);
-  }
-
-  /// Returns all secondary view IDs: registered ones plus native "orphaned"
-  /// views that survived a hot restart (present in the platform dispatcher
-  /// but absent from [_views]).
-  List<int> _allSecondaryIds() {
-    final dispatcher = WidgetsBinding.instance.platformDispatcher;
-    final registered = _views.keys.where((id) => id != _mainId);
-    final orphaned = dispatcher.views
-        .toList()
-        .map((v) => v.viewId)
-        .where((id) => id != _mainId && id != 0 && !_views.containsKey(id));
-    return {...registered, ...orphaned}.toList();
-  }
-
-  Future<void> _removeViewsCascade() async {
-    final allViews = _allSecondaryIds().reversed.toList();
-
-    for (final id in allViews) {
-      _cascadeCloseService.attachWindow(id);
-      await focus(id);
-      await removeView(id);
-
-      final closed = await _cascadeCloseService.waitWindow(id);
-      if (!closed) return;
-    }
-
-    await _setMainPreConfirmClose(true);
-    await removeView(_mainId);
-  }
-
-  Future<void> _removeViewsForce() async {
-    _cascadeCloseService.clear();
-    for (final id in _allSecondaryIds()) {
-      await setPreventClose(id, false);
-      await removeView(id);
-    }
-
-    await _setMainPreConfirmClose(true);
-    // not disabled in main view
-    // await setPreventClose(_mainId, false);
-    await removeView(_mainId);
-  }
-
-  Future<void> _destroyAllViewsForce() async {
-    _cascadeCloseService.clear();
-    for (final id in _allSecondaryIds()) {
-      await setPreventClose(id, false);
-      await removeView(id);
-    }
-
-    await _setMainPreConfirmClose(true);
-    await setPreventClose(_mainId, false);
-    await removeView(_mainId);
-  }
-
-  Future<Offset?> _calculateOffFromAlign(int viewId, {required Alignment alignment}) async {
-    final sizeResult = await _staticChannel.invokeMethod<Map>('getBounds', {'viewId': viewId});
-    if (sizeResult != null) {
-      final windowSize = Size((sizeResult['width'] as num).toDouble(), (sizeResult['height'] as num).toDouble());
-      return calcWindowPosition(windowSize, alignment);
-    }
-    return null;
-  }
-
-  Future<void> _removeSecondaryViewsForceAfterRestart(List<int> ids) async {
-    _cascadeCloseService.clear();
-    for (final id in ids) {
-      // Stale entries (e.g. old main window ID after hot restart) are no longer
-      // in the native windows dict, so calls may return NO_WINDOW. Ignore such
-      // errors — the view will be cleaned up by the engine on its own.
-      try {
-        await setPreventClose(id, false);
-        await setConfirmClose(id, true);
-        await removeView(id);
-      } catch (_) {}
-    }
-  }
-
-  // --------------------------------------------------------------------------
-  // Public API used by MultiViewDesktop
-  // --------------------------------------------------------------------------
-
-  Future<void> addView(Widget child, {WindowOptions? options}) async {
-    final comparedOpts = _compareGlobalAndNewOpts(preferred: options, global: widget.config.globalOptions);
-
-    final int token = _nextToken++;
-    _pending[token] = child;
-    _pendingOptions[token] = comparedOpts;
-
-    Offset? pos;
-    final windowSize = Size(comparedOpts.size?.width ?? 800.0, comparedOpts.size?.height ?? 600.0);
-    if (comparedOpts.alignment != null) {
-      pos = await calcWindowPosition(windowSize, comparedOpts.alignment!);
-    }
-    try {
-      await _staticChannel.invokeMethod<void>('createWindow', {
-        'token': token,
-        'width': windowSize.width,
-        'height': windowSize.height,
-        'title': comparedOpts.title ?? '',
-        'position': pos == null ? null : {'x': pos.dx, 'y': pos.dy},
-        'titleBarStyle': comparedOpts.titleBarStyle?.name ?? 'normal',
-        'windowButtonVisibility': comparedOpts.windowButtonVisibility ?? true,
-      });
-    } catch (e) {
-      _pending.remove(token);
-      _pendingOptions.remove(token);
-      rethrow;
-    }
-  }
-
-  Future<void> setBackgroundColor(int viewId, Color color) async {
-    await _staticChannel.invokeMethod<void>(
-      'setBackgroundColor',
-      _args(viewId, {
-        'backgroundColorA': (color.a * 255).round(),
-        'backgroundColorR': (color.r * 255).round(),
-        'backgroundColorG': (color.g * 255).round(),
-        'backgroundColorB': (color.b * 255).round(),
-      }),
-    );
-  }
-
-  Future<void> setPosition(int viewId, {required Offset pos}) async =>
-      await _staticChannel.invokeMethod<void>('setPosition', _args(viewId, {'x': pos.dx, 'y': pos.dy}));
-
-  Future<void> setAlignment(int viewId, {required Alignment alignment}) async {
-    final pos = await _calculateOffFromAlign(viewId, alignment: alignment);
-    if (pos != null) {
-      await setPosition(viewId, pos: pos);
-    }
-  }
-
-  Future<void> removeView(int viewId) async =>
-      await _staticChannel.invokeMethod<void>('closeWindow', {'viewId': viewId});
-
-  Future<void> focus(int viewId) async => await _staticChannel.invokeMethod<void>('focus', _args(viewId));
-
-  Future<void> _setMainPreConfirmClose(bool isPreConfirm) async =>
-      _staticChannel.invokeMethod<void>('mainPreConfirmClose', _args(_mainId, {'mainPreConfirmClose': isPreConfirm}));
-
-  Future<void> setConfirmClose(int viewId, bool isConfirm) async =>
-      await _staticChannel.invokeMethod<void>('confirmClose', _args(viewId, {'confirmClose': isConfirm}));
-
-  Future<void> setPreventClose(int viewId, bool isPreventClose) async =>
-      await _staticChannel.invokeMethod<void>('setPreventClose', _args(viewId, {'isPreventClose': isPreventClose}));
-
-  /// Builds an argument map that always includes the [viewId] so the native
-  /// side can route the call to the right OS window.
-  static Map<String, dynamic> _args(int viewId, [Map<String, dynamic>? extra]) {
-    final map = <String, dynamic>{'viewId': viewId};
-    if (extra != null) map.addAll(extra);
-    return map;
-  }
-
-  void addListener(int viewId, WindowListener listener) {
-    _listeners.putIfAbsent(viewId, () => ObserverList<WindowListener>()).add(listener);
-  }
-
-  void removeListener(int viewId, WindowListener listener) {
-    _listeners[viewId]?.remove(listener);
   }
 
   // --------------------------------------------------------------------------
@@ -522,17 +162,19 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   Widget build(BuildContext context) {
     final dispatcher = WidgetsBinding.instance.platformDispatcher;
     final views = <Widget>[];
-    if (_mainView != null) {
+    final mainView = _viewsManagerImpl.mainView;
+    final mainId = _viewsManagerImpl.mainId;
+    if (mainView != null) {
       views.add(
         View(
-          key: ValueKey('view_$_mainId'),
-          view: _mainView!,
-          child: ViewScope(viewId: _mainView!.viewId, child: widget.home),
+          key: ValueKey('view_$mainId'),
+          view: mainView,
+          child: ViewScope(viewId: mainView.viewId, child: widget.home),
         ),
       );
     }
 
-    for (final entry in _views.entries) {
+    for (final entry in _viewsManagerImpl.views.entries) {
       final int id = entry.key;
       final flutterView = dispatcher.view(id: id);
       if (flutterView != null) {
@@ -550,9 +192,8 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   }
 }
 
-@internal
-class CascadeCloseService {
-  CascadeCloseService();
+class _CascadeCloseService {
+  _CascadeCloseService();
 
   // viewId -> completer: true = closed, false = cancelled (preventClose).
   final Map<int, Completer<bool>> _closeCompleters = {};
@@ -588,9 +229,8 @@ class CascadeCloseService {
   void detachWindow(int id) => _closeCompleters.remove(id);
 }
 
-@internal
-class WindowCommunicatorImpl extends WindowCommunicator {
-  WindowCommunicatorImpl();
+class _WindowCommunicatorImpl implements WindowCommunicator {
+  _WindowCommunicatorImpl();
 
   // Per-view streams, keyed by viewId.
   final Map<int, StreamController<dynamic>> _viewControllers = {};
@@ -680,5 +320,703 @@ class WindowCommunicatorImpl extends WindowCommunicator {
     }
     _viewControllers.clear();
     _linkedViewControllers.clear();
+  }
+}
+
+class _ViewsManagerImpl implements ViewsManager {
+  final _CascadeCloseService cascadeCloseService;
+  final _WindowCommunicatorImpl communicator;
+  final MultiAppConfig config;
+
+  late CloseMode closeMode;
+
+  _ViewsManagerImpl({required this.config, required this.cascadeCloseService, required this.communicator}) {
+    _nativeChannel.setMethodCallHandler(_onStaticCall);
+    closeMode = config.mainCloseMode;
+  }
+
+  WindowOptions _compareGlobalAndNewOpts({WindowOptions? preferred, required WindowOptions global}) {
+    if (preferred == null) return global;
+    return WindowOptions(
+      size: preferred.size ?? global.size,
+      minimumSize: preferred.minimumSize ?? global.minimumSize,
+      maximumSize: preferred.maximumSize ?? global.maximumSize,
+      alignment: preferred.alignment ?? global.alignment,
+      backgroundColor: preferred.backgroundColor ?? global.backgroundColor,
+      hideAppFromTaskbar: preferred.hideAppFromTaskbar ?? global.hideAppFromTaskbar,
+      titleBarStyle: preferred.titleBarStyle ?? global.titleBarStyle,
+      windowButtonVisibility: preferred.windowButtonVisibility ?? global.windowButtonVisibility,
+      title: preferred.title ?? global.title,
+      fullScreen: preferred.fullScreen ?? global.fullScreen,
+      alwaysOnTop: preferred.alwaysOnTop ?? global.alwaysOnTop,
+    );
+  }
+
+  static final NativeChannel _nativeChannel = NativeChannel();
+
+  // token -> widget, entries waiting for the native "viewCreated" event.
+  int _nextToken = 0;
+
+  // token -> Completer<int?> for pending views.
+  final Map<int, Completer<int?>> _createCompleters = {};
+
+  // viewId -> listener list.
+  final Map<int, ObserverList<WindowListener>> _listeners = {};
+
+  // final Map<int, ViewController> _controllers = {};
+
+  FlutterView? _mainView;
+
+  FlutterView? get mainView => _mainView;
+
+  set mainView(FlutterView value) {
+    _mainView = value;
+    _nativeChannel.mainId = value.viewId;
+  }
+
+  int get mainId => _mainView?.viewId ?? 1;
+
+  // viewId -> widget for all secondary views.
+  final Map<int, Widget> views = {};
+
+  Future<dynamic> _onStaticCall(MethodCall call) async {
+    if (call.method != 'onEvent') return null;
+
+    final String eventName = call.arguments['eventName'] as String;
+
+    if (eventName == 'viewCreated') {
+      // Internal event, not forwarded to WindowListener.
+      final int viewId = call.arguments['viewId'] as int;
+      final int token = call.arguments['token'] as int;
+      _createComplete(token, viewId);
+      await _nativeChannel.setMainPreConfirmClose(false);
+    } else if (eventName == 'main-preconfirm-close') {
+      // Internal event, not forwarded to WindowListener.
+      final int? viewId = call.arguments['viewId'] as int?;
+      if (viewId == mainId && viewId != null) {
+        switch (closeMode) {
+          case CloseMode.none:
+            await _removeViewsNone();
+            break;
+          case CloseMode.cascade:
+            await _removeViewsCascade();
+            break;
+          case CloseMode.forceSecondary:
+            await _removeSecondaryViewsForce();
+            break;
+          case CloseMode.destroy:
+            await _destroyAllViewsForce();
+            break;
+        }
+      }
+    } else if (eventName == 'confirm-close') {
+      // Internal event, not forwarded to WindowListener.
+      final int? viewId = call.arguments['viewId'] as int?;
+      if (viewId != null) {
+        await _onConfirmClose(viewId);
+      }
+    } else {
+      final int? viewId = call.arguments['viewId'] as int?;
+      if (viewId != null) {
+        _dispatchViewEvent(viewId, eventName);
+      }
+    }
+
+    return null;
+  }
+
+  Future<void> _onConfirmClose(int viewId) async {
+    await disposeView(viewId);
+    communicator.disposeView(viewId);
+    await _nativeChannel.setConfirmClose(viewId, isConfirm: true);
+    await _nativeChannel.softCloseWindow(viewId);
+
+    cascadeCloseService.completeWindow(viewId);
+  }
+
+  /// Aborts the cascade close that is waiting on [viewId].
+  ///
+  /// Completing the completer with `false` causes the cascade loop to `return`
+  /// early, leaving the main window open. All other pending completers are
+  /// also cleared so that a later independent close of those windows does not
+  /// unexpectedly resume the (already aborted) cascade.
+  Future<void> _cancelCascade(int viewId) async {
+    await _nativeChannel.setMainPreConfirmClose(false);
+    cascadeCloseService.abort(viewId);
+  }
+
+  // --------------------------------------------------------------------------
+  // Per-view event dispatch
+  // --------------------------------------------------------------------------
+
+  void _dispatchViewEvent(int viewId, String eventName) {
+    final list = _listeners[viewId];
+    if (list == null) return;
+    for (final l in List<WindowListener>.from(list)) {
+      l.onWindowEvent(eventName);
+      _dispatchListenerEvent(l, eventName);
+    }
+  }
+
+  void _dispatchListenerEvent(WindowListener listener, String eventName) {
+    switch (eventName) {
+      case 'focus':
+        listener.onWindowFocus();
+      case 'blur':
+        listener.onWindowBlur();
+      case 'maximize':
+        listener.onWindowMaximize();
+      case 'unmaximize':
+        listener.onWindowUnmaximize();
+      case 'minimize':
+        listener.onWindowMinimize();
+      case 'restore':
+        listener.onWindowRestore();
+      case 'resize':
+        listener.onWindowResize();
+      case 'resized':
+        listener.onWindowResized();
+      case 'move':
+        listener.onWindowMove();
+      case 'moved':
+        listener.onWindowMoved();
+      case 'enter-full-screen':
+        listener.onWindowEnterFullScreen();
+      case 'leave-full-screen':
+        listener.onWindowLeaveFullScreen();
+      case 'close':
+        listener.onWindowClose();
+    }
+  }
+
+  Future<void> _removeViewsNone() async {
+    await _nativeChannel.setMainPreConfirmClose(true);
+    await _nativeChannel.softCloseWindow(mainId);
+  }
+
+  /// Returns all secondary view IDs: registered ones plus native "orphaned"
+  /// views that survived a hot restart (present in the platform dispatcher
+  /// but absent from [_views]).
+  List<int> _allSecondaryIds() {
+    final dispatcher = WidgetsBinding.instance.platformDispatcher;
+
+    final registered = views.keys.where((id) => id != mainId);
+    final orphaned = dispatcher.views
+        .toList()
+        .map((v) => v.viewId)
+        .where((id) => id != mainId && id != 0 && !views.containsKey(id));
+    return {...registered, ...orphaned}.toList();
+  }
+
+  Future<void> _removeViewsCascade() async {
+    final allViews = _allSecondaryIds().reversed.toList();
+
+    for (final id in allViews) {
+      cascadeCloseService.attachWindow(id);
+      await _nativeChannel.focus(id);
+      await _nativeChannel.softCloseWindow(id);
+
+      final closed = await cascadeCloseService.waitWindow(id);
+      if (!closed) return;
+    }
+    await _nativeChannel.setMainPreConfirmClose(true);
+    await _nativeChannel.softCloseWindow(mainId);
+  }
+
+  Future<void> _removeSecondaryViewsForce() async {
+    cascadeCloseService.clear();
+    for (final id in _allSecondaryIds()) {
+      await _nativeChannel.forceCloseWindow(id);
+    }
+    await _nativeChannel.setMainPreConfirmClose(true);
+    await _nativeChannel.softCloseWindow(mainId);
+  }
+
+  Future<void> _destroyAllViewsForce() async {
+    cascadeCloseService.clear();
+    for (final id in _allSecondaryIds()) {
+      await _nativeChannel.forceCloseWindow(id);
+    }
+    await _nativeChannel.forceCloseWindow(mainId);
+  }
+
+  Future<void> removeSecondaryViewsForceAfterRestart(List<int> ids) async {
+    cascadeCloseService.clear();
+    for (final id in ids) {
+      try {
+        await _nativeChannel.forceCloseWindow(id);
+      } catch (_) {}
+    }
+  }
+
+  Future<void> applyOptions(int viewId, {required WindowOptions opts}) async => _applyOptions(viewId, opts);
+
+  Future<void> _applyOptions(int viewId, WindowOptions opts) async {
+    if (opts.size != null) {
+      await _nativeChannel.setSize(viewId, size: opts.size!);
+    }
+    if (opts.alignment != null) {
+      await _nativeChannel.setAlignment(viewId, alignment: opts.alignment!);
+    }
+    if (opts.backgroundColor != null) {
+      await _nativeChannel.setBackgroundColor(viewId, color: opts.backgroundColor!);
+    }
+    if (opts.minimumSize != null) {
+      await _nativeChannel.setMinSize(viewId, size: opts.minimumSize!);
+    }
+    if (opts.maximumSize != null) {
+      await _nativeChannel.setMaxSize(viewId, size: opts.minimumSize!);
+    }
+    if (opts.title != null) await _nativeChannel.setTitle(viewId, title: opts.title!);
+    if (opts.titleBarStyle != null) {
+      await _nativeChannel.setTitleBarStyle(
+        viewId,
+        style: opts.titleBarStyle!,
+        buttonVisibility: opts.windowButtonVisibility!,
+      );
+    }
+    if (opts.alwaysOnTop != null) {
+      await _nativeChannel.setAlwaysOnTop(viewId, isAlwaysOnTop: opts.alwaysOnTop!);
+    }
+    if (opts.fullScreen != null) {
+      await _nativeChannel.setFullScreen(viewId, isFullScreen: opts.fullScreen!);
+    }
+    if (opts.hideAppFromTaskbar ?? false) {
+      await _nativeChannel.hideAppFromTaskbar(isHideAppFromTaskbar: true);
+    }
+  }
+
+  Future<void> disposeView(int viewId) async {
+    _listeners.remove(viewId);
+    views.remove(viewId);
+    communicator.disposeView(viewId);
+  }
+
+  @override
+  Future<int> createWindow({WindowOptions? newOpts, required Future<void> Function(int) onCreated, int? parent}) async {
+    final comparedOpts = _compareGlobalAndNewOpts(preferred: newOpts, global: config.globalOptions);
+
+    final newId = await _createWindow(
+      opts: comparedOpts,
+      onCreated: (viewId) async {
+        await onCreated(viewId);
+      },
+    );
+
+    return newId;
+  }
+
+  Future<void> _createComplete(int token, int newViewId) async {
+    _createCompleters[token]?.complete(newViewId);
+    await _nativeChannel.setMainPreConfirmClose(false);
+  }
+
+  Future<int> _createWindow({required WindowOptions opts, required Future<void> Function(int) onCreated}) async {
+    final int token = _nextToken++;
+    _createCompleters[token] = Completer();
+
+    Offset? pos;
+    final windowSize = Size(opts.size?.width ?? 800.0, opts.size?.height ?? 600.0);
+    if (opts.alignment != null) {
+      pos = await calcWindowPosition(windowSize, opts.alignment!);
+    }
+    try {
+      await _nativeChannel.createWindowRequest(
+        token: token,
+        title: opts.title ?? '',
+        titleBarStyleStr: opts.titleBarStyle?.name ?? 'normal',
+        windowButtonVisibility: opts.windowButtonVisibility ?? true,
+        windowSize: windowSize,
+        pos: pos,
+      );
+    } catch (e, st) {
+      throw Exception('Failed to create new window, tokenId: $token. Error: $e, stack: $st');
+    }
+
+    final newViewId = await _createCompleters[token]!.future.timeout(Duration(seconds: 1), onTimeout: () => null);
+    _createCompleters.remove(token);
+
+    if (newViewId == null) {
+      throw Exception('Failed to create new window, tokenId: $token. Error: timeout');
+    }
+
+    await onCreated(newViewId);
+    await _applyOptions(newViewId, opts);
+
+    return newViewId;
+  }
+
+  @override
+  void addListener(int viewId, WindowListener listener) {
+    _listeners.putIfAbsent(viewId, () => ObserverList<WindowListener>()).add(listener);
+  }
+
+  @override
+  void removeListener(int viewId, WindowListener listener) {
+    _listeners[viewId]?.remove(listener);
+  }
+
+  @override
+  Future<void> blur(int viewId) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.blur(viewId));
+  }
+
+  @override
+  Future<void> cancelCascadeClose(int viewId) async {
+    await _cancelCascade(viewId);
+  }
+
+  @override
+  Future<void> center(int viewId) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setAlignment(viewId, alignment: Alignment.center));
+  }
+
+  @override
+  Future<void> closeWindow(int viewId, {CloseMode closeMode = CloseMode.none}) async {
+    await _viewExistChecker(viewId, () async {
+      switch (closeMode) {
+        case CloseMode.none:
+          await _nativeChannel.softCloseWindow(viewId);
+          break;
+        case CloseMode.cascade:
+          await _removeViewsCascade();
+          break;
+        case CloseMode.forceSecondary:
+          await _removeSecondaryViewsForce();
+          break;
+        case CloseMode.destroy:
+          await _destroyAllViewsForce();
+          break;
+      }
+    });
+  }
+
+  @override
+  Future<void> focus(int viewId) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.focus(viewId));
+  }
+
+  @override
+  Future<Rect> getBounds(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.getBounds(viewId)) ?? Rect.zero;
+  }
+
+  @override
+  Future<double> getOpacity(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.getOpacity(viewId)) ?? 1;
+  }
+
+  @override
+  Future<Offset> getPosition(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.getPosition(viewId)) ?? Offset.zero;
+  }
+
+  @override
+  Future<Size> getSize(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.getSize(viewId)) ?? Size.zero;
+  }
+
+  @override
+  Future<String> getTitle(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.getTitle(viewId)) ?? '';
+  }
+
+  @override
+  Future<({bool? buttonVisibility, TitleBarStyle? style})> getTitleBarStyle(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.getTitleBarStyle(viewId)) ??
+        (buttonVisibility: true, style: TitleBarStyle.normal);
+  }
+
+  @override
+  Future<bool> hasShadow(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.hasShadow(viewId)) ?? true;
+  }
+
+  @override
+  Future<void> hide(int viewId) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.hide(viewId));
+  }
+
+  @override
+  Future<void> hideAppFromTaskbar(bool isHideAppFromTaskbar) async {
+    await _viewExistChecker(
+      mainId,
+      () async => await _nativeChannel.hideAppFromTaskbar(isHideAppFromTaskbar: isHideAppFromTaskbar),
+    );
+  }
+
+  @override
+  Future<void> hideFromCollection(int viewId, bool isHideFromCollection) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.hideFromCollection(viewId, isHideFromCollection));
+  }
+
+  @override
+  Future<bool> isAlwaysOnTop(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.isAlwaysOnTop(viewId)) ?? false;
+  }
+
+  @override
+  Future<bool> isClosable(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.isClosable(viewId)) ?? true;
+  }
+
+  @override
+  Future<bool> isFocused(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.isFocused(viewId)) ?? true;
+  }
+
+  @override
+  Future<bool> isFullScreen(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.isFullScreen(viewId)) ?? false;
+  }
+
+  @override
+  Future<bool> isHideAppFromTaskbar() async {
+    return await _viewExistChecker(mainId, () async => await _nativeChannel.isHideAppFromTaskbar()) ?? false;
+  }
+
+  @override
+  Future<bool> isHideFromCollection(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.isHideFromCollection(viewId)) ?? false;
+  }
+
+  @override
+  Future<bool> isMaximizable(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.isMaximizable(viewId)) ?? true;
+  }
+
+  @override
+  Future<bool> isMaximized(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.isMaximized(viewId)) ?? false;
+  }
+
+  @override
+  Future<bool> isMinimizable(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.isMinimizable(viewId)) ?? true;
+  }
+
+  @override
+  Future<bool> isMinimized(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.isMinimized(viewId)) ?? false;
+  }
+
+  @override
+  Future<bool> isMovable(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.isMovable(viewId)) ?? true;
+  }
+
+  @override
+  Future<bool> isPreventClose(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.isPreventClose(viewId)) ?? false;
+  }
+
+  @override
+  Future<bool> isResizable(int viewId) async {
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.isResizable(viewId)) ?? true;
+  }
+
+  @override
+  Future<bool> isVisible(int viewId) async {
+    //TODO: протестить
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.isVisible(viewId)) ?? true;
+  }
+
+  @override
+  Future<bool> isVisibleOnAllWorkspaces(int viewId) async {
+    //TODO: протестить
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.isVisibleOnAllWorkspaces(viewId)) ?? true;
+  }
+
+  @override
+  Future<void> maximize(int viewId, {bool vertically = false}) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.maximize(viewId));
+  }
+
+  @override
+  Future<void> minimize(int viewId) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.minimize(viewId));
+  }
+
+  @override
+  Future<void> popUpWindowMenu(int viewId) async {
+    //TODO: протестить
+    await _viewExistChecker(viewId, () async => await _nativeChannel.popUpWindowMenu(viewId));
+  }
+
+  @override
+  Future<void> restore(int viewId) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.restore(viewId));
+  }
+
+  @override
+  Future<void> setAlignment(int viewId, Alignment alignment) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setAlignment(viewId, alignment: alignment));
+  }
+
+  @override
+  Future<void> setAlwaysOnTop(int viewId, bool isAlwaysOnTop) async {
+    await _viewExistChecker(
+      viewId,
+      () async => await _nativeChannel.setAlwaysOnTop(viewId, isAlwaysOnTop: isAlwaysOnTop),
+    );
+  }
+
+  @override
+  Future<void> setAsFrameless(int viewId) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setAsFrameless(viewId));
+  }
+
+  @override
+  Future<void> setAspectRatio(int viewId, double ratio) async {
+    //TODO: протестить
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setAspectRatio(viewId, ratio));
+  }
+
+  @override
+  Future<void> setBackgroundColor(int viewId, Color color) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setBackgroundColor(viewId, color: color));
+  }
+
+  @override
+  Future<void> setBadgeLabel(int viewId, String? label) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setBadgeLabel(viewId, label: label));
+  }
+
+  @override
+  Future<void> setBrightness(int viewId, Brightness brightness) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setBrightness(viewId, brightness));
+  }
+
+  @override
+  Future<void> setClosable(int viewId, bool isClosable) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setClosable(viewId, isClosable));
+  }
+
+  @override
+  Future<void> setCloseMode(CloseMode closeMode) async => this.closeMode = closeMode;
+
+  @override
+  Future<void> setFullScreen(int viewId, bool isFullScreen) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setFullScreen(viewId, isFullScreen: isFullScreen));
+  }
+
+  @override
+  Future<void> setHasShadow(int viewId, bool value) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setHasShadow(viewId, value));
+  }
+
+  @override
+  Future<void> setIgnoreMouseEvents(int viewId, bool ignore, {bool forward = false}) async {
+    //TODO: протестить
+    await _viewExistChecker(
+      viewId,
+      () async => await _nativeChannel.setIgnoreMouseEvents(viewId, ignore, forward: forward),
+    );
+  }
+
+  @override
+  Future<void> setMaximizable(int viewId, bool isMaximizable) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setMaximizable(viewId, isMaximizable));
+  }
+
+  @override
+  Future<void> setMaximumSize(int viewId, Size size) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setMaxSize(viewId, size: size));
+  }
+
+  @override
+  Future<void> setMinimizable(int viewId, bool isMinimizable) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setMinimizable(viewId, isMinimizable));
+  }
+
+  @override
+  Future<void> setMinimumSize(int viewId, Size size) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setMinSize(viewId, size: size));
+  }
+
+  @override
+  Future<void> setMovable(int viewId, bool isMovable) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setMovable(viewId, isMovable));
+  }
+
+  @override
+  Future<void> setOpacity(int viewId, double opacity) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setOpacity(viewId, opacity));
+  }
+
+  @override
+  Future<void> setPosition(int viewId, Offset position) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setPosition(viewId, pos: position));
+  }
+
+  @override
+  Future<void> setPreventClose(int viewId, bool isPreventClose) async {
+    await _viewExistChecker(
+      viewId,
+      () async => await _nativeChannel.setPreventClose(viewId, isPreventClose: isPreventClose),
+    );
+  }
+
+  @override
+  Future<void> setProgressBar(double progress) async {
+    await _viewExistChecker(mainId, () async => await _nativeChannel.setProgressBar(progress));
+  }
+
+  @override
+  Future<void> setResizable(int viewId, bool isResizable) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setResizable(viewId, isResizable));
+  }
+
+  @override
+  Future<void> setSize(int viewId, Size size) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setSize(viewId, size: size));
+  }
+
+  @override
+  Future<void> setTitle(int viewId, String title) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.setTitle(viewId, title: title));
+  }
+
+  @override
+  Future<void> setTitleBarStyle(int viewId, TitleBarStyle style, {bool windowButtonVisibility = true}) async {
+    await _viewExistChecker(
+      viewId,
+      () async => await _nativeChannel.setTitleBarStyle(viewId, style: style, buttonVisibility: windowButtonVisibility),
+    );
+  }
+
+  @override
+  Future<void> setVisibleOnAllWorkspaces(int viewId, bool visible, {bool visibleOnFullScreen = false}) async {
+    //TODO: протестить
+    await _viewExistChecker(
+      viewId,
+      () async =>
+          await _nativeChannel.setVisibleOnAllWorkspaces(viewId, visible, visibleOnFullScreen: visibleOnFullScreen),
+    );
+  }
+
+  @override
+  Future<void> show(int viewId) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.show(viewId));
+  }
+
+  @override
+  Future<void> startDragging(int viewId) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.startDragging(viewId));
+  }
+
+  @override
+  Future<void> startResizing(int viewId, ResizeEdge edge) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.startResizing(viewId, edge));
+  }
+
+  @override
+  Future<void> unmaximize(int viewId) async {
+    await _viewExistChecker(viewId, () async => await _nativeChannel.unmaximize(viewId));
+  }
+
+  Future<T?> _viewExistChecker<T>(int viewId, Future<T> Function() func) async {
+    if (!views.containsKey(viewId) && viewId != mainId) return null;
+    return await func();
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
+import 'package:multiview_desktop/src/views_manager.dart';
 
 import 'view_root.dart' show globalRootState;
 
@@ -40,17 +41,9 @@ class MultiViewDesktop {
   // Helpers
   // -------------------------------------------------------------------------
 
-  static const _kChannel = MethodChannel('multiview_desktop');
-
   static WindowCommunicator get communicator => globalRootState.communicator;
 
-  /// Builds an argument map that always includes the [viewId] so the native
-  /// side can route the call to the right OS window.
-  static Map<String, dynamic> _args(int viewId, [Map<String, dynamic>? extra]) {
-    final map = <String, dynamic>{'viewId': viewId};
-    if (extra != null) map.addAll(extra);
-    return map;
-  }
+  static ViewsManager get _manager => globalRootState.manager;
 
   // -------------------------------------------------------------------------
   // Identity
@@ -60,7 +53,7 @@ class MultiViewDesktop {
   static int getCurrentId(BuildContext context) => ViewScope.of(context).viewId;
 
   /// Returns all active view ids
-  static List<int> get allViewsIds => globalRootState.views.keys.toList();
+  static List<int> get allViewsIds => globalRootState.allViewsId;
 
   // -------------------------------------------------------------------------
   // Window lifecycle
@@ -78,7 +71,12 @@ class MultiViewDesktop {
   static Future<void> addWindow(Widget child, {WindowOptions? options, int? parent}) async {
     //TODO: use parent id. Example in MultiWindow experimental feature.
     // https://github.com/flutter/flutter/blob/master/examples/multiple_windows/lib/app/main_window.dart
-    await globalRootState.addView(child, options: options);
+    await _manager.createWindow(
+      newOpts: options,
+      onCreated: (int newId) async {
+        globalRootState.addView(newId, child);
+      },
+    );
   }
 
   /// Closes the window that owns [context].
@@ -89,9 +87,8 @@ class MultiViewDesktop {
   /// emits a `confirm-close` event instead.  Once the confirmation flag is
   /// set and preventClose is cleared, calling this again actually closes the
   /// window.
-  static Future<void> closeWindow(BuildContext context) async {
-    final id = getCurrentId(context);
-    await globalRootState.removeView(id);
+  static Future<void> closeWindow(BuildContext context, {CloseMode closeMode = CloseMode.none}) async {
+    await _manager.closeWindow(getCurrentId(context), closeMode: closeMode);
   }
 
   /// Closes all windows cascade from last to main
@@ -109,7 +106,7 @@ class MultiViewDesktop {
   /// Returns whether programmatic (and native) close is currently blocked for
   /// the window that owns [context].
   static Future<bool> isPreventClose(BuildContext context) async {
-    return await _kChannel.invokeMethod<bool>('isPreventClose', _args(getCurrentId(context))) ?? false;
+    return await _manager.isPreventClose(getCurrentId(context));
   }
 
   /// When set to `true`, any attempt to close the window (either via
@@ -118,7 +115,7 @@ class MultiViewDesktop {
   ///
   /// Set back to `false` to re-enable closing.
   static Future<void> setPreventClose(BuildContext context, bool isPreventClose) async {
-    globalRootState.setPreventClose(getCurrentId(context), isPreventClose);
+    await _manager.setPreventClose(getCurrentId(context), isPreventClose);
   }
 
   /// Explicitly cancels a pending cascade close initiated by the main window.
@@ -131,8 +128,8 @@ class MultiViewDesktop {
   /// Without calling this method the cascade completer for this window hangs
   /// indefinitely and any later close of this window would unexpectedly trigger
   /// the main window to close as well.
-  static void cancelCascadeClose(BuildContext context) {
-    globalRootState.cancelCascade(getCurrentId(context));
+  static Future<void> cancelCascadeClose(BuildContext context) async {
+    await _manager.cancelCascadeClose(getCurrentId(context));
   }
 
   // -------------------------------------------------------------------------
@@ -142,12 +139,12 @@ class MultiViewDesktop {
   /// Subscribes [listener] to window events for the window that owns
   /// [context].
   static void addListener(BuildContext context, WindowListener listener) {
-    globalRootState.addListener(getCurrentId(context), listener);
+    _manager.addListener(getCurrentId(context), listener);
   }
 
   /// Unsubscribes [listener] from window events.
   static void removeListener(BuildContext context, WindowListener listener) {
-    globalRootState.removeListener(getCurrentId(context), listener);
+    _manager.removeListener(getCurrentId(context), listener);
   }
 
   // -------------------------------------------------------------------------
@@ -155,11 +152,11 @@ class MultiViewDesktop {
   // -------------------------------------------------------------------------
 
   static Future<String> getTitle(BuildContext context) async {
-    return await _kChannel.invokeMethod<String>('getTitle', _args(getCurrentId(context))) ?? '';
+    return await _manager.getTitle(getCurrentId(context));
   }
 
   static Future<void> setTitle(BuildContext context, String title) async {
-    await _kChannel.invokeMethod<void>('setTitle', _args(getCurrentId(context), {'title': title}));
+    await _manager.setTitle(getCurrentId(context), title);
   }
 
   /// Changes the title-bar style of the current window.
@@ -171,56 +168,40 @@ class MultiViewDesktop {
     TitleBarStyle style, {
     bool windowButtonVisibility = true,
   }) async {
-    await _kChannel.invokeMethod<void>(
-      'setTitleBarStyle',
-      _args(getCurrentId(context), {'titleBarStyle': style.name, 'windowButtonVisibility': windowButtonVisibility}),
-    );
+    await _manager.setTitleBarStyle(getCurrentId(context), style, windowButtonVisibility: windowButtonVisibility);
   }
 
   static Future<({TitleBarStyle? style, bool? buttonVisibility})> getTitleBarStyle(BuildContext context) async {
-    final mapResult = await _kChannel.invokeMethod<Map<Object?, Object?>>(
-      'getTitleBarStyle',
-      _args(getCurrentId(context)),
-    );
-
-    return (
-      style: _barStyleFromJson(mapResult?['style'] as String?),
-      buttonVisibility: mapResult?['windowButtonVisibility'] as bool?,
-    );
-  }
-
-  static TitleBarStyle _barStyleFromJson(String? styleStr) {
-    if (styleStr == 'hidden') return TitleBarStyle.hidden;
-    return TitleBarStyle.normal;
+    return await _manager.getTitleBarStyle(getCurrentId(context));
   }
 
   /// Removes the window frame (title bar + border) entirely.
   static Future<void> setAsFrameless(BuildContext context) async {
-    await _kChannel.invokeMethod<void>('setAsFrameless', _args(getCurrentId(context)));
+    await _manager.setAsFrameless(getCurrentId(context));
   }
 
   static Future<void> setBackgroundColor(BuildContext context, Color color) async {
-    await globalRootState.setBackgroundColor(getCurrentId(context), color);
+    await _manager.setBackgroundColor(getCurrentId(context), color);
   }
 
   static Future<void> setBrightness(BuildContext context, Brightness brightness) async {
-    await _kChannel.invokeMethod<void>('setBrightness', _args(getCurrentId(context), {'brightness': brightness.name}));
+    await _manager.setBrightness(getCurrentId(context), brightness);
   }
 
   static Future<void> setOpacity(BuildContext context, double opacity) async {
-    await _kChannel.invokeMethod<void>('setOpacity', _args(getCurrentId(context), {'opacity': opacity}));
+    await _manager.setOpacity(getCurrentId(context), opacity);
   }
 
   static Future<double> getOpacity(BuildContext context) async {
-    return await _kChannel.invokeMethod<double>('getOpacity', _args(getCurrentId(context))) ?? 1.0;
+    return await _manager.getOpacity(getCurrentId(context));
   }
 
   static Future<bool> hasShadow(BuildContext context) async {
-    return await _kChannel.invokeMethod<bool>('hasShadow', _args(getCurrentId(context))) ?? true;
+    return await _manager.hasShadow(getCurrentId(context));
   }
 
   static Future<void> setHasShadow(BuildContext context, bool value) async {
-    await _kChannel.invokeMethod<void>('setHasShadow', _args(getCurrentId(context), {'hasShadow': value}));
+    await _manager.setHasShadow(getCurrentId(context), value);
   }
 
   // -------------------------------------------------------------------------
@@ -228,13 +209,7 @@ class MultiViewDesktop {
   // -------------------------------------------------------------------------
 
   static Future<Rect> getBounds(BuildContext context) async {
-    final Map<dynamic, dynamic> r = await _kChannel.invokeMethod('getBounds', _args(getCurrentId(context))) as Map;
-    return Rect.fromLTWH(
-      (r['x'] as num).toDouble(),
-      (r['y'] as num).toDouble(),
-      (r['width'] as num).toDouble(),
-      (r['height'] as num).toDouble(),
-    );
+    return await _manager.getBounds(getCurrentId(context));
   }
 
   static Future<Size> getSize(BuildContext context) async => (await getBounds(context)).size;
@@ -242,40 +217,31 @@ class MultiViewDesktop {
   static Future<Offset> getPosition(BuildContext context) async => (await getBounds(context)).topLeft;
 
   static Future<void> setSize(BuildContext context, Size size) async {
-    await _kChannel.invokeMethod<void>(
-      'setSize',
-      _args(getCurrentId(context), {'width': size.width, 'height': size.height}),
-    );
+    await _manager.setSize(getCurrentId(context), size);
   }
 
   static Future<void> setPosition(BuildContext context, Offset position) async {
-    await globalRootState.setPosition(getCurrentId(context), pos: position);
+    await _manager.setPosition(getCurrentId(context), position);
   }
 
   static Future<void> center(BuildContext context) async {
-    await globalRootState.setAlignment(getCurrentId(context), alignment: Alignment.center);
+    await _manager.center(getCurrentId(context));
   }
 
   static Future<void> setAlignment(BuildContext context, Alignment alignment) async {
-    await globalRootState.setAlignment(getCurrentId(context), alignment: alignment);
+    await _manager.setAlignment(getCurrentId(context), alignment);
   }
 
   static Future<void> setMinimumSize(BuildContext context, Size size) async {
-    await _kChannel.invokeMethod<void>(
-      'setMinimumSize',
-      _args(getCurrentId(context), {'width': size.width, 'height': size.height}),
-    );
+    await _manager.setMinimumSize(getCurrentId(context), size);
   }
 
   static Future<void> setMaximumSize(BuildContext context, Size size) async {
-    await _kChannel.invokeMethod<void>(
-      'setMaximumSize',
-      _args(getCurrentId(context), {'width': size.width, 'height': size.height}),
-    );
+    await _manager.setMaximumSize(getCurrentId(context), size);
   }
 
   static Future<void> setAspectRatio(BuildContext context, double ratio) async {
-    await _kChannel.invokeMethod<void>('setAspectRatio', _args(getCurrentId(context), {'aspectRatio': ratio}));
+    await _manager.setAspectRatio(getCurrentId(context), ratio);
   }
 
   // -------------------------------------------------------------------------
@@ -283,27 +249,27 @@ class MultiViewDesktop {
   // -------------------------------------------------------------------------
 
   static Future<void> show(BuildContext context) async {
-    await _kChannel.invokeMethod<void>('show', _args(getCurrentId(context)));
+    await _manager.show(getCurrentId(context));
   }
 
   static Future<void> hide(BuildContext context) async {
-    await _kChannel.invokeMethod<void>('hide', _args(getCurrentId(context)));
+    await _manager.hide(getCurrentId(context));
   }
 
   static Future<bool> isVisible(BuildContext context) async {
-    return await _kChannel.invokeMethod<bool>('isVisible', _args(getCurrentId(context))) ?? true;
+    return await _manager.isVisible(getCurrentId(context));
   }
 
   static Future<void> focus(BuildContext context) async {
-    await globalRootState.focus(getCurrentId(context));
+    await _manager.focus(getCurrentId(context));
   }
 
   static Future<void> blur(BuildContext context) async {
-    await _kChannel.invokeMethod<void>('blur', _args(getCurrentId(context)));
+    await _manager.blur(getCurrentId(context));
   }
 
   static Future<bool> isFocused(BuildContext context) async {
-    return await _kChannel.invokeMethod<bool>('isFocused', _args(getCurrentId(context))) ?? false;
+    return await _manager.isFocused(getCurrentId(context));
   }
 
   // -------------------------------------------------------------------------
@@ -311,35 +277,35 @@ class MultiViewDesktop {
   // -------------------------------------------------------------------------
 
   static Future<bool> isMaximized(BuildContext context) async {
-    return await _kChannel.invokeMethod<bool>('isMaximized', _args(getCurrentId(context))) ?? false;
+    return await _manager.isMaximized(getCurrentId(context));
   }
 
   static Future<void> maximize(BuildContext context, {bool vertically = false}) async {
-    await _kChannel.invokeMethod<void>('maximize', _args(getCurrentId(context), {'vertically': vertically}));
+    await _manager.maximize(getCurrentId(context), vertically: vertically);
   }
 
   static Future<void> unmaximize(BuildContext context) async {
-    await _kChannel.invokeMethod<void>('unmaximize', _args(getCurrentId(context)));
+    await _manager.unmaximize(getCurrentId(context));
   }
 
   static Future<bool> isMinimized(BuildContext context) async {
-    return await _kChannel.invokeMethod<bool>('isMinimized', _args(getCurrentId(context))) ?? false;
+    return await _manager.isMinimized(getCurrentId(context));
   }
 
   static Future<void> minimize(BuildContext context) async {
-    await _kChannel.invokeMethod<void>('minimize', _args(getCurrentId(context)));
+    await _manager.minimize(getCurrentId(context));
   }
 
   static Future<void> restore(BuildContext context) async {
-    await _kChannel.invokeMethod<void>('restore', _args(getCurrentId(context)));
+    await _manager.restore(getCurrentId(context));
   }
 
   static Future<bool> isFullScreen(BuildContext context) async {
-    return await _kChannel.invokeMethod<bool>('isFullScreen', _args(getCurrentId(context))) ?? false;
+    return await _manager.isFullScreen(getCurrentId(context));
   }
 
   static Future<void> setFullScreen(BuildContext context, bool isFullScreen) async {
-    await _kChannel.invokeMethod<void>('setFullScreen', _args(getCurrentId(context), {'isFullScreen': isFullScreen}));
+    await _manager.setFullScreen(getCurrentId(context), isFullScreen);
   }
 
   // -------------------------------------------------------------------------
@@ -347,49 +313,43 @@ class MultiViewDesktop {
   // -------------------------------------------------------------------------
 
   static Future<bool> isResizable(BuildContext context) async {
-    return await _kChannel.invokeMethod<bool>('isResizable', _args(getCurrentId(context))) ?? true;
+    return await _manager.isResizable(getCurrentId(context));
   }
 
   static Future<void> setResizable(BuildContext context, bool isResizable) async {
-    await _kChannel.invokeMethod<void>('setResizable', _args(getCurrentId(context), {'isResizable': isResizable}));
+    await _manager.setResizable(getCurrentId(context), isResizable);
   }
 
   static Future<bool> isMovable(BuildContext context) async {
-    return await _kChannel.invokeMethod<bool>('isMovable', _args(getCurrentId(context))) ?? true;
+    return await _manager.isMovable(getCurrentId(context));
   }
 
   static Future<void> setMovable(BuildContext context, bool isMovable) async {
-    await _kChannel.invokeMethod<void>('setMovable', _args(getCurrentId(context), {'isMovable': isMovable}));
+    await _manager.setMovable(getCurrentId(context), isMovable);
   }
 
   static Future<bool> isMinimizable(BuildContext context) async {
-    return await _kChannel.invokeMethod<bool>('isMinimizable', _args(getCurrentId(context))) ?? true;
+    return await _manager.isMinimizable(getCurrentId(context));
   }
 
   static Future<void> setMinimizable(BuildContext context, bool isMinimizable) async {
-    await _kChannel.invokeMethod<void>(
-      'setMinimizable',
-      _args(getCurrentId(context), {'isMinimizable': isMinimizable}),
-    );
+    await _manager.setMinimizable(getCurrentId(context), isMinimizable);
   }
 
   static Future<bool> isMaximizable(BuildContext context) async {
-    return await _kChannel.invokeMethod<bool>('isMaximizable', _args(getCurrentId(context))) ?? true;
+    return await _manager.isMaximizable(getCurrentId(context));
   }
 
   static Future<void> setMaximizable(BuildContext context, bool isMaximizable) async {
-    await _kChannel.invokeMethod<void>(
-      'setMaximizable',
-      _args(getCurrentId(context), {'isMaximizable': isMaximizable}),
-    );
+    await _manager.setMaximizable(getCurrentId(context), isMaximizable);
   }
 
   static Future<bool> isClosable(BuildContext context) async {
-    return await _kChannel.invokeMethod<bool>('isClosable', _args(getCurrentId(context))) ?? true;
+    return await _manager.isClosable(getCurrentId(context));
   }
 
   static Future<void> setClosable(BuildContext context, bool isClosable) async {
-    await _kChannel.invokeMethod<void>('setClosable', _args(getCurrentId(context), {'isClosable': isClosable}));
+    await _manager.setClosable(getCurrentId(context), isClosable);
   }
 
   // -------------------------------------------------------------------------
@@ -397,23 +357,19 @@ class MultiViewDesktop {
   // -------------------------------------------------------------------------
 
   static Future<bool> isAlwaysOnTop(BuildContext context) async {
-    return await _kChannel.invokeMethod<bool>('isAlwaysOnTop', _args(getCurrentId(context))) ?? false;
+    return await _manager.isAlwaysOnTop(getCurrentId(context));
   }
 
   static Future<void> setAlwaysOnTop(BuildContext context, bool isAlwaysOnTop) async {
-    await _kChannel.invokeMethod<void>(
-      'setAlwaysOnTop',
-      _args(getCurrentId(context), {'isAlwaysOnTop': isAlwaysOnTop}),
-    );
+    await _manager.setAlwaysOnTop(getCurrentId(context), isAlwaysOnTop);
   }
 
   static Future<bool> isHideAppFromTaskbar() async {
-    final res = await _kChannel.invokeMethod('isHideAppFromTaskbar', _args(1));
-    return res ?? false;
+    return await _manager.isHideAppFromTaskbar();
   }
 
   static Future<void> hideAppFromTaskbar(bool isHideAppFromTaskbar) async {
-    await _kChannel.invokeMethod<void>('hideAppFromTaskbar', _args(1, {'isHideAppFromTaskbar': isHideAppFromTaskbar}));
+    await _manager.hideAppFromTaskbar(isHideAppFromTaskbar);
   }
 
   // -------------------------------------------------------------------------
@@ -421,20 +377,11 @@ class MultiViewDesktop {
   // -------------------------------------------------------------------------
 
   static Future<void> startDragging(BuildContext context) async {
-    await _kChannel.invokeMethod<void>('startDragging', _args(getCurrentId(context)));
+    await _manager.startDragging(getCurrentId(context));
   }
 
   static Future<void> startResizing(BuildContext context, ResizeEdge edge) async {
-    await _kChannel.invokeMethod<void>(
-      'startResizing',
-      _args(getCurrentId(context), {
-        'resizeEdge': edge.name,
-        'top': edge == ResizeEdge.top || edge == ResizeEdge.topLeft || edge == ResizeEdge.topRight,
-        'bottom': edge == ResizeEdge.bottom || edge == ResizeEdge.bottomLeft || edge == ResizeEdge.bottomRight,
-        'right': edge == ResizeEdge.right || edge == ResizeEdge.topRight || edge == ResizeEdge.bottomRight,
-        'left': edge == ResizeEdge.left || edge == ResizeEdge.topLeft || edge == ResizeEdge.bottomLeft,
-      }),
-    );
+    await _manager.startResizing(getCurrentId(context), edge);
   }
 
   // -------------------------------------------------------------------------
@@ -442,18 +389,15 @@ class MultiViewDesktop {
   // -------------------------------------------------------------------------
 
   static Future<bool> isHideFromCollection(BuildContext context) async {
-    return await _kChannel.invokeMethod<bool>('isHideFromCollection', _args(getCurrentId(context))) ?? false;
+    return await _manager.isHideFromCollection(getCurrentId(context));
   }
 
   static Future<void> hideFromCollection(BuildContext context, bool isHideFromCollection) async {
-    await _kChannel.invokeMethod<void>(
-      'hideFromCollection',
-      _args(getCurrentId(context), {'isHideFromCollection': isHideFromCollection}),
-    );
+    await _manager.hideFromCollection(getCurrentId(context), isHideFromCollection);
   }
 
   static Future<bool> isVisibleOnAllWorkspaces(BuildContext context) async {
-    return await _kChannel.invokeMethod<bool>('isVisibleOnAllWorkspaces', _args(getCurrentId(context))) ?? false;
+    return await _manager.isVisibleOnAllWorkspaces(getCurrentId(context));
   }
 
   static Future<void> setVisibleOnAllWorkspaces(
@@ -461,14 +405,11 @@ class MultiViewDesktop {
     bool visible, {
     bool visibleOnFullScreen = false,
   }) async {
-    await _kChannel.invokeMethod<void>(
-      'setVisibleOnAllWorkspaces',
-      _args(getCurrentId(context), {'visible': visible, 'visibleOnFullScreen': visibleOnFullScreen}),
-    );
+    await _manager.setVisibleOnAllWorkspaces(getCurrentId(context), visible, visibleOnFullScreen: visibleOnFullScreen);
   }
 
-  static Future<void> setBadgeLabel(BuildContext context, [String? label]) async {
-    await _kChannel.invokeMethod<void>('setBadgeLabel', _args(getCurrentId(context), {'label': label ?? ''}));
+  static Future<void> setBadgeLabel(BuildContext context, {String? label}) async {
+    await _manager.setBadgeLabel(getCurrentId(context), label);
   }
 
   // -------------------------------------------------------------------------
@@ -476,7 +417,7 @@ class MultiViewDesktop {
   // -------------------------------------------------------------------------
 
   static Future<void> setProgressBar(double progress) async {
-    await _kChannel.invokeMethod<void>('setProgressBar', _args(1, {'progress': progress}));
+    await _manager.setProgressBar(progress);
   }
 
   // -------------------------------------------------------------------------
@@ -484,13 +425,10 @@ class MultiViewDesktop {
   // -------------------------------------------------------------------------
 
   static Future<void> setIgnoreMouseEvents(BuildContext context, bool ignore, {bool forward = false}) async {
-    await _kChannel.invokeMethod<void>(
-      'setIgnoreMouseEvents',
-      _args(getCurrentId(context), {'ignore': ignore, 'forward': forward}),
-    );
+    await _manager.setIgnoreMouseEvents(getCurrentId(context), ignore, forward: forward);
   }
 
   static Future<void> popUpWindowMenu(BuildContext context) async {
-    await _kChannel.invokeMethod<void>('popUpWindowMenu', _args(getCurrentId(context)));
+    await _manager.popUpWindowMenu(getCurrentId(context));
   }
 }

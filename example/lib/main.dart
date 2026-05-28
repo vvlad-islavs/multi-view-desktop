@@ -9,8 +9,8 @@ void main() => runMultiApp(
   config: MultiAppConfig(
     closeMode: CloseMode.cascade,
     globalOptions: WindowOptions(
-      minimumSize: Size(800, 600),
-      size: Size(800, 600),
+      minimumSize: Size(1000, 700),
+      size: Size(1000, 700),
       alignment: Alignment.center,
       hideAppFromTaskbar: false,
       titleBarStyle: TitleBarStyle.normal,

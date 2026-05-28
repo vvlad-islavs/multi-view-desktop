@@ -57,7 +57,6 @@ class _HomePageState extends State<HomePage> with WindowListener {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _refreshState();
-      debugPrint('Init homePage');
       MultiViewDesktop.addListener(context, this);
 
       _commSub = MultiViewDesktop.communicator.onDirect(context).listen((msg) {
