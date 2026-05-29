@@ -315,7 +315,11 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 'openWindow',
                 subtitle: 'Open a new OS window (same engine)',
                 onTap: () {
-                  openWindow(const _SecondaryWindowRoot(), options: const WindowOptions(size: Size(1000, 700), title: 'Window title fdbdf'));
+                  openWindow(
+                    const _SecondaryWindowRoot(),
+                    options: const WindowOptions(size: Size(1000, 700), title: 'Window title fdbdf'),
+                    // parentContext: context,
+                  );
                 },
               ),
               if (windowId != 0)

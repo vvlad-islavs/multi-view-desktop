@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 
+abstract class MacOSMenuItem{}
 /// Internal contract for per-window operations keyed by [viewId].
 ///
 /// Implemented in `view_root.dart`. The public API
@@ -128,6 +129,8 @@ abstract class ViewsManager {
   Future<bool> isAlwaysOnTop(int viewId);
 
   Future<void> setAlwaysOnTop(int viewId, bool isAlwaysOnTop);
+
+  Future<void> setTaskbarMenu({required List<MacOSMenuItem> items});
 
   Future<bool> isHideAppFromTaskbar();
 

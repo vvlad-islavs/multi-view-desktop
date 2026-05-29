@@ -65,8 +65,8 @@ private class WindowState {
     /// When `true`, `windowShouldClose` may destroy the window.
     var isConfirmClose: Bool = false
     var isMaximized: Bool = false
-    /// Main window: `false` until cascade / pre-close logic finishes.
-    var isMainPreConfirm: Bool = false
+    /// window: `false` until cascade / pre-close logic finishes.
+    var isPreConfirm: Bool = false
 }
 
 // MARK: - MultiviewDesktopImpl
@@ -147,25 +147,33 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         return showHiddenWindowsIfNeeded()
     }
 
-    /// Shows the main window when every tracked window is hidden (`orderOut`), e.g. after [CloseMode.macos].
+    /// Shows hidden windows (`orderOut`), e.g. after [CloseMode.macos].
     @discardableResult
     private func showHiddenWindowsIfNeeded() -> Bool {
         guard !windows.isEmpty else { return false }
         guard !windows.values.contains(where: { $0.isVisible }) else { return false }
 
-        if let mainViewId, let mainWindow = windows[mainViewId] {
-            NSApp.activate(ignoringOtherApps: true)
-            mainWindow.makeKeyAndOrderFront(nil)
-            return true
+        let hiddenEntries = windows.filter { !$0.value.isVisible }
+        guard !hiddenEntries.isEmpty else { return false }
+
+        // Prefer the anchor window so Dart/native stay in sync after dock click.
+        let targetId: Int64
+        let targetWindow: NSWindow
+        if let mainViewId, let anchorWindow = windows[mainViewId], !anchorWindow.isVisible {
+            targetId = mainViewId
+            targetWindow = anchorWindow
+        } else if let firstHidden = hiddenEntries.first {
+            targetId = firstHidden.key
+            targetWindow = firstHidden.value
+            mainViewId = targetId
+        } else {
+            return false
         }
 
-        if let anyWindow = windows.values.first {
-            NSApp.activate(ignoringOtherApps: true)
-            anyWindow.makeKeyAndOrderFront(nil)
-            return true
-        }
-
-        return false
+        windowStates[targetId]?.isPreConfirm = false
+        NSApp.activate(ignoringOtherApps: true)
+        targetWindow.makeKeyAndOrderFront(nil)
+        return true
     }
 
     /// Forward from `AppDelegate.applicationShouldTerminateAfterLastWindowClosed(_:)`.
@@ -175,13 +183,6 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     func setTerminateAfterLastWindowClosed(_ terminate: Bool) {
         terminateAfterLastWindowClosed = terminate
-    }
-
-    private func isMainWindow(_ viewId: Int64) -> Bool {
-        if let mainViewId {
-            return viewId == mainViewId
-        }
-        return viewId == 1
     }
 
     // MARK: - Channel handler
@@ -195,6 +196,10 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         case "setTerminateAfterLastWindowClosed":
             let terminate = args["terminateAfterLastWindowClosed"] as? Bool ?? true
             setTerminateAfterLastWindowClosed(terminate)
+            result(nil)
+        case "setAnchorViewId":
+            let anchorId = int64(from: args, key: "viewId")
+            mainViewId = anchorId
             result(nil)
         default:
             let viewId = int64(from: args, key: "viewId")
@@ -247,7 +252,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         // initial frame; restore the requested size.
         newWindow.setContentSize(NSSize(width: width, height: height))
         newWindow.title = title
-        newWindow.isReleasedWhenClosed = false
+        // newWindow.isReleasedWhenClosed = false
 
         if titleBarStyleName == "hidden" {
             newWindow.titleVisibility = .hidden
@@ -288,8 +293,9 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         }
         let state = windowStates[viewId] ?? WindowState()
 
-        if isMainWindow(viewId) && !state.isMainPreConfirm {
-            emitEvent("main-preconfirm-close", viewId: viewId)
+        // if  viewId == mainViewId && !state.isPreConfirm {
+        if  !state.isPreConfirm {
+            emitEvent("preconfirm-close", viewId: viewId)
             return false
         }
 
@@ -456,8 +462,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             state.isConfirmClose = args?["confirmClose"] as? Bool ?? true
             result(nil)
 
-        case "mainPreConfirmClose":
-            state.isMainPreConfirm = args?["mainPreConfirmClose"] as? Bool ?? true
+        case "preConfirmClose":
+            state.isPreConfirm = args?["preConfirmClose"] as? Bool ?? false
             result(nil)
 
         case "setTitle":

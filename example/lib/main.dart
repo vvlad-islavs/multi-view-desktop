@@ -7,7 +7,7 @@ import 'utils/theme_config.dart';
 void main() => runMultiApp(
   const MainWindowRoot(),
   config: MultiAppConfig(
-    closeMode: CloseMode.cascade,
+    closeMode: CloseMode.macos,
     globalOptions: WindowOptions(
       minimumSize: Size(1000, 700),
       size: Size(1000, 700),

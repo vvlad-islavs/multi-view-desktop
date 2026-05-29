@@ -22,7 +22,7 @@ const String kMethodSetFullScreen = 'setFullScreen';
 const String kMethodHideAppFromTaskbar = 'hideAppFromTaskbar';
 const String kMethodCloseWindow = 'closeWindow';
 const String kMethodFocus = 'focus';
-const String kMethodMainPreConfirmClose = 'mainPreConfirmClose';
+const String kMethodPreConfirmClose = 'preConfirmClose';
 const String kMethodConfirmClose = 'confirmClose';
 const String kMethodSetPreventClose = 'setPreventClose';
 const String kMethodIsPreventClose = 'isPreventClose';
@@ -68,6 +68,7 @@ const String kMethodSetIgnoreMouseEvents = 'setIgnoreMouseEvents';
 const String kMethodIsIgnoreMouseEvents = 'isIgnoreMouseEvents';
 const String kMethodPopUpWindowMenu = 'popUpWindowMenu';
 const String kMethodSetTerminateAfterLastWindowClosed = 'setTerminateAfterLastWindowClosed';
+const String kMethodSetAnchorViewId = 'setAnchorViewId';
 
 /// Thin wrapper around the `multiview_desktop` [MethodChannel].
 ///
@@ -76,7 +77,7 @@ const String kMethodSetTerminateAfterLastWindowClosed = 'setTerminateAfterLastWi
 class NativeChannel {
   static const MethodChannel _staticChannel = MethodChannel('multiview_desktop');
 
-  /// View ID of the main window; set when the root [FlutterView] is known.
+  /// View ID of the anchor window (dock / app-level close policy); updated dynamically.
   int? mainId;
 
   /// Builds an argument map that always includes the [viewId] so the native
@@ -91,7 +92,7 @@ class NativeChannel {
   void setMethodCallHandler(Future<dynamic> Function(MethodCall) handler) =>
       _staticChannel.setMethodCallHandler(handler);
 
-  /// Asks macOS to create a secondary window; completion is signaled via `viewCreated`.
+  /// Asks macOS to create a new window; completion is signaled via `viewCreated`.
   Future<void> createWindowRequest({
     required int token,
     required String title,
@@ -99,6 +100,7 @@ class NativeChannel {
     required bool windowButtonVisibility,
     required Size windowSize,
     required Offset? pos,
+    int? parentId,
   }) async {
     await _staticChannel.invokeMethod<void>(kMethodCreateWindow, {
       'token': token,
@@ -108,7 +110,14 @@ class NativeChannel {
       'position': pos == null ? null : {'x': pos.dx, 'y': pos.dy},
       'titleBarStyle': titleBarStyleStr,
       'windowButtonVisibility': windowButtonVisibility,
+      'parentId': ?parentId,
     });
+  }
+
+  /// Updates which window receives anchor close handling on the native side.
+  Future<void> setAnchorViewId(int viewId) async {
+    mainId = viewId;
+    await _staticChannel.invokeMethod<void>(kMethodSetAnchorViewId, _args(viewId));
   }
 
   Future<void> setSize(int viewId, {required Size size}) async {
@@ -229,9 +238,7 @@ class NativeChannel {
 
   /// Clears prevent-close and confirm flags, then calls [softCloseWindow].
   Future<void> forceCloseWindow(int viewId) async {
-    if (viewId == mainId) {
-      await setMainPreConfirmClose(true);
-    }
+    await setPreConfirmClose(viewId, true);
     await setPreventClose(viewId, isPreventClose: false);
     await softCloseWindow(viewId);
   }
@@ -241,13 +248,8 @@ class NativeChannel {
   }
 
   /// Marks whether the main window has passed the pre-close cascade phase.
-  Future<void> setMainPreConfirmClose(bool isPreConfirm) async {
-    if (mainId == null) return;
-
-    return _staticChannel.invokeMethod<void>(
-      kMethodMainPreConfirmClose,
-      _args(mainId!, {'mainPreConfirmClose': isPreConfirm}),
-    );
+  Future<void> setPreConfirmClose(int viewId, bool isPreConfirm) async {
+    return _staticChannel.invokeMethod<void>(kMethodPreConfirmClose, _args(viewId, {'preConfirmClose': isPreConfirm}));
   }
 
   /// Sets the native flag allowing [softCloseWindow] to destroy the window.
@@ -456,9 +458,8 @@ class NativeChannel {
   ///
   /// Set to `false` for [CloseMode.macos] (hide windows, stay in the dock).
   Future<void> setTerminateAfterLastWindowClosed(bool terminate) async {
-    await _staticChannel.invokeMethod<void>(
-      kMethodSetTerminateAfterLastWindowClosed,
-      {'terminateAfterLastWindowClosed': terminate},
-    );
+    await _staticChannel.invokeMethod<void>(kMethodSetTerminateAfterLastWindowClosed, {
+      'terminateAfterLastWindowClosed': terminate,
+    });
   }
 }
