@@ -21,16 +21,36 @@ class WindowOptions {
     this.alwaysOnTop,
   });
 
+  /// Initial content size in logical pixels. Defaults to 800×600 when omitted.
   final Size? size;
-  final Size? minimumSize;
-  final Size? maximumSize;
-  final Alignment? alignment;
-  final Color? backgroundColor;
-  final bool? hideAppFromTaskbar;
-  final TitleBarStyle? titleBarStyle;
-  final bool? windowButtonVisibility;
-  final String? title;
-  final bool? fullScreen;
-  final bool? alwaysOnTop;
 
+  /// Minimum resizable size enforced by the OS window.
+  final Size? minimumSize;
+
+  /// Maximum resizable size enforced by the OS window.
+  final Size? maximumSize;
+
+  /// Where to place the window on the display under the cursor (or primary).
+  final Alignment? alignment;
+
+  /// Native window background color shown behind Flutter content.
+  final Color? backgroundColor;
+
+  /// When `true`, hides the entire application icon from the dock / taskbar.
+  final bool? hideAppFromTaskbar;
+
+  /// Initial title-bar style; use [TitleBarStyle.hidden] for frameless chrome.
+  final TitleBarStyle? titleBarStyle;
+
+  /// Whether traffic-light / caption buttons are visible when the bar is hidden.
+  final bool? windowButtonVisibility;
+
+  /// Native window title string.
+  final String? title;
+
+  /// Whether the window starts in full-screen mode.
+  final bool? fullScreen;
+
+  /// Whether the window stays above other application windows.
+  final bool? alwaysOnTop;
 }

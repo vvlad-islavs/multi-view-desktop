@@ -15,7 +15,7 @@ void main() => runMultiApp(
       hideAppFromTaskbar: false,
       titleBarStyle: TitleBarStyle.normal,
       windowButtonVisibility: true,
-      title: 'Windows title'
+      title: 'Windows title',
     ),
   ),
 );
@@ -57,6 +57,7 @@ class _MainWindowRootState extends State<MainWindowRoot> {
       );
 
       sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
+      sharedConfig.closeMode = MultiViewDesktop.getCloseMode();
     });
   }
 

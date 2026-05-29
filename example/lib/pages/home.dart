@@ -35,6 +35,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
   bool _isClosable = true;
   bool _isPreventClose = false;
   bool _isHideFromCollection = false;
+  bool _visibleOnAllWorkspaces = false;
+  bool _ignoreMouseEvents = false;
   double _opacity = 1.0;
   bool _hasShadow = true;
   bool _titleBarHidden = false;
@@ -60,18 +62,6 @@ class _HomePageState extends State<HomePage> with WindowListener {
       MultiViewDesktop.addListener(context, this);
 
       _commSub = MultiViewDesktop.communicator.onDirect(context).listen((msg) {
-        if (!mounted) return;
-        setState(() => _messageLog.insert(0, '[direct] $msg'));
-      });
-
-      _broadcastSub = MultiViewDesktop.communicator.onBroadcast.listen((msg) {
-        if (!mounted) return;
-        // Theme changes are handled separately.
-        if (msg is Map && msg['type'] == 'themeMode') return;
-        setState(() => _messageLog.insert(0, '[broadcast] $msg'));
-      });
-
-      _commSub = MultiViewDesktop.communicator.onDirect(context, viewId: 3).listen((msg) {
         if (!mounted) return;
         setState(() => _messageLog.insert(0, '[direct] $msg'));
       });
@@ -115,6 +105,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
     final prev = await _mountedFuture(MultiViewDesktop.isPreventClose, contextLocal);
     final skip = await _mountedFuture(MultiViewDesktop.isHideFromCollection, contextLocal);
     final op = await _mountedFuture(MultiViewDesktop.getOpacity, contextLocal);
+    final visibleOnAllWorkspaces = await _mountedFuture(MultiViewDesktop.isVisibleOnAllWorkspaces, contextLocal);
+    final ignoreMouseEvents = await _mountedFuture(MultiViewDesktop.isIgnoreMouseEvents, contextLocal);
     final shadow = await _mountedFuture(MultiViewDesktop.hasShadow, contextLocal);
     final titleBarStyle = await _mountedFuture(MultiViewDesktop.getTitleBarStyle, contextLocal);
     if (!mounted) return;
@@ -131,6 +123,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
       _isHideFromCollection = skip ?? _isHideFromCollection;
       _opacity = op ?? _opacity;
       _hasShadow = shadow ?? _hasShadow;
+      _ignoreMouseEvents = ignoreMouseEvents?.ignore ?? _ignoreMouseEvents;
+      _visibleOnAllWorkspaces = visibleOnAllWorkspaces ?? _visibleOnAllWorkspaces;
       _titleBarHidden = titleBarStyle?.style == TitleBarStyle.hidden;
       _titleBarButtonVisibility = titleBarStyle?.buttonVisibility ?? _titleBarButtonVisibility;
     });
@@ -296,6 +290,21 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   });
                 },
               ),
+              ListenableBuilder(
+                listenable: sharedConfig,
+                builder: (context, _) {
+                  return _tile(
+                    'Set app closeMode',
+                    subtitle: 'Current mode: ${sharedConfig.closeMode.name}',
+                    onTap: () async {
+                      final picked = await _showModePicker(context, sharedConfig.closeMode);
+                      if (picked == null) return;
+                      await MultiViewDesktop.setCloseMode(picked);
+                      sharedConfig.closeMode = MultiViewDesktop.getCloseMode();
+                    },
+                  );
+                },
+              ),
             ]),
 
             // ----------------------------------------------------------------
@@ -306,7 +315,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 'openWindow',
                 subtitle: 'Open a new OS window (same engine)',
                 onTap: () {
-                  openWindow(const _SecondaryWindowRoot(), options: const WindowOptions(size: Size(1000, 700)));
+                  openWindow(const _SecondaryWindowRoot(), options: const WindowOptions(size: Size(1000, 700), title: 'Window title fdbdf'));
                 },
               ),
               if (windowId != 0)
@@ -386,6 +395,11 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   _isHideFromCollection,
                   (v) => MultiViewDesktop.hideFromCollection(context, v),
                 ),
+              _switchTile(
+                'visibleOnAllWorkspaces',
+                _visibleOnAllWorkspaces,
+                (v) => MultiViewDesktop.setVisibleOnAllWorkspaces(context, v),
+              ),
               if (!Platform.isLinux) _tile('progressBarExample', onTap: () => _progressBarExample()),
             ]),
 
@@ -398,6 +412,11 @@ class _HomePageState extends State<HomePage> with WindowListener {
               _switchTile('minimizable', _isMinimizable, (v) => MultiViewDesktop.setMinimizable(context, v)),
               _switchTile('maximizable', _isMaximizable, (v) => MultiViewDesktop.setMaximizable(context, v)),
               _switchTile('closable', _isClosable, (v) => MultiViewDesktop.setClosable(context, v)),
+              _switchTile('ignoreMouseEvents', _ignoreMouseEvents, (v) async {
+                await MultiViewDesktop.setIgnoreMouseEvents(context, v, mouseMoveEvents: false);
+                if (!v) return;
+                Future.delayed(Duration(seconds: 5), () => MultiViewDesktop.setIgnoreMouseEvents(context, false));
+              }),
               _switchTile(
                 'preventClose',
                 _isPreventClose,
@@ -507,6 +526,14 @@ Future<int?> _showWindowPicker(BuildContext context, int currentId) async {
   return id;
 }
 
+Future<CloseMode?> _showModePicker(BuildContext context, CloseMode currentMode) async {
+  final mode = await showDialog<CloseMode>(
+    context: context,
+    builder: (ctx) => _CloseModePickerDialog(excludeMode: currentMode),
+  );
+  return mode;
+}
+
 class _WindowPickerDialog extends StatelessWidget {
   const _WindowPickerDialog({required this.excludeId});
 
@@ -532,6 +559,31 @@ class _WindowPickerDialog extends StatelessWidget {
                     .map((id) => ListTile(title: Text('Window $id'), onTap: () => Navigator.of(context).pop(id)))
                     .toList(),
               ),
+      ),
+      actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel'))],
+    );
+  }
+}
+
+class _CloseModePickerDialog extends StatelessWidget {
+  const _CloseModePickerDialog({required this.excludeMode});
+
+  final CloseMode excludeMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final allModes = CloseMode.values.where((e) => e != excludeMode).toList();
+
+    return AlertDialog(
+      title: const Text('Select mode'),
+      content: SizedBox(
+        width: 280,
+        child: ListView(
+          shrinkWrap: true,
+          children: allModes
+              .map((mode) => ListTile(title: Text('Mode ${mode.name}'), onTap: () => Navigator.of(context).pop(mode)))
+              .toList(),
+        ),
       ),
       actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel'))],
     );

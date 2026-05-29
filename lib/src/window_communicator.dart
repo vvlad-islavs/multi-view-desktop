@@ -19,7 +19,7 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 /// WindowCommunicator.send(2, {'action': 'reload'});
 ///
 /// // Listen in view 2
-/// WindowCommunicator.listen(2).listen((msg) => print(msg));
+/// WindowCommunicator.onDirect(context, viewId: 2).listen((msg) => print(msg));
 /// ```
 ///
 /// Broadcast - deliver to every subscribed view:
@@ -33,9 +33,9 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 abstract class WindowCommunicator {
   /// Returns a broadcast [Stream] of messages sent to [viewId] via [send].
   ///
-  /// Multiple callers with the same [viewId] share the same stream instance.
-  /// Subscriptions are persistent across callers - no need to re-subscribe
-  /// when the sender changes.
+  /// When [viewId] is omitted, listens on the window that owns [context].
+  /// When [viewId] differs from the current window, sets up a linked listener
+  /// so the sender can target another view from this one.
   Stream<dynamic> onDirect(BuildContext context, {int? viewId});
 
   /// A broadcast [Stream] that receives every message sent via [broadcast].
@@ -48,8 +48,8 @@ abstract class WindowCommunicator {
   /// ```
   Stream<dynamic> get onBroadcast;
 
-  /// Delivers [message] to every active listener registered for [targetViewId]
-  /// via [listen].
+  /// Delivers [message] to every active listener registered for [viewId]
+  /// via [onDirect].
   ///
   /// If no one is listening the message is silently dropped
   void send(int viewId, dynamic message);

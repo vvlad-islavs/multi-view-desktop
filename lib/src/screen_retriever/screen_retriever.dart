@@ -10,6 +10,9 @@ import 'screen_listener.dart';
 export 'display.dart';
 export 'screen_listener.dart';
 
+/// Queries connected displays and cursor position via native macOS APIs.
+///
+/// Coordinates are in Flutter logical space (Y-down, origin at primary top-left).
 @internal
 class ScreenRetriever {
   ScreenRetriever._();
@@ -32,6 +35,7 @@ class ScreenRetriever {
     }
   }
 
+  /// Subscribes to display hot-plug events (`display-added`, `display-removed`).
   void addListener(ScreenListener listener) {
     if (!hasListeners) {
       _eventSubscription = _eventChannel.receiveBroadcastStream().listen(_handleScreenEvent);
@@ -60,12 +64,14 @@ class ScreenRetriever {
     return Offset((result['dx'] as num).toDouble(), (result['dy'] as num).toDouble());
   }
 
+  /// Returns the primary display (first entry in the system screen list).
   Future<Display> getPrimaryDisplay() async {
     final result = await _methodChannel.invokeMethod<Map>('getPrimaryDisplay', _defaultArguments);
     if (result == null) throw Exception('Unable to get primary display.');
     return Display.fromJson(result.cast<String, dynamic>());
   }
 
+  /// Returns every connected display.
   Future<List<Display>> getAllDisplays() async {
     final result = await _methodChannel.invokeMethod<Map>('getAllDisplays', _defaultArguments);
     if (result == null || result['displays'] == null) {

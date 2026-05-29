@@ -18,10 +18,15 @@ class ViewScope extends InheritedWidget {
 
   final int viewId;
 
+  /// Returns the [ViewScope] above [context], or `null` if the tree was not
+  /// created with [runMultiApp].
   static ViewScope? maybeOf(BuildContext context) {
     return context.dependOnInheritedWidgetOfExactType<ViewScope>();
   }
 
+  /// Returns the [ViewScope] above [context].
+  ///
+  /// Throws in debug mode if [runMultiApp] was not used as the entry point.
   static ViewScope of(BuildContext context) {
     final scope = maybeOf(context);
     assert(

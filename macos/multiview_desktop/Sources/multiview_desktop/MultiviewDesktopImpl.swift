@@ -58,10 +58,14 @@ extension NSRect {
 
 // MARK: - Per-window state
 
+/// Mutable close / maximize flags for one [NSWindow], keyed by Flutter view ID.
 private class WindowState {
+    /// When `true`, `windowShouldClose` emits `close` and returns `false`.
     var isPreventClose: Bool = false
+    /// When `true`, `windowShouldClose` may destroy the window.
     var isConfirmClose: Bool = false
     var isMaximized: Bool = false
+    /// Main window: `false` until cascade / pre-close logic finishes.
     var isMainPreConfirm: Bool = false
 }
 
@@ -82,11 +86,19 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     // All managed OS windows keyed by FlutterViewIdentifier.
     var windows: [Int64: NSWindow] = [:]
 
+    /// Flutter view ID of the main window (set in [registerWindow] for [mainWindowRef]).
+    private(set) var mainViewId: Int64?
+
     private var windowStates: [Int64: WindowState] = [:]
     private var channel: FlutterMethodChannel?
+    private var activationObserver: NSObjectProtocol?
+
+    /// Mirrors Dart [CloseMode]: `false` when windows are hidden instead of closed ([CloseMode.macos]).
+    private var terminateAfterLastWindowClosed: Bool = true
 
     // MARK: - Channel setup
 
+    /// Binds the `multiview_desktop` method channel to this singleton.
     func setup(messenger: FlutterBinaryMessenger) {
         let ch = FlutterMethodChannel(
             name: "multiview_desktop",
@@ -100,10 +112,76 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     // MARK: - Window registration
 
+    /// Tracks [window] and installs `NSWindowDelegate` for lifecycle events.
     func registerWindow(_ window: NSWindow, viewId: Int64) {
         windows[viewId] = window
         windowStates[viewId] = WindowState()
         window.delegate = self
+        if let mainWindowRef, window === mainWindowRef {
+            mainViewId = viewId
+        }
+    }
+
+    // MARK: - Dock / activation (macOS hide-instead-of-quit)
+
+    /// Observes app activation and restores hidden windows when none are visible.
+    func installLifecycleObservers() {
+        guard activationObserver == nil else { return }
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: NSApplication.shared,
+            queue: .main
+        ) { [weak self] _ in
+            self?.showHiddenWindowsIfNeeded()
+        }
+    }
+
+    /// Call from `applicationShouldHandleReopen(_:hasVisibleWindows:)` when the dock icon is clicked.
+    ///
+    /// Returns `true` if hidden windows were restored (caller should return `true` from the delegate).
+    @discardableResult
+    func handleApplicationReopen(hasVisibleWindows: Bool) -> Bool {
+        if hasVisibleWindows {
+            return false
+        }
+        return showHiddenWindowsIfNeeded()
+    }
+
+    /// Shows the main window when every tracked window is hidden (`orderOut`), e.g. after [CloseMode.macos].
+    @discardableResult
+    private func showHiddenWindowsIfNeeded() -> Bool {
+        guard !windows.isEmpty else { return false }
+        guard !windows.values.contains(where: { $0.isVisible }) else { return false }
+
+        if let mainViewId, let mainWindow = windows[mainViewId] {
+            NSApp.activate(ignoringOtherApps: true)
+            mainWindow.makeKeyAndOrderFront(nil)
+            return true
+        }
+
+        if let anyWindow = windows.values.first {
+            NSApp.activate(ignoringOtherApps: true)
+            anyWindow.makeKeyAndOrderFront(nil)
+            return true
+        }
+
+        return false
+    }
+
+    /// Forward from `AppDelegate.applicationShouldTerminateAfterLastWindowClosed(_:)`.
+    func shouldTerminateAfterLastWindowClosed() -> Bool {
+        terminateAfterLastWindowClosed
+    }
+
+    func setTerminateAfterLastWindowClosed(_ terminate: Bool) {
+        terminateAfterLastWindowClosed = terminate
+    }
+
+    private func isMainWindow(_ viewId: Int64) -> Bool {
+        if let mainViewId {
+            return viewId == mainViewId
+        }
+        return viewId == 1
     }
 
     // MARK: - Channel handler
@@ -114,6 +192,10 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         switch call.method {
         case "createWindow":
             createSecondaryWindow(args: args, result: result)
+        case "setTerminateAfterLastWindowClosed":
+            let terminate = args["terminateAfterLastWindowClosed"] as? Bool ?? true
+            setTerminateAfterLastWindowClosed(terminate)
+            result(nil)
         default:
             let viewId = int64(from: args, key: "viewId")
             if let window = windows[viewId] {
@@ -199,13 +281,14 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     // MARK: - NSWindowDelegate
 
+    /// Implements soft-close: main pre-confirm -> prevent-close -> confirm-close -> destroy.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard let viewId = viewIdForWindow(sender) else {
             return true
         }
         let state = windowStates[viewId] ?? WindowState()
 
-        if viewId == 1 && !state.isMainPreConfirm {
+        if isMainWindow(viewId) && !state.isMainPreConfirm {
             emitEvent("main-preconfirm-close", viewId: viewId)
             return false
         }
@@ -440,11 +523,16 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             result(nil)
 
         case "show":
-            window.makeKeyAndOrderFront(nil)
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+                window.makeKeyAndOrderFront(nil)
+            }
             result(nil)
 
         case "hide":
-            window.orderOut(nil)
+            DispatchQueue.main.async {
+                window.orderOut(nil)
+            }
             result(nil)
 
         case "isVisible":
@@ -719,7 +807,29 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
             result(nil)
 
-        case "setIgnoreMouseEvents", "startResizing":
+        case "setIgnoreMouseEvents":
+            let ignore: Bool = args?["ignore"] as? Bool ?? false
+            let forward: Bool = args?["forward"] as? Bool ?? false
+            window.ignoresMouseEvents = ignore
+            if !ignore {
+                window.acceptsMouseMovedEvents = false
+            } else {
+                window.acceptsMouseMovedEvents = forward
+            }
+
+            result(nil)
+
+        case "isIgnoreMouseEvents":
+            let ignore: Bool = window.ignoresMouseEvents
+            let forward: Bool = window.acceptsMouseMovedEvents && ignore
+            let res: [String: Bool] = [
+                "ignore": ignore,
+                "forward": forward
+            ]
+
+            result(res)
+
+        case "startResizing":
             //TODO
             result(nil)
 
@@ -771,6 +881,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     // MARK: - Helpers
 
+    /// Sends `onEvent` to Dart with [eventName] and [viewId].
     private func emitEvent(_ eventName: String, viewId: Int64) {
         channel?.invokeMethod(
             "onEvent",

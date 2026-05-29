@@ -24,34 +24,51 @@ void runMultiApp(Widget home, {MultiAppConfig? config}) {
   runWidget(createMultiViewRoot(home, config ?? MultiAppConfig._defaultConfig()));
 }
 
+/// Application-wide settings passed to [runMultiApp].
 class MultiAppConfig {
+  /// Strategy used when closes the main window (see [CloseMode]).
   final CloseMode mainCloseMode;
+
+  /// Default [WindowOptions] merged into every new window (per-window options override).
   final WindowOptions globalOptions;
 
   MultiAppConfig._({this.mainCloseMode = CloseMode.cascade, this.globalOptions = const WindowOptions()});
 
+  /// Creates configuration for [runMultiApp].
+  ///
+  /// [closeMode] applies when the main window's close button is pressed.
+  /// [globalOptions] are applied to the main window at startup and merged into [openWindow].
   factory MultiAppConfig({CloseMode closeMode = CloseMode.cascade, WindowOptions? globalOptions}) =>
       MultiAppConfig._(mainCloseMode: closeMode, globalOptions: globalOptions ?? WindowOptions());
 
   factory MultiAppConfig._defaultConfig() => MultiAppConfig._();
 }
 
+/// How closing the main window affects other open windows.
 enum CloseMode {
-  /// soft close only main window.
-  ///
-  /// Cycle: close handle -> preventClose (if enabled)  -> confirm-close -> close window
+  /// Close only main window through the normal soft-close cycle
+  /// (prevent-close -> confirm-close -> destroy).
   none,
 
-  /// soft close all windows from last to first with full close-cycle
-  ///
-  /// Cycle: close handle -> preventClose (if enabled) -> confirm-close -> close window
+  /// Soft-close secondary windows one by one (newest first), then the main window.
+  /// Each window runs the full close cycle; use [MultiViewDesktop.cancelCascadeClose]
+  /// to abort from a confirmation dialog.
   cascade,
 
-  /// force close all secondary windows without close-cycle excluding main window
+  /// Force-close all secondary windows immediately, then soft-close the main window.
   forceSecondary,
 
-  /// force close all windows without close-cycle
+  /// Force-close all windows without running the soft-close cycle.
   destroy,
+
+  /// Only for macOS. On other platforms will be used `CloseMode.cascade`.
+  ///
+  /// macOS: hide last window (main) instead of closing (app stays in the dock), `CMD+Q` to destroy by default.
+  /// Soft-close secondary windows one by one (newest first).
+  ///
+  /// Automatically sets `applicationShouldTerminateAfterLastWindowClosed` to `false`
+  /// on the native side. Requires forwarding that call in `AppDelegate`.
+  macos,
 }
 
 /// Opens a new OS window showing [child].

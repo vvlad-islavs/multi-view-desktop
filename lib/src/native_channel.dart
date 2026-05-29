@@ -4,9 +4,79 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 
 import 'utils/calc_window_position.dart';
 
+// MethodChannel method names (must match MultiviewDesktopImpl.swift).
+const String kMethodCreateWindow = 'createWindow';
+const String kMethodSetSize = 'setSize';
+const String kMethodSetMinimumSize = 'setMinimumSize';
+const String kMethodSetMaximumSize = 'setMaximumSize';
+const String kMethodGetBounds = 'getBounds';
+const String kMethodSetPosition = 'setPosition';
+const String kMethodSetBackgroundColor = 'setBackgroundColor';
+const String kMethodSetTitle = 'setTitle';
+const String kMethodGetTitle = 'getTitle';
+const String kMethodSetTitleBarStyle = 'setTitleBarStyle';
+const String kMethodGetTitleBarStyle = 'getTitleBarStyle';
+const String kMethodSetAsFrameless = 'setAsFrameless';
+const String kMethodSetAlwaysOnTop = 'setAlwaysOnTop';
+const String kMethodSetFullScreen = 'setFullScreen';
+const String kMethodHideAppFromTaskbar = 'hideAppFromTaskbar';
+const String kMethodCloseWindow = 'closeWindow';
+const String kMethodFocus = 'focus';
+const String kMethodMainPreConfirmClose = 'mainPreConfirmClose';
+const String kMethodConfirmClose = 'confirmClose';
+const String kMethodSetPreventClose = 'setPreventClose';
+const String kMethodIsPreventClose = 'isPreventClose';
+const String kMethodSetBrightness = 'setBrightness';
+const String kMethodSetOpacity = 'setOpacity';
+const String kMethodGetOpacity = 'getOpacity';
+const String kMethodHasShadow = 'hasShadow';
+const String kMethodSetHasShadow = 'setHasShadow';
+const String kMethodSetAspectRatio = 'setAspectRatio';
+const String kMethodShow = 'show';
+const String kMethodHide = 'hide';
+const String kMethodIsVisible = 'isVisible';
+const String kMethodBlur = 'blur';
+const String kMethodIsFocused = 'isFocused';
+const String kMethodIsMaximized = 'isMaximized';
+const String kMethodMaximize = 'maximize';
+const String kMethodUnmaximize = 'unmaximize';
+const String kMethodIsMinimized = 'isMinimized';
+const String kMethodMinimize = 'minimize';
+const String kMethodRestore = 'restore';
+const String kMethodIsFullScreen = 'isFullScreen';
+const String kMethodIsResizable = 'isResizable';
+const String kMethodSetResizable = 'setResizable';
+const String kMethodIsMovable = 'isMovable';
+const String kMethodSetMovable = 'setMovable';
+const String kMethodIsMinimizable = 'isMinimizable';
+const String kMethodSetMinimizable = 'setMinimizable';
+const String kMethodIsMaximizable = 'isMaximizable';
+const String kMethodSetMaximizable = 'setMaximizable';
+const String kMethodIsClosable = 'isClosable';
+const String kMethodSetClosable = 'setClosable';
+const String kMethodIsAlwaysOnTop = 'isAlwaysOnTop';
+const String kMethodIsHideAppFromTaskbar = 'isHideAppFromTaskbar';
+const String kMethodStartDragging = 'startDragging';
+const String kMethodStartResizing = 'startResizing';
+const String kMethodIsHideFromCollection = 'isHideFromCollection';
+const String kMethodHideFromCollection = 'hideFromCollection';
+const String kMethodIsVisibleOnAllWorkspaces = 'isVisibleOnAllWorkspaces';
+const String kMethodSetVisibleOnAllWorkspaces = 'setVisibleOnAllWorkspaces';
+const String kMethodSetBadgeLabel = 'setBadgeLabel';
+const String kMethodSetProgressBar = 'setProgressBar';
+const String kMethodSetIgnoreMouseEvents = 'setIgnoreMouseEvents';
+const String kMethodIsIgnoreMouseEvents = 'isIgnoreMouseEvents';
+const String kMethodPopUpWindowMenu = 'popUpWindowMenu';
+const String kMethodSetTerminateAfterLastWindowClosed = 'setTerminateAfterLastWindowClosed';
+
+/// Thin wrapper around the `multiview_desktop` [MethodChannel].
+///
+/// Every per-window call includes `viewId` in the argument map.
+/// App-wide calls use [mainId] as `viewId`.
 class NativeChannel {
   static const MethodChannel _staticChannel = MethodChannel('multiview_desktop');
 
+  /// View ID of the main window; set when the root [FlutterView] is known.
   int? mainId;
 
   /// Builds an argument map that always includes the [viewId] so the native
@@ -17,9 +87,11 @@ class NativeChannel {
     return map;
   }
 
+  /// Registers the handler for native -> Dart events (`onEvent`, etc.).
   void setMethodCallHandler(Future<dynamic> Function(MethodCall) handler) =>
       _staticChannel.setMethodCallHandler(handler);
 
+  /// Asks macOS to create a secondary window; completion is signaled via `viewCreated`.
   Future<void> createWindowRequest({
     required int token,
     required String title,
@@ -28,7 +100,7 @@ class NativeChannel {
     required Size windowSize,
     required Offset? pos,
   }) async {
-    await _staticChannel.invokeMethod<void>('createWindow', {
+    await _staticChannel.invokeMethod<void>(kMethodCreateWindow, {
       'token': token,
       'width': windowSize.width,
       'height': windowSize.height,
@@ -40,19 +112,22 @@ class NativeChannel {
   }
 
   Future<void> setSize(int viewId, {required Size size}) async {
-    await _staticChannel.invokeMethod<void>('setSize', _args(viewId, {'width': size.width, 'height': size.height}));
+    await _staticChannel.invokeMethod<void>(
+      kMethodSetSize,
+      _args(viewId, {'width': size.width, 'height': size.height}),
+    );
   }
 
   Future<void> setMinSize(int viewId, {required Size size}) async {
     await _staticChannel.invokeMethod<void>(
-      'setMinimumSize',
+      kMethodSetMinimumSize,
       _args(viewId, {'width': size.width, 'height': size.height}),
     );
   }
 
   Future<void> setMaxSize(int viewId, {required Size size}) async {
     await _staticChannel.invokeMethod<void>(
-      'setMaximumSize',
+      kMethodSetMaximumSize,
       _args(viewId, {'width': size.width, 'height': size.height}),
     );
   }
@@ -65,7 +140,7 @@ class NativeChannel {
   }
 
   Future<Offset?> _calculateOffFromAlign(int viewId, {required Alignment alignment}) async {
-    final sizeResult = await _staticChannel.invokeMethod<Map>('getBounds', _args(viewId));
+    final sizeResult = await _staticChannel.invokeMethod<Map>(kMethodGetBounds, _args(viewId));
     if (sizeResult != null) {
       final windowSize = Size((sizeResult['width'] as num).toDouble(), (sizeResult['height'] as num).toDouble());
       return calcWindowPosition(windowSize, alignment);
@@ -74,10 +149,10 @@ class NativeChannel {
   }
 
   Future<void> setPosition(int viewId, {required Offset pos}) async =>
-      await _staticChannel.invokeMethod<void>('setPosition', _args(viewId, {'x': pos.dx, 'y': pos.dy}));
+      await _staticChannel.invokeMethod<void>(kMethodSetPosition, _args(viewId, {'x': pos.dx, 'y': pos.dy}));
 
   Future<Rect> getBounds(int viewId) async {
-    final Map<dynamic, dynamic> r = await _staticChannel.invokeMethod('getBounds', _args(viewId));
+    final Map<dynamic, dynamic> r = await _staticChannel.invokeMethod(kMethodGetBounds, _args(viewId));
     return Rect.fromLTWH(
       (r['x'] as num).toDouble(),
       (r['y'] as num).toDouble(),
@@ -88,7 +163,7 @@ class NativeChannel {
 
   Future<void> setBackgroundColor(int viewId, {required Color color}) async {
     await _staticChannel.invokeMethod<void>(
-      'setBackgroundColor',
+      kMethodSetBackgroundColor,
       _args(viewId, {
         'backgroundColorA': (color.a * 255).round(),
         'backgroundColorR': (color.r * 255).round(),
@@ -99,22 +174,22 @@ class NativeChannel {
   }
 
   Future<void> setTitle(int viewId, {required String title}) async {
-    await _staticChannel.invokeMethod<void>('setTitle', _args(viewId, {'title': title}));
+    await _staticChannel.invokeMethod<void>(kMethodSetTitle, _args(viewId, {'title': title}));
   }
 
   Future<String> getTitle(int viewId) async {
-    return await _staticChannel.invokeMethod<String>('getTitle', _args(viewId)) ?? '';
+    return await _staticChannel.invokeMethod<String>(kMethodGetTitle, _args(viewId)) ?? '';
   }
 
   Future<void> setTitleBarStyle(int viewId, {required TitleBarStyle style, required bool buttonVisibility}) async {
     await _staticChannel.invokeMethod<void>(
-      'setTitleBarStyle',
+      kMethodSetTitleBarStyle,
       _args(viewId, {'titleBarStyle': style.name, 'windowButtonVisibility': buttonVisibility}),
     );
   }
 
   Future<({TitleBarStyle? style, bool? buttonVisibility})> getTitleBarStyle(int viewId) async {
-    final mapResult = await _staticChannel.invokeMethod<Map<Object?, Object?>>('getTitleBarStyle', _args(viewId));
+    final mapResult = await _staticChannel.invokeMethod<Map<Object?, Object?>>(kMethodGetTitleBarStyle, _args(viewId));
 
     return (
       style: _barStyleFromJson(mapResult?['style'] as String?),
@@ -123,7 +198,7 @@ class NativeChannel {
   }
 
   Future<void> setAsFrameless(int viewId) async {
-    await _staticChannel.invokeMethod<void>('setAsFrameless', _args(viewId));
+    await _staticChannel.invokeMethod<void>(kMethodSetAsFrameless, _args(viewId));
   }
 
   TitleBarStyle _barStyleFromJson(String? styleStr) {
@@ -132,24 +207,27 @@ class NativeChannel {
   }
 
   Future<void> setAlwaysOnTop(int viewId, {required bool isAlwaysOnTop}) async {
-    await _staticChannel.invokeMethod<void>('setAlwaysOnTop', _args(viewId, {'isAlwaysOnTop': isAlwaysOnTop}));
+    await _staticChannel.invokeMethod<void>(kMethodSetAlwaysOnTop, _args(viewId, {'isAlwaysOnTop': isAlwaysOnTop}));
   }
 
   Future<void> setFullScreen(int viewId, {required bool isFullScreen}) async {
-    await _staticChannel.invokeMethod<void>('setFullScreen', _args(viewId, {'isFullScreen': isFullScreen}));
+    await _staticChannel.invokeMethod<void>(kMethodSetFullScreen, _args(viewId, {'isFullScreen': isFullScreen}));
   }
 
   Future<void> hideAppFromTaskbar({required bool isHideAppFromTaskbar}) async {
+    if (mainId == null) return;
     await _staticChannel.invokeMethod<void>(
-      'hideAppFromTaskbar',
-      _args(1, {'isHideAppFromTaskbar': isHideAppFromTaskbar}),
+      kMethodHideAppFromTaskbar,
+      _args(mainId!, {'isHideAppFromTaskbar': isHideAppFromTaskbar}),
     );
   }
 
+  /// Requests close through the soft-close state machine (prevent / confirm).
   Future<void> softCloseWindow(int viewId) async {
-    await _staticChannel.invokeMethod<void>('closeWindow', _args(viewId));
+    await _staticChannel.invokeMethod<void>(kMethodCloseWindow, _args(viewId));
   }
 
+  /// Clears prevent-close and confirm flags, then calls [softCloseWindow].
   Future<void> forceCloseWindow(int viewId) async {
     if (viewId == mainId) {
       await setMainPreConfirmClose(true);
@@ -159,46 +237,48 @@ class NativeChannel {
   }
 
   Future<void> focus(int viewId) async {
-    await _staticChannel.invokeMethod<void>('focus', _args(viewId));
+    await _staticChannel.invokeMethod<void>(kMethodFocus, _args(viewId));
   }
 
+  /// Marks whether the main window has passed the pre-close cascade phase.
   Future<void> setMainPreConfirmClose(bool isPreConfirm) async {
     if (mainId == null) return;
 
     return _staticChannel.invokeMethod<void>(
-      'mainPreConfirmClose',
+      kMethodMainPreConfirmClose,
       _args(mainId!, {'mainPreConfirmClose': isPreConfirm}),
     );
   }
 
+  /// Sets the native flag allowing [softCloseWindow] to destroy the window.
   Future<void> setConfirmClose(int viewId, {required bool isConfirm}) async =>
-      await _staticChannel.invokeMethod<void>('confirmClose', _args(viewId, {'confirmClose': isConfirm}));
+      await _staticChannel.invokeMethod<void>(kMethodConfirmClose, _args(viewId, {'confirmClose': isConfirm}));
 
-  Future<void> setPreventClose(int viewId, {required bool isPreventClose}) async =>
-      await _staticChannel.invokeMethod<void>('setPreventClose', _args(viewId, {'isPreventClose': isPreventClose}));
+  Future<void> setPreventClose(int viewId, {required bool isPreventClose}) async => await _staticChannel
+      .invokeMethod<void>(kMethodSetPreventClose, _args(viewId, {'isPreventClose': isPreventClose}));
 
   Future<bool> isPreventClose(int viewId) async {
-    return await _staticChannel.invokeMethod<bool>('isPreventClose', _args(viewId)) ?? false;
+    return await _staticChannel.invokeMethod<bool>(kMethodIsPreventClose, _args(viewId)) ?? false;
   }
 
   Future<void> setBrightness(int viewId, Brightness brightness) async {
-    await _staticChannel.invokeMethod<void>('setBrightness', _args(viewId, {'brightness': brightness.name}));
+    await _staticChannel.invokeMethod<void>(kMethodSetBrightness, _args(viewId, {'brightness': brightness.name}));
   }
 
   Future<void> setOpacity(int viewId, double opacity) async {
-    await _staticChannel.invokeMethod<void>('setOpacity', _args(viewId, {'opacity': opacity}));
+    await _staticChannel.invokeMethod<void>(kMethodSetOpacity, _args(viewId, {'opacity': opacity}));
   }
 
   Future<double> getOpacity(int viewId) async {
-    return await _staticChannel.invokeMethod<double>('getOpacity', _args(viewId)) ?? 1.0;
+    return await _staticChannel.invokeMethod<double>(kMethodGetOpacity, _args(viewId)) ?? 1.0;
   }
 
   Future<bool> hasShadow(int viewId) async {
-    return await _staticChannel.invokeMethod<bool>('hasShadow', _args(viewId)) ?? true;
+    return await _staticChannel.invokeMethod<bool>(kMethodHasShadow, _args(viewId)) ?? true;
   }
 
   Future<void> setHasShadow(int viewId, bool value) async {
-    await _staticChannel.invokeMethod<void>('setHasShadow', _args(viewId, {'hasShadow': value}));
+    await _staticChannel.invokeMethod<void>(kMethodSetHasShadow, _args(viewId, {'hasShadow': value}));
   }
 
   Future<Size> getSize(int viewId) async => (await getBounds(viewId)).size;
@@ -206,113 +286,114 @@ class NativeChannel {
   Future<Offset> getPosition(int viewId) async => (await getBounds(viewId)).topLeft;
 
   Future<void> setAspectRatio(int viewId, double ratio) async {
-    await _staticChannel.invokeMethod<void>('setAspectRatio', _args(viewId, {'aspectRatio': ratio}));
+    await _staticChannel.invokeMethod<void>(kMethodSetAspectRatio, _args(viewId, {'aspectRatio': ratio}));
   }
 
   Future<void> show(int viewId) async {
-    await _staticChannel.invokeMethod<void>('show', _args(viewId));
+    await _staticChannel.invokeMethod<void>(kMethodShow, _args(viewId));
   }
 
   Future<void> hide(int viewId) async {
-    await _staticChannel.invokeMethod<void>('hide', _args(viewId));
+    await _staticChannel.invokeMethod<void>(kMethodHide, _args(viewId));
   }
 
   Future<bool> isVisible(int viewId) async {
-    return await _staticChannel.invokeMethod<bool>('isVisible', _args(viewId)) ?? true;
+    return await _staticChannel.invokeMethod<bool>(kMethodIsVisible, _args(viewId)) ?? true;
   }
 
   Future<void> blur(int viewId) async {
-    await _staticChannel.invokeMethod<void>('blur', _args(viewId));
+    await _staticChannel.invokeMethod<void>(kMethodBlur, _args(viewId));
   }
 
   Future<bool> isFocused(int viewId) async {
-    return await _staticChannel.invokeMethod<bool>('isFocused', _args(viewId)) ?? false;
+    return await _staticChannel.invokeMethod<bool>(kMethodIsFocused, _args(viewId)) ?? false;
   }
 
   Future<bool> isMaximized(int viewId) async {
-    return await _staticChannel.invokeMethod<bool>('isMaximized', _args(viewId)) ?? false;
+    return await _staticChannel.invokeMethod<bool>(kMethodIsMaximized, _args(viewId)) ?? false;
   }
 
   Future<void> maximize(int viewId, {bool vertically = false}) async {
-    await _staticChannel.invokeMethod<void>('maximize', _args(viewId, {'vertically': vertically}));
+    await _staticChannel.invokeMethod<void>(kMethodMaximize, _args(viewId, {'vertically': vertically}));
   }
 
   Future<void> unmaximize(int viewId) async {
-    await _staticChannel.invokeMethod<void>('unmaximize', _args(viewId));
+    await _staticChannel.invokeMethod<void>(kMethodUnmaximize, _args(viewId));
   }
 
   Future<bool> isMinimized(int viewId) async {
-    return await _staticChannel.invokeMethod<bool>('isMinimized', _args(viewId)) ?? false;
+    return await _staticChannel.invokeMethod<bool>(kMethodIsMinimized, _args(viewId)) ?? false;
   }
 
   Future<void> minimize(int viewId) async {
-    await _staticChannel.invokeMethod<void>('minimize', _args(viewId));
+    await _staticChannel.invokeMethod<void>(kMethodMinimize, _args(viewId));
   }
 
   Future<void> restore(int viewId) async {
-    await _staticChannel.invokeMethod<void>('restore', _args(viewId));
+    await _staticChannel.invokeMethod<void>(kMethodRestore, _args(viewId));
   }
 
   Future<bool> isFullScreen(int viewId) async {
-    return await _staticChannel.invokeMethod<bool>('isFullScreen', _args(viewId)) ?? false;
+    return await _staticChannel.invokeMethod<bool>(kMethodIsFullScreen, _args(viewId)) ?? false;
   }
 
   Future<bool> isResizable(int viewId) async {
-    return await _staticChannel.invokeMethod<bool>('isResizable', _args(viewId)) ?? true;
+    return await _staticChannel.invokeMethod<bool>(kMethodIsResizable, _args(viewId)) ?? true;
   }
 
   Future<void> setResizable(int viewId, bool isResizable) async {
-    await _staticChannel.invokeMethod<void>('setResizable', _args(viewId, {'isResizable': isResizable}));
+    await _staticChannel.invokeMethod<void>(kMethodSetResizable, _args(viewId, {'isResizable': isResizable}));
   }
 
   Future<bool> isMovable(int viewId) async {
-    return await _staticChannel.invokeMethod<bool>('isMovable', _args(viewId)) ?? true;
+    return await _staticChannel.invokeMethod<bool>(kMethodIsMovable, _args(viewId)) ?? true;
   }
 
   Future<void> setMovable(int viewId, bool isMovable) async {
-    await _staticChannel.invokeMethod<void>('setMovable', _args(viewId, {'isMovable': isMovable}));
+    await _staticChannel.invokeMethod<void>(kMethodSetMovable, _args(viewId, {'isMovable': isMovable}));
   }
 
   Future<bool> isMinimizable(int viewId) async {
-    return await _staticChannel.invokeMethod<bool>('isMinimizable', _args(viewId)) ?? true;
+    return await _staticChannel.invokeMethod<bool>(kMethodIsMinimizable, _args(viewId)) ?? true;
   }
 
   Future<void> setMinimizable(int viewId, bool isMinimizable) async {
-    await _staticChannel.invokeMethod<void>('setMinimizable', _args(viewId, {'isMinimizable': isMinimizable}));
+    await _staticChannel.invokeMethod<void>(kMethodSetMinimizable, _args(viewId, {'isMinimizable': isMinimizable}));
   }
 
   Future<bool> isMaximizable(int viewId) async {
-    return await _staticChannel.invokeMethod<bool>('isMaximizable', _args(viewId)) ?? true;
+    return await _staticChannel.invokeMethod<bool>(kMethodIsMaximizable, _args(viewId)) ?? true;
   }
 
   Future<void> setMaximizable(int viewId, bool isMaximizable) async {
-    await _staticChannel.invokeMethod<void>('setMaximizable', _args(viewId, {'isMaximizable': isMaximizable}));
+    await _staticChannel.invokeMethod<void>(kMethodSetMaximizable, _args(viewId, {'isMaximizable': isMaximizable}));
   }
 
   Future<bool> isClosable(int viewId) async {
-    return await _staticChannel.invokeMethod<bool>('isClosable', _args(viewId)) ?? true;
+    return await _staticChannel.invokeMethod<bool>(kMethodIsClosable, _args(viewId)) ?? true;
   }
 
   Future<void> setClosable(int viewId, bool isClosable) async {
-    await _staticChannel.invokeMethod<void>('setClosable', _args(viewId, {'isClosable': isClosable}));
+    await _staticChannel.invokeMethod<void>(kMethodSetClosable, _args(viewId, {'isClosable': isClosable}));
   }
 
   Future<bool> isAlwaysOnTop(int viewId) async {
-    return await _staticChannel.invokeMethod<bool>('isAlwaysOnTop', _args(1)) ?? false;
+    return await _staticChannel.invokeMethod<bool>(kMethodIsAlwaysOnTop, _args(viewId)) ?? false;
   }
 
   Future<bool> isHideAppFromTaskbar() async {
-    final res = await _staticChannel.invokeMethod('isHideAppFromTaskbar', _args(1));
+    if (mainId == null) return false;
+    final res = await _staticChannel.invokeMethod(kMethodIsHideAppFromTaskbar, _args(mainId!));
     return res ?? false;
   }
 
   Future<void> startDragging(int viewId) async {
-    await _staticChannel.invokeMethod<void>('startDragging', _args(viewId));
+    await _staticChannel.invokeMethod<void>(kMethodStartDragging, _args(viewId));
   }
 
   Future<void> startResizing(int viewId, ResizeEdge edge) async {
     await _staticChannel.invokeMethod<void>(
-      'startResizing',
+      kMethodStartResizing,
       _args(viewId, {
         'resizeEdge': edge.name,
         'top': edge == ResizeEdge.top || edge == ResizeEdge.topLeft || edge == ResizeEdge.topRight,
@@ -324,43 +405,60 @@ class NativeChannel {
   }
 
   Future<bool> isHideFromCollection(int viewId) async {
-    return await _staticChannel.invokeMethod<bool>('isHideFromCollection', _args(viewId)) ?? false;
+    return await _staticChannel.invokeMethod<bool>(kMethodIsHideFromCollection, _args(viewId)) ?? false;
   }
 
   Future<void> hideFromCollection(int viewId, bool isHideFromCollection) async {
     await _staticChannel.invokeMethod<void>(
-      'hideFromCollection',
+      kMethodHideFromCollection,
       _args(viewId, {'isHideFromCollection': isHideFromCollection}),
     );
   }
 
   Future<bool> isVisibleOnAllWorkspaces(int viewId) async {
-    return await _staticChannel.invokeMethod<bool>('isVisibleOnAllWorkspaces', _args(viewId)) ?? false;
+    return await _staticChannel.invokeMethod<bool>(kMethodIsVisibleOnAllWorkspaces, _args(viewId)) ?? false;
   }
 
   Future<void> setVisibleOnAllWorkspaces(int viewId, bool visible, {bool visibleOnFullScreen = false}) async {
     await _staticChannel.invokeMethod<void>(
-      'setVisibleOnAllWorkspaces',
+      kMethodSetVisibleOnAllWorkspaces,
       _args(viewId, {'visible': visible, 'visibleOnFullScreen': visibleOnFullScreen}),
     );
   }
 
   Future<void> setBadgeLabel(int viewId, {required String? label}) async {
-    await _staticChannel.invokeMethod<void>('setBadgeLabel', _args(viewId, {'label': label ?? ''}));
+    await _staticChannel.invokeMethod<void>(kMethodSetBadgeLabel, _args(viewId, {'label': label ?? ''}));
   }
 
   Future<void> setProgressBar(double progress) async {
-    await _staticChannel.invokeMethod<void>('setProgressBar', _args(1, {'progress': progress}));
+    if (mainId == null) return;
+    await _staticChannel.invokeMethod<void>(kMethodSetProgressBar, _args(mainId!, {'progress': progress}));
   }
 
   Future<void> setIgnoreMouseEvents(int viewId, bool ignore, {bool forward = false}) async {
     await _staticChannel.invokeMethod<void>(
-      'setIgnoreMouseEvents',
+      kMethodSetIgnoreMouseEvents,
       _args(viewId, {'ignore': ignore, 'forward': forward}),
     );
   }
 
+  Future<({bool mouseMoveEvents, bool ignore})> isIgnoreMouseEvents(int viewId) async {
+    final resMap = await _staticChannel.invokeMethod<Map>(kMethodIsIgnoreMouseEvents, _args(viewId));
+
+    return (mouseMoveEvents: resMap?['forward'] as bool? ?? false, ignore: resMap?['ignore'] as bool? ?? false);
+  }
+
   Future<void> popUpWindowMenu(int viewId) async {
-    await _staticChannel.invokeMethod<void>('popUpWindowMenu', _args(viewId));
+    await _staticChannel.invokeMethod<void>(kMethodPopUpWindowMenu, _args(viewId));
+  }
+
+  /// Syncs `NSApplicationDelegate.applicationShouldTerminateAfterLastWindowClosed`.
+  ///
+  /// Set to `false` for [CloseMode.macos] (hide windows, stay in the dock).
+  Future<void> setTerminateAfterLastWindowClosed(bool terminate) async {
+    await _staticChannel.invokeMethod<void>(
+      kMethodSetTerminateAfterLastWindowClosed,
+      {'terminateAfterLastWindowClosed': terminate},
+    );
   }
 }

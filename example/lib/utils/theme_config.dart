@@ -23,11 +23,18 @@ class ThemeConfig extends ChangeNotifier {
 
 class SharedParams extends ChangeNotifier {
   bool _isHideAppFromTaskbar = false;
+  CloseMode _closeMode = CloseMode.none;
 
   bool get isHideAppFromTaskbar => _isHideAppFromTaskbar;
+  CloseMode get closeMode => _closeMode;
 
   set isHideAppFromTaskbar(bool newValue) {
     _isHideAppFromTaskbar = newValue;
+    notifyListeners();
+  }
+
+  set closeMode(CloseMode newValue) {
+    _closeMode = newValue;
     notifyListeners();
   }
 }

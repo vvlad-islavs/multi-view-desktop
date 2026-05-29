@@ -1,18 +1,37 @@
 import 'package:flutter/material.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 
+/// Internal contract for per-window operations keyed by [viewId].
+///
+/// Implemented in `view_root.dart`. The public API
+/// is [MultiViewDesktop], which resolves [viewId] from [BuildContext].
 abstract class ViewsManager {
+  /// Creates a native window, then invokes [onCreated] with its [viewId].
+  ///
+  /// [newOpts] are merged with global options from [MultiAppConfig].
+  /// [parent] will be in future for parent-window placement.
   Future<void> createWindow({WindowOptions? newOpts, required Future<void> Function(int) onCreated, int? parent});
 
-  Future<void> closeWindow(int viewId, {CloseMode closeMode = CloseMode.none});
+  /// Soft closes [viewId]
+  Future<void> closeWindow(int viewId);
 
+  /// Closes all views by using [closeMode] strategy or mode from [runMultiApp -> config -> closeMode] that can be overridden with [setCloseMode]
+  Future<void> closeApp({CloseMode? closeMode});
+
+  /// Whether programmatic / native close is blocked for [viewId].
   Future<bool> isPreventClose(int viewId);
 
+  /// Blocks or allows closing [viewId]; blocked close emits [WindowListener.onWindowClose].
   Future<void> setPreventClose(int viewId, bool isPreventClose);
 
+  /// Aborts an in-progress [CloseMode.cascade] waiting on [viewId].
   Future<void> cancelCascadeClose(int viewId);
 
+  /// Updates the strategy used when the main window close button is pressed.
   Future<void> setCloseMode(CloseMode closeMode);
+
+  /// returns current strategy
+  CloseMode getCloseMode();
 
   Future<String> getTitle(int viewId);
 
@@ -22,6 +41,7 @@ abstract class ViewsManager {
 
   Future<({TitleBarStyle? style, bool? buttonVisibility})> getTitleBarStyle(int viewId);
 
+  /// Removes native title bar and frame chrome.
   Future<void> setAsFrameless(int viewId);
 
   Future<void> setBackgroundColor(int viewId, Color color);
@@ -36,6 +56,7 @@ abstract class ViewsManager {
 
   Future<void> setHasShadow(int viewId, bool value);
 
+  /// Window frame in Flutter logical coordinates.
   Future<Rect> getBounds(int viewId);
 
   Future<Size> getSize(int viewId);
@@ -112,8 +133,10 @@ abstract class ViewsManager {
 
   Future<void> hideAppFromTaskbar(bool isHideAppFromTaskbar);
 
+  /// Begins a native move drag (see [DragToMoveArea]).
   Future<void> startDragging(int viewId);
 
+  /// Begins a native resize drag from [edge] (see [DragToResizeArea]).
   Future<void> startResizing(int viewId, ResizeEdge edge);
 
   Future<bool> isHideFromCollection(int viewId);
@@ -131,6 +154,8 @@ abstract class ViewsManager {
   Future<void> setIgnoreMouseEvents(int viewId, bool ignore, {bool forward = false});
 
   Future<void> popUpWindowMenu(int viewId);
+
+  Future<({bool mouseMoveEvents, bool ignore})> isIgnoreMouseEvents(int viewId);
 
   void addListener(int viewId, WindowListener listener);
 
