@@ -314,11 +314,23 @@ class _HomePageState extends State<HomePage> with WindowListener {
               _tile(
                 'openWindow',
                 subtitle: 'Open a new OS window (same engine)',
-                onTap: () {
+                onTap: () async {
+                  final currId = null;
                   openWindow(
                     const _SecondaryWindowRoot(),
-                    options: const WindowOptions(size: Size(1000, 700), title: 'Window title fdbdf'),
-                    // parentContext: context,
+                    options: WindowOptions(size: const Size(1000, 700), title: 'Window title parent $currId'),
+                  );
+                },
+              ),
+              _tile(
+                'openChildWindow',
+                subtitle: 'Open a new OS window (same engine)',
+                onTap: () async {
+                  final currId = MultiViewDesktop.getCurrentId(context);
+                  openWindow(
+                    const _SecondaryWindowRoot(),
+                    options: WindowOptions(size: const Size(1000, 700), title: 'Window title parent $currId'),
+                    parentContext: context,
                   );
                 },
               ),
@@ -456,6 +468,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 subtitle: 'Set window background transparent',
                 onTap: () => MultiViewDesktop.setBackgroundColor(context, Colors.transparent),
               ),
+              _tile('Pop up menu', onTap: () => MultiViewDesktop.popUpWindowMenu(context)),
             ]),
 
             // ----------------------------------------------------------------
@@ -545,11 +558,9 @@ class _WindowPickerDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // All open view IDs are accessible via PlatformDispatcher since we share
-    // one engine.  We filter out the calling window.
-    final allIds =
-        ui.PlatformDispatcher.instance.views.map((v) => v.viewId).where((id) => id != excludeId && id != 0).toList()
-          ..sort();
+
+
+    final allIds = MultiViewDesktop.allViewsIds.where((id)=> id!= excludeId).toList()..sort();
 
     return AlertDialog(
       title: const Text('Select target window'),

@@ -3,7 +3,7 @@ import 'package:flutter/widgets.dart';
 /// Provides the numeric OS-view identifier for the current window.
 ///
 /// Automatically injected by [runMultiApp] around every view in the
-/// [ViewCollection].  Read it with [MultiViewDesktop.getCurrentId] or
+/// [ViewCollection].  Read it with [MultiViewDesktop._getCurrentId] or
 /// directly:
 ///
 /// ```dart

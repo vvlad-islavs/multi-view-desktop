@@ -19,27 +19,39 @@ import 'window_options.dart';
 ///
 /// [home] is rendered in the initial (main) OS window.  Additional windows
 /// are opened via [openWindow].
-void runMultiApp(Widget home, {MultiAppConfig? config}) {
+void runMultiApp(Widget home, {MultiAppConfig? config}) async {
   WidgetsFlutterBinding.ensureInitialized();
-  runWidget(createMultiViewRoot(home, config ?? MultiAppConfig._defaultConfig()));
+  runWidget(await createMultiViewRoot(home, config ?? MultiAppConfig._defaultConfig()));
 }
 
 /// Application-wide settings passed to [runMultiApp].
 class MultiAppConfig {
   /// Strategy used when closes the main window (see [CloseMode]).
   final CloseMode mainCloseMode;
+  final bool enableDynamicAnchor;
 
   /// Default [WindowOptions] merged into every new window (per-window options override).
   final WindowOptions globalOptions;
 
-  MultiAppConfig._({this.mainCloseMode = CloseMode.cascade, this.globalOptions = const WindowOptions()});
+  MultiAppConfig._({
+    this.mainCloseMode = CloseMode.cascade,
+    this.enableDynamicAnchor = true,
+    this.globalOptions = const WindowOptions(),
+  });
 
   /// Creates configuration for [runMultiApp].
   ///
   /// [closeMode] applies when the main window's close button is pressed.
   /// [globalOptions] are applied to the main window at startup and merged into [openWindow].
-  factory MultiAppConfig({CloseMode closeMode = CloseMode.cascade, WindowOptions? globalOptions}) =>
-      MultiAppConfig._(mainCloseMode: closeMode, globalOptions: globalOptions ?? WindowOptions());
+  factory MultiAppConfig({
+    CloseMode closeMode = CloseMode.cascade,
+    bool enableDynamicAnchor = true,
+    WindowOptions? globalOptions,
+  }) => MultiAppConfig._(
+    mainCloseMode: closeMode,
+    globalOptions: globalOptions ?? WindowOptions(),
+    enableDynamicAnchor: enableDynamicAnchor,
+  );
 
   factory MultiAppConfig._defaultConfig() => MultiAppConfig._();
 }
@@ -83,5 +95,5 @@ enum CloseMode {
 ///   child: const Text('Open settings'),
 /// )
 /// ```
-Future<void> openWindow(Widget child, {WindowOptions? options}) =>
-    MultiViewDesktop.addWindow(child, options: options, parent: null);
+Future<int> openWindow(Widget child, {WindowOptions? options, BuildContext? parentContext}) =>
+    MultiViewDesktop.addWindow(child, options: options, parent: parentContext);

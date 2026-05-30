@@ -1,22 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 
-abstract class MacOSMenuItem{}
+abstract class MacOSMenuItem {}
+
 /// Internal contract for per-window operations keyed by [viewId].
 ///
 /// Implemented in `view_root.dart`. The public API
 /// is [MultiViewDesktop], which resolves [viewId] from [BuildContext].
 abstract class ViewsManager {
+  int realToShiftedId(int viewId);
+
+  int shiftedToRealId(int viewId);
+
   /// Creates a native window, then invokes [onCreated] with its [viewId].
   ///
   /// [newOpts] are merged with global options from [MultiAppConfig].
   /// [parent] will be in future for parent-window placement.
-  Future<void> createWindow({WindowOptions? newOpts, required Future<void> Function(int) onCreated, int? parent});
+  Future<int> createWindow({WindowOptions? newOpts, required Future<void> Function(int) onCreated, int? parent});
 
   /// Soft closes [viewId]
   Future<void> closeWindow(int viewId);
 
-  /// Closes all views by using [closeMode] strategy or mode from [runMultiApp -> config -> closeMode] that can be overridden with [setCloseMode]
+  /// Closes all views by using [closeMode] strategy or mode from [runMultiApp -> config -> closeMode] that can be overridden with [setAppCloseMode]
   Future<void> closeApp({CloseMode? closeMode});
 
   /// Whether programmatic / native close is blocked for [viewId].
@@ -29,10 +34,10 @@ abstract class ViewsManager {
   Future<void> cancelCascadeClose(int viewId);
 
   /// Updates the strategy used when the main window close button is pressed.
-  Future<void> setCloseMode(CloseMode closeMode);
+  Future<void> setAppCloseMode(CloseMode closeMode);
 
   /// returns current strategy
-  CloseMode getCloseMode();
+  CloseMode getAppCloseMode();
 
   Future<String> getTitle(int viewId);
 
@@ -44,6 +49,12 @@ abstract class ViewsManager {
 
   /// Removes native title bar and frame chrome.
   Future<void> setAsFrameless(int viewId);
+
+  /// Sets anchor id. Only for views without parents (root view). Returns [true] if id was set successfully
+  bool setAnchorId(int viedId);
+
+  /// Returns current anchor id
+  int? getAnchorId();
 
   Future<void> setBackgroundColor(int viewId, Color color);
 

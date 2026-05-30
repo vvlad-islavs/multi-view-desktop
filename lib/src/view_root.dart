@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' show FlutterView, PlatformDispatcher;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
@@ -27,6 +28,8 @@ class _WindowEntry {
 // ---------------------------------------------------------------------------
 
 _MultiViewRootState? _rootState;
+final NativeChannel _nativeChannel = NativeChannel();
+bool _hasView1 = true;
 
 /// Returns the live [_MultiViewRootState] after [runMultiApp] has started.
 // ignore: library_private_types_in_public_api
@@ -38,7 +41,10 @@ _MultiViewRootState get globalRootState {
 }
 
 /// Creates the root multi-view widget.  Used by [runMultiApp] only.
-Widget createMultiViewRoot(Widget home, MultiAppConfig config) => _MultiViewRoot(home: home, config: config);
+Future<Widget> createMultiViewRoot(Widget home, MultiAppConfig config) async {
+  _hasView1 = await _nativeChannel.checkWindowExist(1) ?? true;
+  return _MultiViewRoot(home: home, config: config);
+}
 
 // ---------------------------------------------------------------------------
 // _MultiViewRoot
@@ -70,7 +76,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
 
   ViewsManager get manager => _viewsManagerImpl;
 
-  List<int> get allViewsId => _viewsManagerImpl.allWindowIds;
+  List<int> get allShiftedViewsId => _viewsManagerImpl.allShiftedWindowIds;
 
   // --------------------------------------------------------------------------
 
@@ -86,10 +92,9 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     WidgetsBinding.instance.addObserver(this);
 
     _initMainView();
-    unawaited(_viewsManagerImpl.applyNativeLifecyclePolicy());
   }
 
-  void _initMainView() {
+  void _initMainView() async {
     // Snapshot to avoid concurrent-modification errors on the live views set.
     final initial = WidgetsBinding.instance.platformDispatcher.views.toList();
     final live = initial.where((v) => v.viewId != 0).toList();
@@ -97,15 +102,15 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
 
     // After hot restart the lowest live view id may not be 1 (e.g. if view 1 was closed).
     live.sort((a, b) => a.viewId.compareTo(b.viewId));
-    _viewsManagerImpl.registerInitialWindow(viewId: live.first.viewId, home: widget.home);
-
+    await _viewsManagerImpl.registerInitialWindow(viewId: live.first.viewId, home: widget.home);
+    unawaited(_viewsManagerImpl.applyNativeLifecyclePolicy());
     if (!kReleaseMode) {
       final registered = _viewsManagerImpl.allWindowIds.toSet();
       final orphaned = live.where((v) => !registered.contains(v.viewId)).toList();
       _viewsManagerImpl.removeOrphanViewsForceAfterRestart(orphaned.map((e) => e.viewId).toList());
     }
 
-    unawaited(_applyOptionsToAnchor());
+    _applyOptionsToAnchor();
   }
 
   @override
@@ -128,7 +133,6 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     final gone = _viewsManagerImpl.allWindowIds.where((id) => dispatcher.view(id: id) == null).toList();
 
     if (gone.isNotEmpty) {
-      debugPrint('Окна к удалению: $gone');
       setState(() {
         for (final id in gone) {
           _handleClose(id);
@@ -143,15 +147,14 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   // Internal helpers
   // --------------------------------------------------------------------------
 
-  Future<void> _applyOptionsToAnchor() {
+  Future<void> _applyOptionsToAnchor() async {
     final anchorId = _viewsManagerImpl.anchorId;
-    if (anchorId == null) return Future.value();
+    if (anchorId == null) return;
     return _viewsManagerImpl.applyOptions(anchorId, opts: widget.config.globalOptions);
   }
 
   void _handleClose(int viewId) {
     if (!mounted) return;
-    debugPrint('Окна удаляется: $viewId');
     _viewsManagerImpl.disposeView(viewId);
     setState(() {});
   }
@@ -226,7 +229,7 @@ class _CascadeCloseService {
 
   /// Waits until [id] closes or the cascade is aborted; then removes its completer.
   Future<bool> waitWindow(int id) async {
-    final res = await _closeCompleters[id]?.future ?? false;
+    final res = await _closeCompleters[id]?.future ?? true;
     detachWindow(id);
 
     return res;
@@ -308,12 +311,12 @@ class _WindowCommunicatorImpl implements WindowCommunicator {
   /// Called automatically by the library when a view is removed from the
   /// [ViewCollection].  Do not call this manually.
   @internal
-  Future<void> disposeView(int viewId) async {
+  Future<void> disposeViewByShiftedId(int viewId) async {
     _viewControllers.remove(viewId)?.close();
-    await _disposeLinkedView(viewId);
+    await _disposeLinkedViewByShiftedId(viewId);
   }
 
-  Future<void> _disposeLinkedView(int parentViewId) async {
+  Future<void> _disposeLinkedViewByShiftedId(int parentViewId) async {
     for (final entry in _linkedViewControllers[parentViewId]?.entries ?? <MapEntry<int, StreamController<dynamic>>>[]) {
       await entry.value.close();
     }
@@ -323,7 +326,7 @@ class _WindowCommunicatorImpl implements WindowCommunicator {
   @override
   Future<void> dispose() async {
     for (final view in _viewControllers.keys) {
-      await disposeView(view);
+      await disposeViewByShiftedId(view);
     }
     _viewControllers.clear();
     _linkedViewControllers.clear();
@@ -367,10 +370,17 @@ class _ViewsManagerImpl implements ViewsManager {
     );
   }
 
-  static final NativeChannel _nativeChannel = NativeChannel();
-
   // token -> widget, entries waiting for the native "viewCreated" event.
   int _nextToken = 0;
+
+  // id shift after hot restart
+  int _hotRestartShift = 0;
+
+  @override
+  int shiftedToRealId(int viewId) => _shiftedToReal(viewId);
+
+  @override
+  int realToShiftedId(int viewId) => _realToShifted(viewId);
 
   // token -> Completer<int?> for pending views.
   final Map<int, Completer<int?>> _createCompleters = {};
@@ -379,8 +389,6 @@ class _ViewsManagerImpl implements ViewsManager {
 
   // viewId -> listener list.
   final Map<int, ObserverList<WindowListener>> _listeners = {};
-
-  // final Map<int, ViewController> _controllers = {};
 
   /// Anchor window: receives app-level close policy ([CloseMode]) from the native close button.
   int? _anchorId;
@@ -403,9 +411,16 @@ class _ViewsManagerImpl implements ViewsManager {
 
   List<int> get allWindowIds => _windows.keys.toList();
 
-  void registerInitialWindow({required int viewId, required Widget home}) {
+  List<int> get allShiftedWindowIds => _windows.keys.map((e) => _realToShifted(e)).toList();
+
+  Future<void> registerInitialWindow({required int viewId, required Widget home}) async {
+    if (!_hasView1) {
+      viewId = await openWindow(home);
+      _hotRestartShift = viewId - 1;
+    }
+
     _windows[viewId] = _WindowEntry(widget: home, parentId: null);
-    _setAnchor(viewId);
+    _setAnchor(viewId, force: true);
   }
 
   void registerWindow(int viewId, Widget widget, {int? parentId}) {
@@ -418,10 +433,10 @@ class _ViewsManagerImpl implements ViewsManager {
     }
   }
 
-  void _setAnchor(int viewId) {
-    debugPrint('Главное окно установлено: $viewId');
+  void _setAnchor(int? viewId, {bool force = false}) {
+    if (!config.enableDynamicAnchor && !force) return;
     _anchorId = viewId;
-    _nativeChannel.mainId = viewId;
+    if (viewId == null) return;
     unawaited(_nativeChannel.setAnchorViewId(viewId));
   }
 
@@ -430,9 +445,7 @@ class _ViewsManagerImpl implements ViewsManager {
     final anchor = _anchorId;
     if (anchor == null) return;
     if (dispatcher.view(id: anchor) != null) return;
-    _listeners.remove(anchor);
-    _windows.remove(anchor);
-    _anchorId = null;
+    _setAnchor(_anchorId);
     _promoteAnchor();
   }
 
@@ -452,11 +465,15 @@ class _ViewsManagerImpl implements ViewsManager {
   void _promoteAnchor({int? excludingViewId}) {
     final candidates = _anchorCandidates(excludingViewId: excludingViewId);
     if (candidates.isEmpty) {
-      _anchorId = null;
+      _setAnchor(null);
       return;
     }
     _setAnchor(candidates.first);
   }
+
+  int _realToShifted(int viewId) => viewId - _hotRestartShift;
+
+  int _shiftedToReal(int viewId) => viewId + _hotRestartShift;
 
   List<int> _directChildIds(int parentId) =>
       _windows.entries.where((e) => e.value.parentId == parentId).map((e) => e.key).toList();
@@ -515,9 +532,9 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   Future<void> _onConfirmClose(int viewId) async {
-    debugPrint('Закрыто окно $viewId');
     await disposeView(viewId);
-    communicator.disposeView(viewId);
+
+    communicator.disposeViewByShiftedId(_realToShifted(viewId));
     await _nativeChannel.setConfirmClose(viewId, isConfirm: true);
     await _nativeChannel.forceCloseWindow(viewId);
 
@@ -556,7 +573,7 @@ class _ViewsManagerImpl implements ViewsManager {
   /// also cleared so that a later independent close of those windows does not
   /// unexpectedly resume the (already aborted) cascade.
   Future<void> _cancelCascade(int viewId) async {
-    final parentsRecurs = _parentsId(viewId);
+    final parentsRecurs = [..._parentsId(viewId), viewId];
     for (final parent in parentsRecurs) {
       await _nativeChannel.setPreConfirmClose(parent, false);
       cascadeCloseService.abort(parent);
@@ -626,9 +643,6 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   Future<void> _removeViewsNone(int rootId) async {
-    // if (rootId == _anchorId && _directChildIds(rootId).isEmpty) {
-    //   _promoteAnchor(excludingViewId: rootId);
-    // }
     await _nativeChannel.setPreConfirmClose(rootId, true);
     await _nativeChannel.softCloseWindow(rootId);
   }
@@ -641,15 +655,17 @@ class _ViewsManagerImpl implements ViewsManager {
     }
 
     if (!reverse) await closeRoot();
-    final descendants = _descendantIdsDeepestFirst(rootId).toList();
+    final descendants = _descendantIdsDeepestFirst(rootId).toList()..sort();
 
-    for (final id in reverse ? descendants.reversed.toList() : descendants) {
+    for (final id in reverse ? descendants.reversed : descendants) {
       cascadeCloseService.attachWindow(id);
       await _nativeChannel.focus(id);
       await _nativeChannel.softCloseWindow(id);
+      final closed = await cascadeCloseService.waitWindow(id);
 
-      if (!await cascadeCloseService.waitWindow(id)) return;
+      if (!closed) return;
     }
+
     if (reverse) await closeRoot();
   }
 
@@ -676,13 +692,27 @@ class _ViewsManagerImpl implements ViewsManager {
       return;
     }
 
-    for (final id in _descendantIdsDeepestFirst(rootId).reversed.toList()) {
+    final descendants = _descendantIdsDeepestFirst(rootId)..sort();
+    for (final id in descendants.reversed) {
+      cascadeCloseService.attachWindow(id);
       await _nativeChannel.focus(id);
       await _nativeChannel.softCloseWindow(id);
+      final closed = await cascadeCloseService.waitWindow(id);
+
+      if (!closed) return;
     }
-
     await _nativeChannel.setPreConfirmClose(rootId, true);
-
+    // if dynamicAnchor disabled hide only view with fixed anchor id
+    if (!config.enableDynamicAnchor) {
+      if (_anchorId == rootId) {
+        await _nativeChannel.hide(rootId);
+        await _nativeChannel.setPreConfirmClose(rootId, false);
+      } else {
+        await _nativeChannel.focus(rootId);
+        await _nativeChannel.softCloseWindow(rootId);
+      }
+      return;
+    }
     if (_anchorCandidates(excludingViewId: rootId).isEmpty) {
       await _nativeChannel.hide(rootId);
       await _nativeChannel.setPreConfirmClose(rootId, false);
@@ -748,11 +778,11 @@ class _ViewsManagerImpl implements ViewsManager {
   Future<void> disposeView(int viewId) async {
     final wasAnchor = viewId == _anchorId;
     if (wasAnchor) {
-      _anchorId = null;
+      _setAnchor(null);
     }
     _listeners.remove(viewId);
     _windows.remove(viewId);
-    communicator.disposeView(viewId);
+    communicator.disposeViewByShiftedId(_realToShifted(viewId));
     if (wasAnchor) {
       _promoteAnchor();
     }
@@ -830,6 +860,26 @@ class _ViewsManagerImpl implements ViewsManager {
   @override
   Future<void> setTaskbarMenu({required List<MacOSMenuItem> items}) async {
     //TODO: кастомизация списка меню на macos
+  }
+
+  @override
+  bool setAnchorId(int viewId) {
+    if (config.enableDynamicAnchor) return false;
+
+    final realView = _shiftedToReal(viewId);
+    if (_anchorCandidates().contains(realView)) {
+      _setAnchor(realView);
+      return true;
+    }
+
+    return false;
+  }
+
+  @override
+  int? getAnchorId() {
+    if (_anchorId == null) return null;
+
+    return _realToShifted(_anchorId!);
   }
 
   @override
@@ -1004,7 +1054,6 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   Future<void> popUpWindowMenu(int viewId) async {
-    //TODO: протестить
     await _viewExistChecker(viewId, () async => await _nativeChannel.popUpWindowMenu(viewId));
   }
 
@@ -1059,10 +1108,10 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  CloseMode getCloseMode() => closeMode;
+  CloseMode getAppCloseMode() => closeMode;
 
   @override
-  Future<void> setCloseMode(CloseMode closeMode) async {
+  Future<void> setAppCloseMode(CloseMode closeMode) async {
     this.closeMode = closeMode;
     await applyNativeLifecyclePolicy();
   }

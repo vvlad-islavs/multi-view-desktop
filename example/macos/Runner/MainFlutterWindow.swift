@@ -7,9 +7,6 @@ class MainFlutterWindow: NSWindow {
     let engine = FlutterEngine(name: "main_flutter_engine", project: nil, allowHeadlessExecution: true)
     MultiviewDesktopPlugin.prepareEngine(engine, window: self)
 
-    // Engine must be running before FlutterViewController(engine:) is created.
-    engine.run(withEntrypoint: nil)
-
     let flutterViewController = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
     let windowFrame = self.frame
     self.contentViewController = flutterViewController

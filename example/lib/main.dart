@@ -1,24 +1,30 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'pages/home.dart';
 import 'utils/theme_config.dart';
 
-void main() => runMultiApp(
-  const MainWindowRoot(),
-  config: MultiAppConfig(
-    closeMode: CloseMode.macos,
-    globalOptions: WindowOptions(
-      minimumSize: Size(1000, 700),
-      size: Size(1000, 700),
-      alignment: Alignment.center,
-      hideAppFromTaskbar: false,
-      titleBarStyle: TitleBarStyle.normal,
-      windowButtonVisibility: true,
-      title: 'Windows title',
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runMultiApp(
+    const MainWindowRoot(),
+    config: MultiAppConfig(
+      closeMode: CloseMode.macos,
+      enableDynamicAnchor: true,
+      globalOptions: WindowOptions(
+        minimumSize: Size(1000, 700),
+        size: Size(1000, 700),
+        alignment: Alignment.center,
+        hideAppFromTaskbar: false,
+        titleBarStyle: TitleBarStyle.normal,
+        windowButtonVisibility: true,
+        title: 'Windows title',
+      ),
     ),
-  ),
-);
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Root widget for the main window

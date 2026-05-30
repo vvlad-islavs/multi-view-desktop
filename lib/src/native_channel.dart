@@ -69,16 +69,15 @@ const String kMethodIsIgnoreMouseEvents = 'isIgnoreMouseEvents';
 const String kMethodPopUpWindowMenu = 'popUpWindowMenu';
 const String kMethodSetTerminateAfterLastWindowClosed = 'setTerminateAfterLastWindowClosed';
 const String kMethodSetAnchorViewId = 'setAnchorViewId';
+const String kMethodCheckExist = 'checkExistViewId';
 
 /// Thin wrapper around the `multiview_desktop` [MethodChannel].
 ///
 /// Every per-window call includes `viewId` in the argument map.
-/// App-wide calls use [mainId] as `viewId`.
 class NativeChannel {
   static const MethodChannel _staticChannel = MethodChannel('multiview_desktop');
 
   /// View ID of the anchor window (dock / app-level close policy); updated dynamically.
-  int? mainId;
 
   /// Builds an argument map that always includes the [viewId] so the native
   /// side can route the call to the right OS window.
@@ -114,9 +113,12 @@ class NativeChannel {
     });
   }
 
+  Future<bool?> checkWindowExist(int viewId) async {
+    return await _staticChannel.invokeMethod<bool>(kMethodCheckExist, _args(viewId));
+  }
+
   /// Updates which window receives anchor close handling on the native side.
   Future<void> setAnchorViewId(int viewId) async {
-    mainId = viewId;
     await _staticChannel.invokeMethod<void>(kMethodSetAnchorViewId, _args(viewId));
   }
 
@@ -224,11 +226,7 @@ class NativeChannel {
   }
 
   Future<void> hideAppFromTaskbar({required bool isHideAppFromTaskbar}) async {
-    if (mainId == null) return;
-    await _staticChannel.invokeMethod<void>(
-      kMethodHideAppFromTaskbar,
-      _args(mainId!, {'isHideAppFromTaskbar': isHideAppFromTaskbar}),
-    );
+    await _staticChannel.invokeMethod<void>(kMethodHideAppFromTaskbar, {'isHideAppFromTaskbar': isHideAppFromTaskbar});
   }
 
   /// Requests close through the soft-close state machine (prevent / confirm).
@@ -384,8 +382,7 @@ class NativeChannel {
   }
 
   Future<bool> isHideAppFromTaskbar() async {
-    if (mainId == null) return false;
-    final res = await _staticChannel.invokeMethod(kMethodIsHideAppFromTaskbar, _args(mainId!));
+    final res = await _staticChannel.invokeMethod(kMethodIsHideAppFromTaskbar);
     return res ?? false;
   }
 
@@ -433,8 +430,7 @@ class NativeChannel {
   }
 
   Future<void> setProgressBar(double progress) async {
-    if (mainId == null) return;
-    await _staticChannel.invokeMethod<void>(kMethodSetProgressBar, _args(mainId!, {'progress': progress}));
+    await _staticChannel.invokeMethod<void>(kMethodSetProgressBar, {'progress': progress});
   }
 
   Future<void> setIgnoreMouseEvents(int viewId, bool ignore, {bool forward = false}) async {

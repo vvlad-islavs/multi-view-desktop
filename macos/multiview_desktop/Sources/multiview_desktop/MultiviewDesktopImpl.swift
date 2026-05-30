@@ -83,10 +83,11 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     // consumed in register(with:) once the viewIdentifier is available.
     var mainWindowRef: NSWindow?
 
+
     // All managed OS windows keyed by FlutterViewIdentifier.
     var windows: [Int64: NSWindow] = [:]
 
-    /// Flutter view ID of the main window (set in [registerWindow] for [mainWindowRef]).
+    /// Flutter view ID of the main window (set in [registerMain] for [mainWindowRef]).
     private(set) var mainViewId: Int64?
 
     private var windowStates: [Int64: WindowState] = [:]
@@ -117,16 +118,25 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         windows[viewId] = window
         windowStates[viewId] = WindowState()
         window.delegate = self
-        if let mainWindowRef, window === mainWindowRef {
-            mainViewId = viewId
-        }
+        // if let mainWindowRef, window === mainWindowRef {
+        //     mainViewId = viewId
+        // }
+    }
+
+    func registerMain(_ window: NSWindow, viewId: Int64) {
+        windows[viewId] = window
+        windowStates[viewId] = WindowState()
+        window.delegate = self
+        mainViewId = viewId
     }
 
     // MARK: - Dock / activation (macOS hide-instead-of-quit)
 
     /// Observes app activation and restores hidden windows when none are visible.
     func installLifecycleObservers() {
-        guard activationObserver == nil else { return }
+        guard activationObserver == nil else {
+            return
+        }
         activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: NSApplication.shared,
@@ -150,11 +160,19 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     /// Shows hidden windows (`orderOut`), e.g. after [CloseMode.macos].
     @discardableResult
     private func showHiddenWindowsIfNeeded() -> Bool {
-        guard !windows.isEmpty else { return false }
-        guard !windows.values.contains(where: { $0.isVisible }) else { return false }
+        guard !windows.isEmpty else {
+            return false
+        }
+        guard !windows.values.contains(where: { $0.isVisible }) else {
+            return false
+        }
 
-        let hiddenEntries = windows.filter { !$0.value.isVisible }
-        guard !hiddenEntries.isEmpty else { return false }
+        let hiddenEntries = windows.filter {
+            !$0.value.isVisible
+        }
+        guard !hiddenEntries.isEmpty else {
+            return false
+        }
 
         // Prefer the anchor window so Dart/native stay in sync after dock click.
         let targetId: Int64
@@ -191,6 +209,9 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         let args = call.arguments as? [String: Any] ?? [:]
 
         switch call.method {
+        case "checkExistViewId":
+            let viewId = int64(from: args, key: "viewId")
+            result(windows[viewId] != nil)
         case "createWindow":
             createSecondaryWindow(args: args, result: result)
         case "setTerminateAfterLastWindowClosed":
@@ -200,6 +221,46 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         case "setAnchorViewId":
             let anchorId = int64(from: args, key: "viewId")
             mainViewId = anchorId
+            result(nil)
+        case "isHideAppFromTaskbar":
+            result(NSApplication.shared.activationPolicy() == .accessory)
+        case "hideAppFromTaskbar":
+            let isSkipTaskbar: Bool = args["isHideAppFromTaskbar"] as? Bool ?? false
+            NSApplication.shared.setActivationPolicy(isSkipTaskbar ? .accessory : .regular)
+            result(nil)
+        case "setProgressBar":
+            let progress: CGFloat = CGFloat(truncating: args["progress"] as? NSNumber ?? 0)
+            let dockTile: NSDockTile = NSApp.dockTile
+
+            let firstTime = dockTile.contentView == nil || dockTile.contentView?.subviews.count == 0
+            if firstTime {
+                let imageView = NSImageView()
+                imageView.image = NSApp.applicationIconImage
+                dockTile.contentView = imageView
+
+                let frame = NSMakeRect(0.0, 0.0, dockTile.size.width, 15.0)
+                let progressIndicator = NSProgressIndicator(frame: frame)
+                progressIndicator.style = .bar
+                progressIndicator.isIndeterminate = false
+                progressIndicator.minValue = 0
+                progressIndicator.maxValue = 1
+                progressIndicator.isHidden = false
+                dockTile.contentView?.addSubview(progressIndicator)
+            }
+
+            let progressIndicator = dockTile.contentView!.subviews.last as! NSProgressIndicator
+            if progress < 0 {
+                progressIndicator.isHidden = true
+            } else if progress > 1 {
+                progressIndicator.isHidden = false
+                progressIndicator.isIndeterminate = true
+                progressIndicator.doubleValue = 1
+            } else {
+                progressIndicator.isHidden = false
+                progressIndicator.doubleValue = Double(progress)
+            }
+            dockTile.display()
+
             result(nil)
         default:
             let viewId = int64(from: args, key: "viewId")
@@ -252,7 +313,9 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         // initial frame; restore the requested size.
         newWindow.setContentSize(NSSize(width: width, height: height))
         newWindow.title = title
-        // newWindow.isReleasedWhenClosed = false
+        newWindow.isReleasedWhenClosed = false
+        // hide window from taskbar & window menu
+//        newWindow.isExcludedFromWindowsMenu = true
 
         if titleBarStyleName == "hidden" {
             newWindow.titleVisibility = .hidden
@@ -293,8 +356,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         }
         let state = windowStates[viewId] ?? WindowState()
 
-        // if  viewId == mainViewId && !state.isPreConfirm {
-        if  !state.isPreConfirm {
+        if !state.isPreConfirm {
             emitEvent("preconfirm-close", viewId: viewId)
             return false
         }
@@ -446,6 +508,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         let state = windowStates[viewId] ?? WindowState()
 
         switch call.method {
+
+
 
         case "closeWindow":
             window.performClose(nil)
@@ -703,14 +767,6 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             window.level = (args?["isAlwaysOnTop"] as? Bool ?? false) ? .floating : .normal
             result(nil)
 
-        case "isHideAppFromTaskbar":
-            result(NSApplication.shared.activationPolicy() == .accessory)
-
-        case "hideAppFromTaskbar":
-            let isSkipTaskbar: Bool = args?["isHideAppFromTaskbar"] as? Bool ?? false
-            NSApplication.shared.setActivationPolicy(isSkipTaskbar ? .accessory : .regular)
-            result(nil)
-
         case "isHideFromCollection":
             result(window.collectionBehavior.contains(.ignoresCycle))
 
@@ -778,40 +834,6 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             NSApp.dockTile.badgeLabel = args?["label"] as? String
             result(nil)
 
-        case "setProgressBar":
-            let progress: CGFloat = CGFloat(truncating: args?["progress"] as? NSNumber ?? 0)
-            let dockTile: NSDockTile = NSApp.dockTile
-
-            let firstTime = dockTile.contentView == nil || dockTile.contentView?.subviews.count == 0
-            if firstTime {
-                let imageView = NSImageView()
-                imageView.image = NSApp.applicationIconImage
-                dockTile.contentView = imageView
-
-                let frame = NSMakeRect(0.0, 0.0, dockTile.size.width, 15.0)
-                let progressIndicator = NSProgressIndicator(frame: frame)
-                progressIndicator.style = .bar
-                progressIndicator.isIndeterminate = false
-                progressIndicator.minValue = 0
-                progressIndicator.maxValue = 1
-                progressIndicator.isHidden = false
-                dockTile.contentView?.addSubview(progressIndicator)
-            }
-
-            let progressIndicator = dockTile.contentView!.subviews.last as! NSProgressIndicator
-            if progress < 0 {
-                progressIndicator.isHidden = true
-            } else if progress > 1 {
-                progressIndicator.isHidden = false
-                progressIndicator.isIndeterminate = true
-                progressIndicator.doubleValue = 1
-            } else {
-                progressIndicator.isHidden = false
-                progressIndicator.doubleValue = Double(progress)
-            }
-            dockTile.display()
-
-            result(nil)
 
         case "setIgnoreMouseEvents":
             let ignore: Bool = args?["ignore"] as? Bool ?? false
