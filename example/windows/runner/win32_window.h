@@ -36,6 +36,9 @@ class Win32Window {
   // |Show| is called. Returns true if the window was created successfully.
   bool Create(const std::wstring& title, const Point& origin, const Size& size);
 
+  // Centers the window on the monitor that contains it (uses rcWork).
+  void CenterOnScreen();
+
   // Show the current window. Returns true if the window was successfully shown.
   bool Show();
 

@@ -42,7 +42,8 @@ _MultiViewRootState get globalRootState {
 
 /// Creates the root multi-view widget.  Used by [runMultiApp] only.
 Future<Widget> createMultiViewRoot(Widget home, MultiAppConfig config) async {
-  _hasView1 = await _nativeChannel.checkWindowExist(1) ?? true;
+  final initialWindow = Platform.isWindows ? 0 : 1;
+  _hasView1 = await _nativeChannel.checkWindowExist(initialWindow) ?? true;
   return _MultiViewRoot(home: home, config: config);
 }
 
@@ -97,7 +98,8 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   void _initMainView() async {
     // Snapshot to avoid concurrent-modification errors on the live views set.
     final initial = WidgetsBinding.instance.platformDispatcher.views.toList();
-    final live = initial.where((v) => v.viewId != 0).toList();
+    final excludeId = Platform.isWindows ? -1 : 0;
+    final live = initial.where((v) => v.viewId != excludeId).toList();
     if (live.isEmpty) return;
 
     // After hot restart the lowest live view id may not be 1 (e.g. if view 1 was closed).
@@ -110,7 +112,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
       _viewsManagerImpl.removeOrphanViewsForceAfterRestart(orphaned.map((e) => e.viewId).toList());
     }
 
-    _applyOptionsToAnchor();
+    _applyOptionsToInitialAnchor();
   }
 
   @override
@@ -147,10 +149,11 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   // Internal helpers
   // --------------------------------------------------------------------------
 
-  Future<void> _applyOptionsToAnchor() async {
+  Future<void> _applyOptionsToInitialAnchor() async {
     final anchorId = _viewsManagerImpl.anchorId;
     if (anchorId == null) return;
-    return _viewsManagerImpl.applyOptions(anchorId, opts: widget.config.globalOptions);
+    await _viewsManagerImpl.applyOptions(anchorId, opts: widget.config.globalOptions);
+    unawaited(_nativeChannel.show(anchorId));
   }
 
   void _handleClose(int viewId) {
@@ -164,6 +167,8 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     setState(() {
       _viewsManagerImpl.registerWindow(viewId, child, parentId: parentId);
     });
+    final allViews = PlatformDispatcher.instance.views;
+    debugPrint('allViews after newWindow add: $allViews');
   }
 
   // --------------------------------------------------------------------------
@@ -414,6 +419,7 @@ class _ViewsManagerImpl implements ViewsManager {
   List<int> get allShiftedWindowIds => _windows.keys.map((e) => _realToShifted(e)).toList();
 
   Future<void> registerInitialWindow({required int viewId, required Widget home}) async {
+    _hotRestartShift = Platform.isWindows ? -1 : 0;
     if (!_hasView1) {
       viewId = await openWindow(home);
       _hotRestartShift = viewId - 1;
@@ -771,7 +777,7 @@ class _ViewsManagerImpl implements ViewsManager {
       await _nativeChannel.setFullScreen(viewId, isFullScreen: opts.fullScreen!);
     }
     if (opts.hideAppFromTaskbar ?? false) {
-      await _nativeChannel.hideAppFromTaskbar(isHideAppFromTaskbar: true);
+      await hideAppFromTaskbar(true);
     }
   }
 
@@ -820,6 +826,8 @@ class _ViewsManagerImpl implements ViewsManager {
     if (opts.alignment != null) {
       pos = await calcWindowPosition(windowSize, opts.alignment!);
     }
+
+    debugPrint('до запроса на создание окна');
     try {
       await _nativeChannel.createWindowRequest(
         token: token,
@@ -834,9 +842,12 @@ class _ViewsManagerImpl implements ViewsManager {
       throw Exception('Failed to create new window, tokenId: $token. Error: $e, stack: $st');
     }
 
+    debugPrint('после запроса на создание окна');
+
     final newViewId = await _createCompleters[token]!.future.timeout(Duration(seconds: 1), onTimeout: () => null);
     _createCompleters.remove(token);
 
+    debugPrint('после комлитера на создание окна');
     if (newViewId == null) {
       throw Exception('Failed to create new window, tokenId: $token. Error: timeout');
     }
@@ -858,8 +869,8 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  Future<void> setTaskbarMenu({required List<MacOSMenuItem> items}) async {
-    //TODO: кастомизация списка меню на macos
+  Future<void> setTaskbarMenu({required List<TaskbarMenuItem> items}) async {
+    //TODO: кастомизация списка меню
   }
 
   @override
@@ -949,13 +960,29 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  Future<void> hideAppFromTaskbar(bool isHideAppFromTaskbar) async {
-    final id = _lifecycleViewId;
-    if (id == null) return;
-    await _viewExistChecker(
-      id,
-      () async => await _nativeChannel.hideAppFromTaskbar(isHideAppFromTaskbar: isHideAppFromTaskbar),
-    );
+  Future<void> hideAppFromTaskbar(bool isHideAppFromTaskbar, {int? viewId}) async {
+    if (Platform.isMacOS || Platform.isLinux) {
+      final id = _lifecycleViewId;
+      if (id == null) return;
+      await _viewExistChecker(
+        id,
+        () async => await _nativeChannel.hideAppFromTaskbar(id, isHideAppFromTaskbar: isHideAppFromTaskbar),
+      );
+    } else {
+      if (viewId == null) {
+        for (final view in windowEntries) {
+          await _viewExistChecker(
+            view.key,
+            () async => await _nativeChannel.hideAppFromTaskbar(view.key, isHideAppFromTaskbar: isHideAppFromTaskbar),
+          );
+        }
+        return;
+      }
+      await _viewExistChecker(
+        viewId,
+        () async => await _nativeChannel.hideAppFromTaskbar(viewId, isHideAppFromTaskbar: isHideAppFromTaskbar),
+      );
+    }
   }
 
   @override
@@ -986,9 +1013,20 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   Future<bool> isHideAppFromTaskbar() async {
+    if (Platform.isWindows || Platform.isLinux) {
+      return await _nativeChannel.isHideAppFromTaskbar();
+    }
     final id = _lifecycleViewId;
     if (id == null) return false;
     return await _viewExistChecker(id, () async => await _nativeChannel.isHideAppFromTaskbar()) ?? false;
+  }
+
+  @override
+  Future<bool> isHideAppTabFromTaskbar(int viewId) async {
+    if (!Platform.isWindows) {
+      return isHideAppFromTaskbar();
+    }
+    return await _viewExistChecker(viewId, () async => await _nativeChannel.isHideAppTabFromTaskbar(viewId)) ?? false;
   }
 
   @override
@@ -1185,6 +1223,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   Future<void> setProgressBar(double progress) async {
+    //TODO: тест на винде
     if (Platform.isLinux) return;
     final id = _lifecycleViewId;
     if (id == null) return;
@@ -1216,6 +1255,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   Future<void> setVisibleOnAllWorkspaces(int viewId, bool visible, {bool visibleOnFullScreen = false}) async {
+    //TODO: убрать из example на винде и линксе
     if (!Platform.isMacOS) return;
 
     await _viewExistChecker(

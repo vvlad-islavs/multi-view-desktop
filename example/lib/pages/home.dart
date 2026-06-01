@@ -35,6 +35,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
   bool _isClosable = true;
   bool _isPreventClose = false;
   bool _isHideFromCollection = false;
+  bool _isHideFromTaskBar = false;
   bool _visibleOnAllWorkspaces = false;
   bool _ignoreMouseEvents = false;
   double _opacity = 1.0;
@@ -94,6 +95,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
   Future<void> _refreshState() async {
     if (!mounted) return;
     final contextLocal = context;
+    final hideTaskbar = await _mountedFuture(MultiViewDesktop.isHideAppTabFromTaskbar, contextLocal);
     final fs = await _mountedFuture(MultiViewDesktop.isFullScreen, contextLocal);
     final max = await _mountedFuture(MultiViewDesktop.isMaximized, contextLocal);
     final top = await _mountedFuture(MultiViewDesktop.isAlwaysOnTop, contextLocal);
@@ -123,6 +125,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
       _isHideFromCollection = skip ?? _isHideFromCollection;
       _opacity = op ?? _opacity;
       _hasShadow = shadow ?? _hasShadow;
+      _isHideFromTaskBar = hideTaskbar ?? _isHideFromTaskBar;
       _ignoreMouseEvents = ignoreMouseEvents?.ignore ?? _ignoreMouseEvents;
       _visibleOnAllWorkspaces = visibleOnAllWorkspaces ?? _visibleOnAllWorkspaces;
       _titleBarHidden = titleBarStyle?.style == TitleBarStyle.hidden;
@@ -318,7 +321,11 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   final currId = null;
                   openWindow(
                     const _SecondaryWindowRoot(),
-                    options: WindowOptions(size: const Size(1000, 700), title: 'Window title parent $currId'),
+                    options: WindowOptions(
+                      size: const Size(1000, 700),
+                      title: 'Window title parent $currId',
+                      alignment: Alignment.center,
+                    ),
                   );
                 },
               ),
@@ -411,11 +418,18 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   _isHideFromCollection,
                   (v) => MultiViewDesktop.hideFromCollection(context, v),
                 ),
-              _switchTile(
-                'visibleOnAllWorkspaces',
-                _visibleOnAllWorkspaces,
-                (v) => MultiViewDesktop.setVisibleOnAllWorkspaces(context, v),
-              ),
+              if (Platform.isWindows)
+                _switchTile(
+                  'hideCurrentTabFromTaskbar',
+                  _isHideFromTaskBar,
+                  (v) => MultiViewDesktop.hideCurrentAppTabFromTaskbar(context, v),
+                ),
+              if (Platform.isMacOS)
+                _switchTile(
+                  'visibleOnAllWorkspaces',
+                  _visibleOnAllWorkspaces,
+                  (v) => MultiViewDesktop.setVisibleOnAllWorkspaces(context, v),
+                ),
               if (!Platform.isLinux) _tile('progressBarExample', onTap: () => _progressBarExample()),
             ]),
 
@@ -558,9 +572,7 @@ class _WindowPickerDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-
-
-    final allIds = MultiViewDesktop.allViewsIds.where((id)=> id!= excludeId).toList()..sort();
+    final allIds = MultiViewDesktop.allViewsIds.where((id) => id != excludeId).toList()..sort();
 
     return AlertDialog(
       title: const Text('Select target window'),

@@ -24,5 +24,7 @@ flutter:
     platforms:
       macos:
         pluginClass: MultiviewDesktopPlugin
+      windows:
+        pluginClass: MultiViewDesktopPlugin
 
   uses-material-design: true

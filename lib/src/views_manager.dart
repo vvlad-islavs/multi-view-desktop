@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 
-abstract class MacOSMenuItem {}
+abstract class TaskbarMenuItem {}
 
 /// Internal contract for per-window operations keyed by [viewId].
 ///
@@ -141,11 +141,17 @@ abstract class ViewsManager {
 
   Future<void> setAlwaysOnTop(int viewId, bool isAlwaysOnTop);
 
-  Future<void> setTaskbarMenu({required List<MacOSMenuItem> items});
+  Future<void> setTaskbarMenu({required List<TaskbarMenuItem> items});
 
+  /// App-wide state (macOS activation policy; Windows — all tabs hidden from taskbar).
   Future<bool> isHideAppFromTaskbar();
 
-  Future<void> hideAppFromTaskbar(bool isHideAppFromTaskbar);
+  /// Per-window taskbar visibility (Windows/Linux).
+  Future<bool> isHideAppTabFromTaskbar(int viewId);
+
+  /// Params:
+  /// - [viewId]: opt param for windows and linux (these platforms can hides only selected item)
+  Future<void> hideAppFromTaskbar(bool isHideAppFromTaskbar, {int? viewId});
 
   /// Begins a native move drag (see [DragToMoveArea]).
   Future<void> startDragging(int viewId);
