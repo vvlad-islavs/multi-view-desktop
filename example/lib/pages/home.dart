@@ -383,13 +383,14 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   windowButtonVisibility: !_titleBarButtonVisibility,
                 );
               }),
-              _switchTile('titleBarButtonVisibility', !_titleBarButtonVisibility, (v) async {
-                await MultiViewDesktop.setTitleBarStyle(
-                  context,
-                  _titleBarHidden ? TitleBarStyle.hidden : TitleBarStyle.normal,
-                  windowButtonVisibility: v,
-                );
-              }),
+              if (!Platform.isWindows)
+                _switchTile('titleBarButtonVisibility', !_titleBarButtonVisibility, (v) async {
+                  await MultiViewDesktop.setTitleBarStyle(
+                    context,
+                    _titleBarHidden ? TitleBarStyle.hidden : TitleBarStyle.normal,
+                    windowButtonVisibility: v,
+                  );
+                }),
               _tile(
                 'setAsFrameless',
                 subtitle: 'Remove frame entirely',

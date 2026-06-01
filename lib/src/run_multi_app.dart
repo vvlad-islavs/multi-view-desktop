@@ -27,33 +27,64 @@ void runMultiApp(Widget home, {MultiAppConfig? config}) async {
 /// Application-wide settings passed to [runMultiApp].
 class MultiAppConfig {
   /// Strategy used when closes the main window (see [CloseMode]).
-  final CloseMode mainCloseMode;
-  final bool enableDynamicAnchor;
+  final MultiPlatformParams generalParams;
+  final MacosPlatformParams macosParams;
 
   /// Default [WindowOptions] merged into every new window (per-window options override).
   final WindowOptions globalOptions;
 
   MultiAppConfig._({
-    this.mainCloseMode = CloseMode.cascade,
-    this.enableDynamicAnchor = true,
+    required this.generalParams,
     this.globalOptions = const WindowOptions(),
+    required this.macosParams,
   });
 
   /// Creates configuration for [runMultiApp].
   ///
-  /// [closeMode] applies when the main window's close button is pressed.
-  /// [globalOptions] are applied to the main window at startup and merged into [openWindow].
+  /// - [generalParams] cross-platform params
+  /// - [macosParams] macos specific params
+  /// - [globalWindowOptions] are applied to the main window at startup and merged into [openWindow].
   factory MultiAppConfig({
-    CloseMode closeMode = CloseMode.cascade,
-    bool enableDynamicAnchor = true,
-    WindowOptions? globalOptions,
+    MultiPlatformParams? generalParams,
+    MacosPlatformParams? macosParams,
+    WindowOptions? globalWindowOptions,
   }) => MultiAppConfig._(
-    mainCloseMode: closeMode,
-    globalOptions: globalOptions ?? WindowOptions(),
-    enableDynamicAnchor: enableDynamicAnchor,
+    globalOptions: globalWindowOptions ?? WindowOptions(),
+    generalParams: generalParams ?? MultiPlatformParams.defaultParams(),
+    macosParams: macosParams ?? MacosPlatformParams.defaultParams(),
   );
 
-  factory MultiAppConfig._defaultConfig() => MultiAppConfig._();
+  factory MultiAppConfig._defaultConfig() => MultiAppConfig._(
+    generalParams: MultiPlatformParams.defaultParams(),
+    macosParams: MacosPlatformParams.defaultParams(),
+  );
+}
+
+class MultiPlatformParams {
+  final bool enableDynamicAnchor;
+  final CloseMode closeMode;
+
+  const MultiPlatformParams({this.enableDynamicAnchor = true, this.closeMode = CloseMode.cascade});
+
+  factory MultiPlatformParams.defaultParams() =>
+      MultiPlatformParams(enableDynamicAnchor: true, closeMode: CloseMode.cascade);
+}
+
+class MacosPlatformParams {
+  final bool closeAppAfterLastWindowClosed;
+  final bool saveLastWindowToReopen;
+
+  //TODO: действие при тапу по приложению в таскбаре после закрытия всех окон
+  final Function? onTaskbarTap;
+
+  const MacosPlatformParams({
+    this.saveLastWindowToReopen = true,
+    this.onTaskbarTap,
+    this.closeAppAfterLastWindowClosed = false,
+  });
+
+  factory MacosPlatformParams.defaultParams() =>
+      MacosPlatformParams(saveLastWindowToReopen: true, closeAppAfterLastWindowClosed: false, onTaskbarTap: null);
 }
 
 /// How closing the main window affects other open windows.
@@ -80,7 +111,7 @@ enum CloseMode {
   ///
   /// Automatically sets `applicationShouldTerminateAfterLastWindowClosed` to `false`
   /// on the native side. Requires forwarding that call in `AppDelegate`.
-  macos,
+  // macos,
 }
 
 /// Opens a new OS window showing [child].

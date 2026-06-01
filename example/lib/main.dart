@@ -13,9 +13,13 @@ void main() {
   runMultiApp(
     const MainWindowRoot(),
     config: MultiAppConfig(
-      closeMode: CloseMode.cascade,
-      enableDynamicAnchor: true,
-      globalOptions: WindowOptions(
+      generalParams: MultiPlatformParams(enableDynamicAnchor: true, closeMode: CloseMode.cascade),
+      macosParams: MacosPlatformParams(
+        saveLastWindowToReopen: true,
+        closeAppAfterLastWindowClosed: false,
+        onTaskbarTap: null,
+      ),
+      globalWindowOptions: WindowOptions(
         minimumSize: Size(1000, 700),
         size: Size(1000, 700),
         alignment: Alignment.center,
@@ -54,26 +58,17 @@ class _MainWindowRootState extends State<MainWindowRoot> {
       if (msg is! Map) return;
       if (msg['type'] != 'themeMode') return;
       if (!mounted) return;
-      final mode = ThemeMode.values.firstWhere(
-        (m) => m.name == msg['value'],
-        orElse: () => ThemeMode.light,
-      );
-      MultiViewDesktop.setBrightness(
-        context,
-        mode == ThemeMode.dark ? Brightness.dark : Brightness.light,
-      );
+      final mode = ThemeMode.values.firstWhere((m) => m.name == msg['value'], orElse: () => ThemeMode.light);
+      MultiViewDesktop.setBrightness(context, mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await MultiViewDesktop.setBrightness(
         context,
-        themeConfig.themeMode == ThemeMode.dark
-            ? Brightness.dark
-            : Brightness.light,
+        themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light,
       );
 
-      sharedConfig.isHideAppFromTaskbar =
-          await MultiViewDesktop.isHideAppFromTaskbar();
+      sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
       sharedConfig.closeMode = MultiViewDesktop.getCloseMode();
     });
   }
@@ -93,15 +88,9 @@ class _MainWindowRootState extends State<MainWindowRoot> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       themeMode: themeConfig.themeMode,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-      ),
+      theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple), useMaterial3: true),
       darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
-          brightness: Brightness.dark,
-        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple, brightness: Brightness.dark),
         useMaterial3: true,
       ),
       home: const HomePage(),

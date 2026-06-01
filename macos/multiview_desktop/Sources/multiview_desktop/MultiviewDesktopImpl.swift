@@ -157,7 +157,10 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         return showHiddenWindowsIfNeeded()
     }
 
-    /// Shows hidden windows (`orderOut`), e.g. after [CloseMode.macos].
+    /// Shows hidden windows (`orderOut`), e.g. after [CloseMode.macos] or dock click.
+    ///
+    /// When [requirePriorUserHide] is true (activation observer), skips restore until a window
+    /// was hidden through the plugin — startup [orderOut] does not count.
     @discardableResult
     private func showHiddenWindowsIfNeeded() -> Bool {
         guard !windows.isEmpty else {

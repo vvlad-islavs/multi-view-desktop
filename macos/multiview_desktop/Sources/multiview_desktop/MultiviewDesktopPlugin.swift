@@ -11,6 +11,7 @@ public class MultiviewDesktopPlugin: NSObject, FlutterPlugin {
         let impl = MultiviewDesktopImpl.shared
         impl.engine = engine
         impl.mainWindowRef = window
+        window.orderOut(nil)
 
 
         // turn engine to multiView mode. Critical part that
@@ -32,7 +33,9 @@ public class MultiviewDesktopPlugin: NSObject, FlutterPlugin {
         if let window = impl.mainWindowRef,
            let vc = window.contentViewController as? FlutterViewController {
             impl.registerMain(window, viewId: vc.viewIdentifier)
+            window.orderOut(nil)
         }
+
 
         MvdScreenRetrieverPlugin.register(with: registrar.messenger)
     }
