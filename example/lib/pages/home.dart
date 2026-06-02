@@ -68,7 +68,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
               : 'Window $currentId',
         ),
       );
-      sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
+      MultiViewDesktop.allViewsIdsNotifier.addListener(_viewListener);
 
       _commSub = MultiViewDesktop.communicator.onDirect(context).listen((msg) {
         if (!mounted) return;
@@ -84,8 +84,13 @@ class _HomePageState extends State<HomePage> with WindowListener {
     });
   }
 
+  void _viewListener(){
+    sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
+  }
+
   @override
   void dispose() {
+    MultiViewDesktop.allViewsIdsNotifier.removeListener(_viewListener);
     _commSub?.cancel();
     _broadcastSub?.cancel();
     _msgController.dispose();
@@ -288,7 +293,6 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   return _switchTile('hideAppFromTaskbar', sharedConfig.isHideAppFromTaskbar, (v) async {
                     await MultiViewDesktop.hideAppFromTaskbar(v);
                     if (v) await MultiViewDesktop.focus(context);
-                    sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
                   });
                 },
               ),
@@ -302,7 +306,6 @@ class _HomePageState extends State<HomePage> with WindowListener {
                       final picked = await _showModePicker(context, sharedConfig.closeMode);
                       if (picked == null) return;
                       await MultiViewDesktop.setCloseMode(picked);
-                      sharedConfig.closeMode = MultiViewDesktop.getCloseMode();
                     },
                   );
                 },
@@ -316,7 +319,6 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     final curr = currentId;
                     if (curr == null) return;
                     final isSuccess = await MultiViewDesktop.setAnchorId(curr);
-                    sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
                   },
                 ),
               ),

@@ -59,6 +59,8 @@ class MultiViewDesktop {
   /// Returns numeric view IDs for all secondary windows currently registered.
   static List<int> get allViewsIds => List.unmodifiable(globalRootState.allShiftedViewsId);
 
+  static ValueNotifier<List<int>> get allViewsIdsNotifier => globalRootState.windowsIdsNotif;
+
   // -------------------------------------------------------------------------
   // Window lifecycle
   // -------------------------------------------------------------------------
