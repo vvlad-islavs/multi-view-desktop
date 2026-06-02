@@ -26,7 +26,7 @@ export 'src/multi_view_desktop.dart';
 export 'src/resize_edge.dart';
 export 'src/run_multi_app.dart';
 export 'src/title_bar_style.dart';
-export 'src/view_scope.dart';
+export 'src/parent_window_scope.dart';
 export 'src/window_communicator.dart';
 export 'src/window_listener.dart';
 export 'src/window_options.dart';

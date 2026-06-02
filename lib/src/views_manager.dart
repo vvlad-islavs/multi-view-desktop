@@ -51,7 +51,7 @@ abstract class ViewsManager {
   Future<void> setAsFrameless(int viewId);
 
   /// Sets anchor id. Only for views without parents (root view). Returns [true] if id was set successfully
-  bool setAnchorId(int viedId);
+  Future<bool> setAnchorId(int viewId);
 
   /// Returns current anchor id
   int? getAnchorId();
@@ -177,7 +177,7 @@ abstract class ViewsManager {
 
   Future<({bool mouseMoveEvents, bool ignore})> isIgnoreMouseEvents(int viewId);
 
-  void addListener(int viewId, WindowListener listener);
+  void addListener(int viewId, WindowListenerCallbacks listener);
 
-  void removeListener(int viewId, WindowListener listener);
+  void removeListener(int viewId, WindowListenerCallbacks listener);
 }

@@ -19,9 +19,9 @@ import 'window_options.dart';
 ///
 /// [home] is rendered in the initial (main) OS window.  Additional windows
 /// are opened via [openWindow].
-void runMultiApp(Widget home, {MultiAppConfig? config}) async {
+void runMultiApp({required Widget home, Widget Function(Widget child)? globalScope, MultiAppConfig? config}) async {
   WidgetsFlutterBinding.ensureInitialized();
-  runWidget(await createMultiViewRoot(home, config ?? MultiAppConfig._defaultConfig()));
+  runWidget(await createMultiViewRoot(home, globalScope, config ?? MultiAppConfig._defaultConfig()));
 }
 
 /// Application-wide settings passed to [runMultiApp].
@@ -74,7 +74,7 @@ class MacosPlatformParams {
   final bool closeAppAfterLastWindowClosed;
   final bool saveLastWindowToReopen;
 
-  //TODO: действие при тапу по приложению в таскбаре после закрытия всех окон
+  //TODO: действие при тапе по приложению в таскбаре после закрытия всех окон
   final Function? onTaskbarTap;
 
   const MacosPlatformParams({
@@ -122,7 +122,7 @@ enum CloseMode {
 ///
 /// ```dart
 /// ElevatedButton(
-///   onPressed: () => addWindow(const SettingsPage()),
+///   onPressed: () => openWindow(const SettingsPage()),
 ///   child: const Text('Open settings'),
 /// )
 /// ```

@@ -24,9 +24,11 @@ class ThemeConfig extends ChangeNotifier {
 class SharedParams extends ChangeNotifier {
   bool _isHideAppFromTaskbar = false;
   CloseMode _closeMode = CloseMode.none;
+  int? _anchorId = null;
 
   bool get isHideAppFromTaskbar => _isHideAppFromTaskbar;
   CloseMode get closeMode => _closeMode;
+  int? get anchorId => _anchorId;
 
   set isHideAppFromTaskbar(bool newValue) {
     _isHideAppFromTaskbar = newValue;
@@ -35,6 +37,11 @@ class SharedParams extends ChangeNotifier {
 
   set closeMode(CloseMode newValue) {
     _closeMode = newValue;
+    notifyListeners();
+  }
+
+  set anchorId(int? id) {
+    _anchorId = id;
     notifyListeners();
   }
 }

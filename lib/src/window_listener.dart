@@ -1,48 +1,122 @@
-/// Mixin for listening to window lifecycle events.
+import 'package:flutter/widgets.dart';
+
+import 'multi_view_desktop.dart';
+
+/// Callback surface used by the library to deliver native window events.
+abstract interface class WindowListenerCallbacks {
+  void onWindowClose();
+
+  void onWindowFocus();
+
+  void onWindowBlur();
+
+  void onWindowMaximize();
+
+  void onWindowUnmaximize();
+
+  void onWindowMinimize();
+
+  void onWindowRestore();
+
+  void onWindowResize();
+
+  void onWindowResized();
+
+  void onWindowMove();
+
+  void onWindowMoved();
+
+  void onWindowEnterFullScreen();
+
+  void onWindowLeaveFullScreen();
+
+  void onWindowEvent(String eventName);
+}
+
+/// Window lifecycle callbacks for a [State] under [ViewScope].
 ///
-/// Register via [MultiViewDesktop.addListener] /
-/// [MultiViewDesktop.removeListener].
-abstract mixin class WindowListener {
-  /// Emitted when the user requests close while [MultiViewDesktop.setPreventClose] is `true`,
-  /// or when the native close button is blocked by prevent-close.
+/// Apply on [State] — registration for the current window runs from
+/// [didChangeDependencies], cleanup from [dispose] (shifted id via
+/// [MultiViewDesktop.getIdByContext], no [BuildContext] in [dispose]).
+///
+/// ```dart
+/// class _HomePageState extends State<HomePage> with WindowListener {
+///   @override
+///   void onWindowClose() { ... }
+/// }
+/// ```
+mixin WindowListener<T extends StatefulWidget> on State<T> implements WindowListenerCallbacks {
+  int? _mvdRegisteredViewId;
+
+  int? get currentId => _mvdRegisteredViewId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _mvdSyncWindowListenerRegistration();
+  }
+
+  @override
+  void dispose() {
+    _mvdUnregisterWindowListener();
+    super.dispose();
+  }
+
+  void _mvdSyncWindowListenerRegistration() {
+    final int shiftedViewId = MultiViewDesktop.getIdByContext(context);
+    if (_mvdRegisteredViewId == shiftedViewId) return;
+
+    _mvdUnregisterWindowListener();
+    _mvdRegisteredViewId = shiftedViewId;
+    MultiViewDesktop.addListenerForView(shiftedViewId, this);
+  }
+
+  void _mvdUnregisterWindowListener() {
+    if(_mvdRegisteredViewId == null) return;
+
+    MultiViewDesktop.removeListenerForView(_mvdRegisteredViewId!, this);
+    _mvdRegisteredViewId = null;
+  }
+
+  @override
   void onWindowClose() {}
 
-  /// Emitted when the window becomes the key (focused) window.
+  @override
   void onWindowFocus() {}
 
-  /// Emitted when the window resigns key focus.
+  @override
   void onWindowBlur() {}
 
-  /// Emitted when the window is zoomed / maximized.
+  @override
   void onWindowMaximize() {}
 
-  /// Emitted when the window leaves the zoomed / maximized state.
+  @override
   void onWindowUnmaximize() {}
 
-  /// Emitted when the window is miniaturized to the dock.
+  @override
   void onWindowMinimize() {}
 
-  /// Emitted when the window is restored from miniaturized state.
+  @override
   void onWindowRestore() {}
 
-  /// Emitted continuously while the window frame is being resized.
+  @override
   void onWindowResize() {}
 
-  /// Emitted once when a live resize operation finishes.
+  @override
   void onWindowResized() {}
 
-  /// Emitted continuously while the window is being dragged.
+  @override
   void onWindowMove() {}
 
-  /// Emitted once when a move operation finishes.
+  @override
   void onWindowMoved() {}
 
-  /// Emitted when the window enters native full-screen mode.
+  @override
   void onWindowEnterFullScreen() {}
 
-  /// Emitted when the window leaves native full-screen mode.
+  @override
   void onWindowLeaveFullScreen() {}
 
-  /// Fallback for any event name not mapped to a dedicated callback above.
+  @override
   void onWindowEvent(String eventName) {}
 }

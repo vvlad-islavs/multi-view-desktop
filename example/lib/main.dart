@@ -11,7 +11,7 @@ void main() {
   final allViews = PlatformDispatcher.instance.views;
   debugPrint('allViews on init: $allViews');
   runMultiApp(
-    const MainWindowRoot(),
+    home: const MainWindowRoot(),
     config: MultiAppConfig(
       generalParams: MultiPlatformParams(enableDynamicAnchor: true, closeMode: CloseMode.cascade),
       macosParams: MacosPlatformParams(
@@ -26,7 +26,7 @@ void main() {
         hideAppFromTaskbar: false,
         titleBarStyle: TitleBarStyle.normal,
         windowButtonVisibility: true,
-        title: 'Windows title',
+        title: 'Window 1',
       ),
     ),
   );
@@ -70,6 +70,7 @@ class _MainWindowRootState extends State<MainWindowRoot> {
 
       sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
       sharedConfig.closeMode = MultiViewDesktop.getCloseMode();
+      sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
     });
   }
 

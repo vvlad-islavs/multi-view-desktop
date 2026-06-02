@@ -2,7 +2,6 @@
 
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -57,10 +56,19 @@ class _HomePageState extends State<HomePage> with WindowListener {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       _refreshState();
-      MultiViewDesktop.addListener(context, this);
+      final parentContext = ParentWindowScope.of(context).parentContext;
+      unawaited(
+        MultiViewDesktop.setTitle(
+          context,
+          parentContext != null && parentContext.mounted
+              ? 'Window $currentId, parent: ${MultiViewDesktop.getIdByContext(parentContext)}'
+              : 'Window $currentId',
+        ),
+      );
+      sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
 
       _commSub = MultiViewDesktop.communicator.onDirect(context).listen((msg) {
         if (!mounted) return;
@@ -81,9 +89,6 @@ class _HomePageState extends State<HomePage> with WindowListener {
     _commSub?.cancel();
     _broadcastSub?.cancel();
     _msgController.dispose();
-    try {
-      MultiViewDesktop.removeListener(context, this);
-    } catch (_) {}
     super.dispose();
   }
 
@@ -180,16 +185,9 @@ class _HomePageState extends State<HomePage> with WindowListener {
     if (!mounted) return;
     if (accept == true) {
       await MultiViewDesktop.setPreventClose(context, false);
-      // if (MultiViewDesktop.getCurrentId(context) == 1) {
-      // await MultiViewDesktop.closeAllWindowsCascade();
-      // await MultiViewDesktop.closeWindow(context);
-      // } else {
       await MultiViewDesktop.closeWindow(context);
-      // }
     } else {
-      // Explicitly cancel any pending cascade close so the main window stays
-      // open and no stale completers fire later.
-      MultiViewDesktop.cancelCascadeClose(context);
+      await MultiViewDesktop.cancelCascadeClose(context);
     }
   }
 
@@ -261,7 +259,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
 
   @override
   Widget build(BuildContext context) {
-    final windowId = MultiViewDesktop.getCurrentId(context);
+    final windowId = MultiViewDesktop.getIdByContext(context);
 
     final isDark = themeConfig.themeMode == ThemeMode.dark;
 
@@ -289,6 +287,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 builder: (context, _) {
                   return _switchTile('hideAppFromTaskbar', sharedConfig.isHideAppFromTaskbar, (v) async {
                     await MultiViewDesktop.hideAppFromTaskbar(v);
+                    if (v) await MultiViewDesktop.focus(context);
                     sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
                   });
                 },
@@ -308,32 +307,39 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   );
                 },
               ),
+              ListenableBuilder(
+                listenable: sharedConfig,
+                builder: (context, _) => _tile(
+                  'SetCurrent as anchor (only if runMultiApp->config->generalParams->enableDynamicAnchor == false)',
+                  subtitle: 'Current is ${MultiViewDesktop.getAnchorId()}',
+                  onTap: () async {
+                    final curr = currentId;
+                    if (curr == null) return;
+                    final isSuccess = await MultiViewDesktop.setAnchorId(curr);
+                    sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
+                  },
+                ),
+              ),
             ]),
-
             // ----------------------------------------------------------------
             // Window management
             // ----------------------------------------------------------------
             _section('WINDOW MANAGEMENT', [
               _tile(
                 'openWindow',
-                subtitle: 'Open a new OS window (same engine)',
+                subtitle: 'Open a new window',
                 onTap: () async {
-                  final currId = null;
                   openWindow(
                     const _SecondaryWindowRoot(),
-                    options: WindowOptions(
-                      size: const Size(1000, 700),
-                      title: 'Window title parent $currId',
-                      alignment: Alignment.center,
-                    ),
+                    options: WindowOptions(size: const Size(1000, 700), alignment: Alignment.center),
                   );
                 },
               ),
               _tile(
                 'openChildWindow',
-                subtitle: 'Open a new OS window (same engine)',
+                subtitle: 'Open a new child window',
                 onTap: () async {
-                  final currId = MultiViewDesktop.getCurrentId(context);
+                  final currId = MultiViewDesktop.getIdByContext(context);
                   openWindow(
                     const _SecondaryWindowRoot(),
                     options: WindowOptions(size: const Size(1000, 700), title: 'Window title parent $currId'),

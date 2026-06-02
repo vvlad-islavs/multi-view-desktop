@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/native_channel.dart';
+import 'package:multiview_desktop/src/view_scope.dart';
 import 'package:multiview_desktop/src/views_manager.dart';
 
 import 'utils/calc_window_position.dart';
@@ -17,9 +18,10 @@ import 'utils/calc_window_position.dart';
 // ---------------------------------------------------------------------------
 
 class _WindowEntry {
-  const _WindowEntry({required this.widget, this.parentId});
+  const _WindowEntry({required this.widget, required this.parentContext, this.parentId});
 
   final Widget widget;
+  final BuildContext? parentContext;
   final int? parentId;
 }
 
@@ -41,10 +43,12 @@ _MultiViewRootState get globalRootState {
 }
 
 /// Creates the root multi-view widget.  Used by [runMultiApp] only.
-Future<Widget> createMultiViewRoot(Widget home, MultiAppConfig config) async {
+Future<Widget> createMultiViewRoot(Widget home, Widget Function(Widget child)? scope, MultiAppConfig config) async {
   final initialWindow = Platform.isWindows ? 0 : 1;
   _hasInitView = await _nativeChannel.checkWindowExist(initialWindow) ?? true;
-  return _MultiViewRoot(home: home, config: config);
+
+  final mainRoot = _MultiViewRoot(home: home, config: config);
+  return scope?.call(mainRoot) ?? mainRoot;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,7 +59,7 @@ Future<Widget> createMultiViewRoot(Widget home, MultiAppConfig config) async {
 ///
 /// Manages a [ViewCollection] whose entries grow/shrink as windows are
 /// opened or closed.  Each child is wrapped in a [ViewScope] so that any
-/// descendant can call [MultiViewDesktop.getCurrentId].
+/// descendant can call [MultiViewDesktop.getIdByContext].
 class _MultiViewRoot extends StatefulWidget {
   const _MultiViewRoot({required this.home, required this.config});
 
@@ -166,9 +170,9 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   }
 
   /// Registers [child] as the widget tree for a newly created [viewId].
-  void addView(int viewId, Widget child, {int? parentId}) {
+  void addView(int viewId, Widget child, {int? parentId, required BuildContext? parentContext}) {
     setState(() {
-      _viewsManagerImpl.registerWindow(viewId, child, parentId: parentId);
+      _viewsManagerImpl.registerWindow(viewId, child, parentContext: parentContext, parentId: parentId);
     });
     final allViews = PlatformDispatcher.instance.views;
     debugPrint('allViews after newWindow add: $allViews');
@@ -185,13 +189,17 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
 
     for (final entry in _viewsManagerImpl.windowEntries) {
       final id = entry.key;
+      final parentContext = entry.value.parentContext;
       final flutterView = dispatcher.view(id: id);
       if (flutterView != null) {
         views.add(
           View(
             key: ValueKey('view_$id'),
             view: flutterView,
-            child: ViewScope(viewId: id, child: entry.value.widget),
+            child: ParentWindowScope(
+              parentContext: parentContext,
+              child: ViewScope(viewId: id, child: entry.value.widget),
+            ),
           ),
         );
       }
@@ -265,7 +273,7 @@ class _WindowCommunicatorImpl implements WindowCommunicator {
 
   @override
   Stream<dynamic> onDirect(BuildContext context, {int? viewId}) {
-    final currentViewId = MultiViewDesktop.getCurrentId(context);
+    final currentViewId = MultiViewDesktop.getIdByContext(context);
     int listenableId = viewId ?? currentViewId;
     int? parentId = viewId == null || viewId == currentViewId ? null : currentViewId;
 
@@ -397,7 +405,7 @@ class _ViewsManagerImpl implements ViewsManager {
   final Map<int, int> _childCreatePending = {};
 
   // viewId -> listener list.
-  final Map<int, ObserverList<WindowListener>> _listeners = {};
+  final Map<int, ObserverList<WindowListenerCallbacks>> _listeners = {};
 
   /// Anchor window: receives app-level close policy ([CloseMode]) from the native close button.
   int? _anchorId;
@@ -430,25 +438,25 @@ class _ViewsManagerImpl implements ViewsManager {
       _hotRestartShift = viewId - 1;
     }
 
-    _windows[viewId] = _WindowEntry(widget: home, parentId: null);
+    _windows[viewId] = _WindowEntry(widget: home, parentContext: null, parentId: null);
     _setAnchor(viewId, force: true);
   }
 
-  void registerWindow(int viewId, Widget widget, {int? parentId}) {
+  void registerWindow(int viewId, Widget widget, {required BuildContext? parentContext, int? parentId}) {
     if (parentId != null && !_windows.containsKey(parentId)) {
       throw ArgumentError.value(parentId, 'parentId', 'Parent window is not registered');
     }
-    _windows[viewId] = _WindowEntry(widget: widget, parentId: parentId);
+    _windows[viewId] = _WindowEntry(widget: widget, parentContext: parentContext, parentId: parentId);
     if (_anchorId == null) {
       _setAnchor(viewId);
     }
   }
 
-  void _setAnchor(int? viewId, {bool force = false}) {
+  Future<void> _setAnchor(int? viewId, {bool force = false}) async {
     if (!config.generalParams.enableDynamicAnchor && !force) return;
     _anchorId = viewId;
     if (viewId == null) return;
-    unawaited(_nativeChannel.setAnchorViewId(viewId));
+    await _nativeChannel.setAnchorViewId(viewId);
   }
 
   /// When the anchor [FlutterView] disappears, pick another root window.
@@ -626,13 +634,13 @@ class _ViewsManagerImpl implements ViewsManager {
   void _dispatchViewEvent(int viewId, String eventName) {
     final list = _listeners[viewId];
     if (list == null) return;
-    for (final l in List<WindowListener>.from(list)) {
+    for (final l in List<WindowListenerCallbacks>.from(list)) {
       l.onWindowEvent(eventName);
       _dispatchListenerEvent(l, eventName);
     }
   }
 
-  void _dispatchListenerEvent(WindowListener listener, String eventName) {
+  void _dispatchListenerEvent(WindowListenerCallbacks listener, String eventName) {
     switch (eventName) {
       case 'focus':
         listener.onWindowFocus();
@@ -851,12 +859,12 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  void addListener(int viewId, WindowListener listener) {
-    _listeners.putIfAbsent(viewId, () => ObserverList<WindowListener>()).add(listener);
+  void addListener(int viewId, WindowListenerCallbacks listener) {
+    _listeners.putIfAbsent(viewId, () => ObserverList<WindowListenerCallbacks>()).add(listener);
   }
 
   @override
-  void removeListener(int viewId, WindowListener listener) {
+  void removeListener(int viewId, WindowListenerCallbacks listener) {
     _listeners[viewId]?.remove(listener);
   }
 
@@ -866,12 +874,12 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  bool setAnchorId(int viewId) {
+  Future<bool> setAnchorId(int viewId) async {
     if (config.generalParams.enableDynamicAnchor) return false;
 
     final realView = _shiftedToReal(viewId);
     if (_anchorCandidates().contains(realView)) {
-      _setAnchor(realView);
+      await _setAnchor(realView, force: true);
       return true;
     }
 
@@ -1215,7 +1223,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   Future<void> setProgressBar(double progress) async {
-    //TODO: тест на винде
+    //TODO: тест на линуксе (ибунту)
     if (Platform.isLinux) return;
     final id = _lifecycleViewId;
     if (id == null) return;
@@ -1247,7 +1255,6 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   Future<void> setVisibleOnAllWorkspaces(int viewId, bool visible, {bool visibleOnFullScreen = false}) async {
-    //TODO: убрать из example на винде и линксе
     if (!Platform.isMacOS) return;
 
     await _viewExistChecker(
