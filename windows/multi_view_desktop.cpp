@@ -321,15 +321,16 @@ void MultiViewDesktop::DestroyEntry(int64_t target_view_id) {
     if (it == windows_.end()) {
         return;
     }
-    const bool is_main = target_view_id == main_view_id_;
     HWND host_window = it->second->native_window;
     if (it->second->controller) {
         FlutterDesktopViewControllerDestroy(it->second->controller);
         it->second->controller = nullptr;
     }
     windows_.erase(it);
-    if (!is_main && host_window != nullptr && host_window != main_host_window_ &&
-        IsWindow(host_window)) {
+    if (host_window != nullptr && IsWindow(host_window)) {
+        if (host_window == main_host_window_) {
+            main_host_window_ = nullptr;
+        }
         DestroyWindow(host_window);
     }
 }
