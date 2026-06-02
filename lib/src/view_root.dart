@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:ui' show FlutterView, PlatformDispatcher;
 
 import 'package:flutter/foundation.dart';
@@ -82,6 +83,8 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   ViewsManager get manager => _viewsManagerImpl;
 
   List<int> get allShiftedViewsId => _viewsManagerImpl.allShiftedWindowIds;
+
+  ValueNotifier<List<int>> get windowsIdsNotif => _viewsManagerImpl.windowsNotifier;
 
   // --------------------------------------------------------------------------
 
@@ -424,6 +427,10 @@ class _ViewsManagerImpl implements ViewsManager {
 
   final Map<int, _WindowEntry> _windows = {};
 
+  final ValueNotifier<List<int>> _windowsNotifier = ValueNotifier([]);
+
+  ValueNotifier<List<int>> get windowsNotifier => _windowsNotifier;
+
   Iterable<MapEntry<int, _WindowEntry>> get windowEntries => _windows.entries;
 
   List<int> get allRealWindowIds => _windows.keys.toList();
@@ -437,8 +444,8 @@ class _ViewsManagerImpl implements ViewsManager {
       viewId = await openWindow(home);
       _hotRestartShift = viewId - 1;
     }
+    _addWindow(viewId, _WindowEntry(widget: home, parentContext: null, parentId: null));
 
-    _windows[viewId] = _WindowEntry(widget: home, parentContext: null, parentId: null);
     _setAnchor(viewId, force: true);
   }
 
@@ -446,7 +453,7 @@ class _ViewsManagerImpl implements ViewsManager {
     if (parentId != null && !_windows.containsKey(parentId)) {
       throw ArgumentError.value(parentId, 'parentId', 'Parent window is not registered');
     }
-    _windows[viewId] = _WindowEntry(widget: widget, parentContext: parentContext, parentId: parentId);
+    _addWindow(viewId, _WindowEntry(widget: widget, parentContext: parentContext, parentId: parentId));
     if (_anchorId == null) {
       _setAnchor(viewId);
     }
@@ -779,6 +786,16 @@ class _ViewsManagerImpl implements ViewsManager {
     }
   }
 
+  void _addWindow(int viewId, _WindowEntry entry) {
+    _windows[viewId] = entry;
+    _windowsNotifier.value = _windows.entries.map((e) => e.key).toList()..sort();
+  }
+
+  void _removeWindow(int viewId) {
+    _windows.remove(viewId);
+    _windowsNotifier.value = _windows.entries.map((e) => e.key).toList()..sort();
+  }
+
   Future<void> disposeView(int viewId) async {
     final allViews = PlatformDispatcher.instance.views;
     debugPrint('allViews after window close: $allViews');
@@ -787,7 +804,7 @@ class _ViewsManagerImpl implements ViewsManager {
       _setAnchor(null);
     }
     _listeners.remove(viewId);
-    _windows.remove(viewId);
+    _removeWindow(viewId);
     communicator.disposeViewByShiftedId(_realToShifted(viewId));
     if (wasAnchor) {
       _promoteAnchor();

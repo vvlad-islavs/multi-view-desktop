@@ -68,7 +68,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
               : 'Window $currentId',
         ),
       );
-      sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
+      MultiViewDesktop.allViewsIdsNotifier.addListener(_viewListener);
 
       _commSub = MultiViewDesktop.communicator.onDirect(context).listen((msg) {
         if (!mounted) return;
@@ -84,8 +84,13 @@ class _HomePageState extends State<HomePage> with WindowListener {
     });
   }
 
+  void _viewListener() {
+    sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
+  }
+
   @override
   void dispose() {
+    MultiViewDesktop.allViewsIdsNotifier.removeListener(_viewListener);
     _commSub?.cancel();
     _broadcastSub?.cancel();
     _msgController.dispose();
@@ -167,6 +172,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
     // Show a confirmation dialog. can accept (remove preventClose and
     // close the window) or decline (explicitly cancel a pending cascade close).
     if (_dialogKey.currentContext?.mounted ?? false) return;
+    MultiViewDesktop.focus(context);
     final accept = await showDialog<bool>(
       context: context,
       builder: (_) {
