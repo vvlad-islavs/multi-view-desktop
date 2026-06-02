@@ -851,9 +851,9 @@ class _ViewsManagerImpl implements ViewsManager {
     if (newViewId == null) {
       throw Exception('Failed to create new window, tokenId: $token. Error: timeout');
     }
+    await _applyOptions(newViewId, opts);
 
     await onCreated(newViewId);
-    await _applyOptions(newViewId, opts);
 
     return newViewId;
   }
