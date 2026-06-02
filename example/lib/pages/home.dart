@@ -84,7 +84,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
     });
   }
 
-  void _viewListener(){
+  void _viewListener() {
     sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
   }
 
@@ -172,6 +172,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
     // Show a confirmation dialog. can accept (remove preventClose and
     // close the window) or decline (explicitly cancel a pending cascade close).
     if (_dialogKey.currentContext?.mounted ?? false) return;
+    MultiViewDesktop.focus(context);
     final accept = await showDialog<bool>(
       context: context,
       builder: (_) {
@@ -293,6 +294,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   return _switchTile('hideAppFromTaskbar', sharedConfig.isHideAppFromTaskbar, (v) async {
                     await MultiViewDesktop.hideAppFromTaskbar(v);
                     if (v) await MultiViewDesktop.focus(context);
+                    sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
                   });
                 },
               ),
@@ -306,6 +308,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                       final picked = await _showModePicker(context, sharedConfig.closeMode);
                       if (picked == null) return;
                       await MultiViewDesktop.setCloseMode(picked);
+                      sharedConfig.closeMode = MultiViewDesktop.getCloseMode();
                     },
                   );
                 },
@@ -319,6 +322,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     final curr = currentId;
                     if (curr == null) return;
                     final isSuccess = await MultiViewDesktop.setAnchorId(curr);
+                    sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
                   },
                 ),
               ),
