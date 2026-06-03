@@ -143,7 +143,7 @@ abstract class ViewsManager {
 
   Future<void> setTaskbarMenu({required List<TaskbarMenuItem> items});
 
-  /// App-wide state (macOS activation policy; Windows — all tabs hidden from taskbar).
+  /// App-wide state (macOS activation policy; Windows: all tabs hidden from taskbar).
   Future<bool> isHideAppFromTaskbar();
 
   /// Per-window taskbar visibility (Windows/Linux).

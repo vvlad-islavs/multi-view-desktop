@@ -69,9 +69,15 @@ void MvdLinuxWindow::Unregister(int64_t view_id) {
 }
 
 void MvdLinuxWindow::SetAsFrameless() {
-  if (window) {
-    gtk_window_set_decorated(window, FALSE);
+  if (!window) {
+    return;
   }
+  // Hide the header bar when using client-side decorations.
+  GtkWidget* hb = HeaderBarOf(window);
+  if (hb) {
+    gtk_widget_set_visible(hb, FALSE);
+  }
+  gtk_window_set_decorated(window, FALSE);
 }
 
 void MvdLinuxWindow::Close() {
@@ -313,27 +319,65 @@ void MvdLinuxWindow::SetMaximumSize(float w, float h) {
 }
 
 bool MvdLinuxWindow::IsResizable() {
-  return window ? gtk_window_get_resizable(window) : false;
+  return is_resizable;
 }
 
 void MvdLinuxWindow::SetResizable(bool v) {
-  if (window) {
-    gtk_window_set_resizable(window, v);
+  is_resizable = v;
+  if (!window) {
+    return;
   }
+  if (!v) {
+    gint w = 0, h = 0;
+    gtk_window_get_size(window, &w, &h);
+    if (w <= 0 || h <= 0) {
+      gtk_window_set_resizable(window, false);
+      return;
+    }
+
+    // set_resizable(false) resets the window to gtk_window_get_remembered_size(),
+    // which falls back to gtk_window_set_default_size() from my_application.cc.
+    gtk_window_set_default_size(window, w, h);
+
+    GdkGeometry fixed{};
+    fixed.min_width  = fixed.max_width  = w;
+    fixed.min_height = fixed.max_height = h;
+    gtk_window_set_geometry_hints(window, nullptr, &fixed,
+        static_cast<GdkWindowHints>(GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
+
+    gtk_window_resize(window, w, h);
+    gtk_window_set_resizable(window, false);
+  } else {
+    gtk_window_set_geometry_hints(window, nullptr, &geometry, hints);
+    gtk_window_set_resizable(window, true);
+  }
+}
+
+bool MvdLinuxWindow::IsMinimizable() {
+  return is_minimizable;
+}
+
+// Updates type hint and taskbar-skip hints from stored state.
+void MvdLinuxWindow::ApplyWindowTypeHint() {
+  if (!window) return;
+  gtk_window_set_type_hint(
+      window,
+      is_minimizable ? GDK_WINDOW_TYPE_HINT_NORMAL : GDK_WINDOW_TYPE_HINT_DIALOG);
+  gtk_window_set_skip_taskbar_hint(window, is_skip_taskbar ? TRUE : FALSE);
+  gtk_window_set_skip_pager_hint(window, is_skip_taskbar ? TRUE : FALSE);
 }
 
 void MvdLinuxWindow::SetMinimizable(bool v) {
-  if (window) {
-    gtk_window_set_type_hint(
-        window, v ? GDK_WINDOW_TYPE_HINT_NORMAL : GDK_WINDOW_TYPE_HINT_DIALOG);
-  }
+  is_minimizable = v;
+  ApplyWindowTypeHint();
 }
 
-void MvdLinuxWindow::SetMaximizable(bool v) {
-  if (window) {
-    gtk_window_set_type_hint(
-        window, v ? GDK_WINDOW_TYPE_HINT_NORMAL : GDK_WINDOW_TYPE_HINT_DIALOG);
-  }
+bool MvdLinuxWindow::IsMaximizable() {
+  return true;
+}
+
+void MvdLinuxWindow::SetMaximizable(bool /*v*/) {
+  // Same as resizable on Linux.
 }
 
 bool MvdLinuxWindow::IsClosable() {
@@ -366,18 +410,26 @@ void MvdLinuxWindow::SetTitle(const gchar* t) {
   }
 }
 
-void MvdLinuxWindow::SetTitleBarStyle(const gchar* style,
-                                      bool window_button_visibility) {
+void MvdLinuxWindow::SetTitleBarStyle(const gchar* style, bool wbv) {
   if (!window) {
     return;
   }
+  window_button_visibility = wbv;
   const bool hidden = g_strcmp0(style, "hidden") == 0;
   GtkWidget* hb = HeaderBarOf(window);
   if (hb) {
+    if (!hidden) {
+      gtk_window_set_decorated(window, TRUE);
+    }
     gtk_widget_set_visible(hb, !hidden);
     if (GTK_IS_HEADER_BAR(hb)) {
-      gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(hb),
-                                           window_button_visibility);
+      if (wbv) {
+        gtk_header_bar_set_decoration_layout(GTK_HEADER_BAR(hb), nullptr);
+        gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(hb), TRUE);
+      } else {
+        gtk_header_bar_set_decoration_layout(GTK_HEADER_BAR(hb), ":");
+        gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(hb), FALSE);
+      }
     }
   } else {
     gtk_window_set_decorated(window, !hidden);
@@ -389,24 +441,21 @@ void MvdLinuxWindow::SetTitleBarStyle(const gchar* style,
 }
 
 FlValue* MvdLinuxWindow::GetTitleBarStyle() {
-  const char* style =
-      title_bar_style ? title_bar_style : "normal";
+  const char* style = title_bar_style ? title_bar_style : "normal";
   FlValue* map = fl_value_new_map();
-  fl_value_set_string_take(map, "titleBarStyle",
-                           fl_value_new_string(style));
+  fl_value_set_string_take(map, "style", fl_value_new_string(style));
   fl_value_set_string_take(map, "windowButtonVisibility",
-                           fl_value_new_bool(TRUE));
+                           fl_value_new_bool(window_button_visibility));
   return map;
 }
 
 bool MvdLinuxWindow::IsSkipTaskbar() {
-  return window ? gtk_window_get_skip_taskbar_hint(window) : false;
+  return is_skip_taskbar;
 }
 
 void MvdLinuxWindow::SetSkipTaskbar(bool v) {
-  if (window) {
-    gtk_window_set_skip_taskbar_hint(window, v);
-  }
+  is_skip_taskbar = v;
+  ApplyWindowTypeHint();
 }
 
 double MvdLinuxWindow::GetOpacity() {
@@ -520,4 +569,31 @@ bool MvdLinuxWindow::HasShadow() {
 
 void MvdLinuxWindow::SetHasShadow(bool v) {
   (void)v;
+}
+
+// Applies pass-through to every GDK window in the widget tree.
+static void apply_pass_through(GtkWidget* widget, gboolean pass_through) {
+  GdkWindow* w = gtk_widget_get_window(widget);
+  if (w) {
+    gdk_window_set_pass_through(w, pass_through);
+  }
+  if (GTK_IS_CONTAINER(widget)) {
+    gtk_container_forall(
+        GTK_CONTAINER(widget),
+        [](GtkWidget* child, gpointer data) {
+          apply_pass_through(child, static_cast<gboolean>(GPOINTER_TO_INT(data)));
+        },
+        GINT_TO_POINTER(static_cast<gint>(pass_through)));
+  }
+}
+
+void MvdLinuxWindow::SetIgnoreMouseEvents(bool ignore, bool forward) {
+  is_ignore_mouse_events = ignore;
+  is_forward_mouse_events = forward;
+  if (!window) return;
+  apply_pass_through(GTK_WIDGET(window), ignore ? TRUE : FALSE);
+}
+
+std::pair<bool, bool> MvdLinuxWindow::IsIgnoreMouseEvents() {
+  return {is_ignore_mouse_events, is_forward_mouse_events};
 }

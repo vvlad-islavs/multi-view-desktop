@@ -19,10 +19,12 @@ GtkApplication* g_app = nullptr;
 const char* g_default_title = "Flutter";
 
 static void first_frame_cb(gpointer user_data, FlView* view) {
-  GtkWidget* top = gtk_widget_get_toplevel(GTK_WIDGET(view));
-  if (!GPOINTER_TO_INT(user_data)) {
-    gtk_widget_show(top);
+  if (GPOINTER_TO_INT(user_data)) {
+    return;
   }
+  GtkWidget* top = gtk_widget_get_toplevel(GTK_WIDGET(view));
+  gtk_widget_show(top);
+  gtk_widget_grab_focus(GTK_WIDGET(view));
 }
 
 static gchar* resolve_flutter_bundle_root(void) {
@@ -108,15 +110,22 @@ static void create_secondary_window(const MvdCreateWindowRequest* request) {
 
   mvd_linux_complete_secondary_window(window, view, request->token);
 
-  gtk_widget_show(GTK_WIDGET(window));
-  gtk_widget_grab_focus(GTK_WIDGET(view));
+  // Shown from first_frame_cb after the first Flutter frame is rendered.
 }
 
 static void window_created_callback(const MvdCreateWindowRequest* request) {
+  // Copy strings before the async GLib callback runs.
   struct Ctx {
     MvdCreateWindowRequest request;
+    std::string title;
+    std::string title_bar_style;
   };
-  auto* ctx = new Ctx{*request};
+  auto* ctx = new Ctx;
+  ctx->title = request->title ? request->title : "";
+  ctx->title_bar_style = request->title_bar_style ? request->title_bar_style : "";
+  ctx->request = *request;
+  ctx->request.title = ctx->title.c_str();
+  ctx->request.title_bar_style = ctx->title_bar_style.c_str();
   g_main_context_invoke(
       nullptr,
       [](gpointer data) -> gboolean {

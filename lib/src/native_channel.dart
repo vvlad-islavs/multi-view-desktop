@@ -538,7 +538,7 @@ class NativeChannel {
         false;
   }
 
-  /// App-wide: macOS activation policy; Windows — all windows hidden from taskbar.
+  /// App-wide: macOS activation policy; Windows: all windows hidden from taskbar.
   Future<bool> isHideAppFromTaskbar() async {
     final res = await _staticChannel.invokeMethod(kMethodIsHideAppFromTaskbar);
     return res ?? false;

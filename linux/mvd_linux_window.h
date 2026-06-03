@@ -25,6 +25,12 @@ class MvdLinuxWindow {
   bool is_prevent_close = false;
   bool is_confirm_close = false;
   bool is_pre_confirm = false;
+  bool is_minimizable = true;
+  bool is_resizable = true;
+  bool is_skip_taskbar = false;
+  bool window_button_visibility = true;
+  bool is_ignore_mouse_events = false;
+  bool is_forward_mouse_events = false;
 
   GdkGeometry geometry{};
   GdkWindowHints hints = static_cast<GdkWindowHints>(0);
@@ -58,7 +64,9 @@ class MvdLinuxWindow {
   void SetMaximumSize(float w, float h);
   bool IsResizable();
   void SetResizable(bool v);
+  bool IsMinimizable();
   void SetMinimizable(bool v);
+  bool IsMaximizable();
   void SetMaximizable(bool v);
   bool IsClosable();
   void SetClosable(bool v);
@@ -79,6 +87,10 @@ class MvdLinuxWindow {
   void SetMovable(bool v);
   bool HasShadow();
   void SetHasShadow(bool v);
+  void SetIgnoreMouseEvents(bool ignore, bool forward);
+  std::pair<bool, bool> IsIgnoreMouseEvents();
+
+  void ApplyWindowTypeHint();
 
   static std::shared_ptr<MvdLinuxWindow> Find(int64_t view_id);
   static void Unregister(int64_t view_id);

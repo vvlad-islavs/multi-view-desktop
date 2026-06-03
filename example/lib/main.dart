@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import 'package:multiview_desktop/multiview_desktop.dart';
@@ -8,8 +6,6 @@ import 'utils/theme_config.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  final allViews = PlatformDispatcher.instance.views;
-  debugPrint('allViews on init: $allViews');
   runMultiApp(
     home: const MainWindowRoot(),
     config: MultiAppConfig(

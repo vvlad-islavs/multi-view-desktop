@@ -2,17 +2,17 @@
 ///
 /// All OS windows share one Flutter engine and one Dart isolate.
 ///
-/// **Entry point** — replace [runApp] with [runMultiApp]:
+/// **Entry point**: replace [runApp] with [runMultiApp]:
 /// ```dart
 /// void main() => runMultiApp(const MyApp());
 /// ```
 ///
-/// **Open another window** — from anywhere, without [BuildContext]:
+/// **Open another window**: from anywhere, without [BuildContext]:
 /// ```dart
 /// openWindow(const SettingsPage(), options: WindowOptions(title: 'Settings'));
 /// ```
 ///
-/// **Control the current window** — pass [BuildContext] from the target view:
+/// **Control the current window**: pass [BuildContext] from the target view:
 /// ```dart
 /// final id = MultiViewDesktop.getCurrentId(context);
 /// await MultiViewDesktop.closeWindow(context);

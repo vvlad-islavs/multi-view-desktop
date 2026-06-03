@@ -6,7 +6,6 @@
 #include <flutter_linux/flutter_linux.h>
 #include <gtk/gtk.h>
 
-#include <atomic>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -46,17 +45,6 @@ static gpointer view_id_to_pointer(int64_t view_id) {
 static int64_t pointer_to_view_id(gpointer data) {
   return static_cast<int64_t>(GPOINTER_TO_SIZE(data));
 }
-
-struct WindowSignals {
-  int64_t view_id;
-  gulong delete_id = 0;
-  gulong focus_in_id = 0;
-  gulong focus_out_id = 0;
-  gulong configure_id = 0;
-};
-
-std::mutex g_signals_mtx;
-std::map<GtkWindow*, std::unique_ptr<WindowSignals>> g_window_signals;
 
 static int64_t int64_from_map(FlValue* args, const char* key) {
   if (!args || fl_value_get_type(args) != FL_VALUE_TYPE_MAP) {
@@ -154,8 +142,6 @@ static void emit_view_created(int64_t view_id, int64_t token) {
                                   nullptr);
 }
 
-static void connect_window_signals(GtkWindow* window, int64_t view_id);
-
 static void maybe_quit_application_if_last_window() {
   if (!g_terminate_after_last_window_closed) {
     return;
@@ -212,19 +198,11 @@ static gboolean on_configure(GtkWidget*, GdkEventConfigure*, gpointer data) {
 }
 
 static void connect_window_signals(GtkWindow* window, int64_t view_id) {
-  std::lock_guard<std::mutex> lk(g_signals_mtx);
-  auto sig = std::make_unique<WindowSignals>();
-  sig->view_id = view_id;
   gpointer id_data = view_id_to_pointer(view_id);
-  sig->delete_id =
-      g_signal_connect(window, "delete-event", G_CALLBACK(on_delete), id_data);
-  sig->focus_in_id = g_signal_connect(window, "focus-in-event",
-                                      G_CALLBACK(on_focus_in), id_data);
-  sig->focus_out_id = g_signal_connect(window, "focus-out-event",
-                                       G_CALLBACK(on_focus_out), id_data);
-  sig->configure_id = g_signal_connect(window, "configure-event",
-                                       G_CALLBACK(on_configure), id_data);
-  g_window_signals[window] = std::move(sig);
+  g_signal_connect(window, "delete-event", G_CALLBACK(on_delete), id_data);
+  g_signal_connect(window, "focus-in-event", G_CALLBACK(on_focus_in), id_data);
+  g_signal_connect(window, "focus-out-event", G_CALLBACK(on_focus_out), id_data);
+  g_signal_connect(window, "configure-event", G_CALLBACK(on_configure), id_data);
 }
 
 static void register_window(GtkWindow* window, FlView* view, int64_t view_id) {
@@ -236,8 +214,7 @@ static void register_window(GtkWindow* window, FlView* view, int64_t view_id) {
     std::lock_guard<std::mutex> lock(MvdLinuxWindow::registry_mtx);
     MvdLinuxWindow::windows[view_id] = wm;
   }
-  // FlView connects delete-event on realize to quit the whole app; remove it so
-  // multiview_desktop owns the soft-close cycle (primary and secondary windows).
+  // FlView quits the app on delete-event; multiview_desktop handles close itself.
   mvd_linux_detach_flutter_quit_on_window_close(window, view);
   connect_window_signals(window, view_id);
 }
@@ -436,12 +413,12 @@ static void handle_view_method(FlMethodCall* method_call,
     wm->SetMovable(bool_from_map(args, "isMovable", true));
     response = ok_null();
   } else if (g_strcmp0(method, "isMinimizable") == 0) {
-    response = ok_bool(true);
+    response = ok_bool(wm->IsMinimizable());
   } else if (g_strcmp0(method, "setMinimizable") == 0) {
     wm->SetMinimizable(bool_from_map(args, "isMinimizable", true));
     response = ok_null();
   } else if (g_strcmp0(method, "isMaximizable") == 0) {
-    response = ok_bool(true);
+    response = ok_bool(wm->IsMaximizable());
   } else if (g_strcmp0(method, "setMaximizable") == 0) {
     wm->SetMaximizable(bool_from_map(args, "isMaximizable", true));
     response = ok_null();
@@ -480,11 +457,14 @@ static void handle_view_method(FlMethodCall* method_call,
     wm->SetBackgroundColor(r, g, b, a);
     response = ok_null();
   } else if (g_strcmp0(method, "setIgnoreMouseEvents") == 0) {
+    wm->SetIgnoreMouseEvents(bool_from_map(args, "ignore", false),
+                             bool_from_map(args, "forward", false));
     response = ok_null();
   } else if (g_strcmp0(method, "isIgnoreMouseEvents") == 0) {
+    auto [ignore, forward] = wm->IsIgnoreMouseEvents();
     FlValue* map = fl_value_new_map();
-    fl_value_set_string_take(map, "ignore", fl_value_new_bool(false));
-    fl_value_set_string_take(map, "forward", fl_value_new_bool(false));
+    fl_value_set_string_take(map, "ignore", fl_value_new_bool(ignore));
+    fl_value_set_string_take(map, "forward", fl_value_new_bool(forward));
     response = ok_value(map);
   } else if (g_strcmp0(method, "startDragging") == 0) {
     wm->StartDragging();
@@ -544,11 +524,12 @@ static void method_cb(FlMethodChannel*, FlMethodCall* method_call, gpointer) {
       req.has_position = pending.has_position ? TRUE : FALSE;
       req.pos_x = pending.pos_x;
       req.pos_y = pending.pos_y;
+      // Call g_create_cb before moving pending; the callback copies strings async.
+      g_create_cb(&req);
       {
         std::lock_guard<std::mutex> lk(g_pending_mtx);
         g_pending_create[pending.token] = std::move(pending);
       }
-      g_create_cb(&req);
       response = ok_null();
     }
   } else if (g_strcmp0(method, "setTerminateAfterLastWindowClosed") == 0) {
@@ -646,15 +627,9 @@ void mvd_linux_complete_secondary_window(GtkWindow* window,
   }
 
   const int64_t view_id = fl_view_get_id(view);
-  gtk_window_set_default_size(window, static_cast<int>(pending.width),
-                              static_cast<int>(pending.height));
-  if (!pending.title.empty()) {
-    gtk_window_set_title(window, pending.title.c_str());
-  }
-  if (pending.has_position) {
-    gtk_window_move(window, static_cast<int>(pending.pos_x),
-                    static_cast<int>(pending.pos_y));
-  } else {
+
+  // Center the window when the runner did not receive an explicit position.
+  if (!pending.has_position) {
     gtk_window_set_position(window, GTK_WIN_POS_CENTER);
   }
 

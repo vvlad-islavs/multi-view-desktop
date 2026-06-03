@@ -21,7 +21,7 @@ class WindowOptions {
     this.alwaysOnTop,
   });
 
-  /// Initial content size in logical pixels. Defaults to 800×600 when omitted.
+  /// Initial content size in logical pixels. Defaults to 800x600 when omitted.
   final Size? size;
 
   /// Minimum resizable size enforced by the OS window.

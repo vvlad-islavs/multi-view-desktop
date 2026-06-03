@@ -74,7 +74,7 @@ class MacosPlatformParams {
   final bool closeAppAfterLastWindowClosed;
   final bool saveLastWindowToReopen;
 
-  //TODO: действие при тапе по приложению в таскбаре после закрытия всех окон
+  // TODO: handle taskbar click after all windows are closed.
   final Function? onTaskbarTap;
 
   const MacosPlatformParams({

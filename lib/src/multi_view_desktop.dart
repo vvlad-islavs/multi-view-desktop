@@ -7,16 +7,10 @@ import 'package:multiview_desktop/src/views_manager.dart';
 
 import 'view_root.dart' show globalRootState;
 
-/// Static facade for all per-window operations.
+/// Static facade for per-window operations.
 ///
-/// Every method that acts on a specific window takes a [BuildContext] and
-/// resolves the target view through the nearest [ViewScope] ancestor.  This
-/// removes the need to pass an explicit ID and mirrors the "current" mental
-/// model from multi-window-manager.
-///
-/// All calls are routed through the single [MethodChannel] `multiview_desktop`
-/// with a `viewId` key in the argument map -- the same pattern used by
-/// multi-window-manager.
+/// Window methods take a [BuildContext] and resolve the target view through
+/// [ViewScope].
 ///
 /// Example:
 /// ```dart
@@ -136,16 +130,7 @@ class MultiViewDesktop {
     await _manager.setPreventClose(_getRealId(context), isPreventClose);
   }
 
-  /// Explicitly cancels a pending cascade close initiated by the main window.
-  ///
-  /// Call this from [WindowListener.onWindowClose] when decides NOT
-  /// to close the window during a cascade (e.g. from a confirmation dialog).
-  /// This completes the pending cascade completer with `false`, aborting the
-  /// entire cascade and keeping both this window and the main window open.
-  ///
-  /// Without calling this method the cascade completer for this window hangs
-  /// indefinitely and any later close of this window would unexpectedly trigger
-  /// the main window to close as well.
+  /// Cancels a pending cascade close from [WindowListener.onWindowClose].
   static Future<void> cancelCascadeClose(BuildContext context) async {
     await _manager.cancelCascadeClose(_getRealId(context));
   }
@@ -177,10 +162,7 @@ class MultiViewDesktop {
   /// Subscribes [listener] to window events for the window that owns
   /// [parentContext].
   ///
-  /// Manual subscribe (shifted [viewId] from [getIdByContext]).
-  ///
-  /// Prefer [WindowListener] on [State] for automatic registration. Do not use
-  /// from [State.dispose] (deactivated [BuildContext]).
+  /// Use [WindowListener] on [State] for automatic registration.
   // static void addListener(BuildContext context, WindowListenerCallbacks listener) {
   //   _manager.addListener(_getRealId(context), listener);
   // }
@@ -251,7 +233,7 @@ class MultiViewDesktop {
     await _manager.setOpacity(_getRealId(context), opacity);
   }
 
-  /// Returns the current window opacity (`0.0`–`1.0`).
+  /// Returns the current window opacity (`0.0` to `1.0`).
   static Future<double> getOpacity(BuildContext context) async {
     return await _manager.getOpacity(_getRealId(context));
   }
@@ -534,7 +516,7 @@ class MultiViewDesktop {
   // Progress bar (Windows / macOS)
   // -------------------------------------------------------------------------
 
-  /// Sets the taskbar / dock progress indicator (`0.0`–`1.0`, app-wide).
+  /// Sets the taskbar / dock progress indicator (`0.0` to `1.0`, app-wide).
   static Future<void> setProgressBar(double progress) async {
     await _manager.setProgressBar(progress);
   }

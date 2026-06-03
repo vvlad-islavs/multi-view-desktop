@@ -26,7 +26,7 @@ class _WindowEntry {
 }
 
 // ---------------------------------------------------------------------------
-// Internal global accessor used by MultiViewDesktop and openWindow().
+// Global accessor for MultiViewDesktop and openWindow().
 // ---------------------------------------------------------------------------
 
 _MultiViewRootState? _rootState;
@@ -136,11 +136,9 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   @override
   void didChangeMetrics() {
     final dispatcher = WidgetsBinding.instance.platformDispatcher;
-    final allViews = PlatformDispatcher.instance.views;
     _viewsManagerImpl.reconcileAnchor(dispatcher);
 
     final gone = _viewsManagerImpl.allRealWindowIds.where((id) => dispatcher.view(id: id) == null).toList();
-    debugPrint('allViews on metrics changed: $allViews, gone: $gone');
     if (gone.isNotEmpty) {
       setState(() {
         for (final id in gone) {
@@ -164,8 +162,6 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   }
 
   void _handleClose(int viewId) {
-    final allViews = PlatformDispatcher.instance.views;
-    debugPrint('allViews after handle dispatcher close: $allViews');
     if (!mounted) return;
     _viewsManagerImpl.disposeView(viewId);
     setState(() {});
@@ -176,8 +172,6 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     setState(() {
       _viewsManagerImpl.registerWindow(viewId, child, parentContext: parentContext, parentId: parentId);
     });
-    final allViews = PlatformDispatcher.instance.views;
-    debugPrint('allViews after newWindow add: $allViews');
   }
 
   // --------------------------------------------------------------------------
@@ -531,7 +525,6 @@ class _ViewsManagerImpl implements ViewsManager {
     final String eventName = call.arguments['eventName'] as String;
 
     if (eventName == 'viewCreated') {
-      // Internal event, not forwarded to WindowListener.
       final int viewId = call.arguments['viewId'] as int;
       final int token = call.arguments['token'] as int;
       _createComplete(token, viewId);
@@ -540,13 +533,11 @@ class _ViewsManagerImpl implements ViewsManager {
       _childCreatePending.remove(token);
       await _nativeChannel.setPreConfirmClose(maybeParentId, false);
     } else if (eventName == 'preconfirm-close') {
-      // Internal event, not forwarded to WindowListener.
       final int? viewId = call.arguments['viewId'] as int?;
       if (viewId != null) {
         await _handlePreConfirmClose(viewId);
       }
     } else if (eventName == 'confirm-close') {
-      // Internal event, not forwarded to WindowListener.
       final int? viewId = call.arguments['viewId'] as int?;
       if (viewId != null) {
         await _onConfirmClose(viewId);
@@ -691,8 +682,7 @@ class _ViewsManagerImpl implements ViewsManager {
     Future<void> closeRoot() async {
       await _nativeChannel.setPreConfirmClose(rootId, true);
       if (Platform.isMacOS) {
-        // Скрывает окно только если нет кандидатов или отключено динимаческое главное окно приложения,
-        // при этом включено сохранение окна в таскбаре и id == _anchorId
+        // Hide the anchor instead of closing it when macOS dock restore is enabled.
         if ((_anchorCandidates(excludingViewId: rootId).isEmpty || !config.generalParams.enableDynamicAnchor) &&
             config.macosParams.saveLastWindowToReopen &&
             _anchorId == rootId) {
@@ -801,8 +791,6 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   Future<void> disposeView(int viewId) async {
-    final allViews = PlatformDispatcher.instance.views;
-    debugPrint('allViews after window close: $allViews');
     final wasAnchor = viewId == _anchorId;
     if (wasAnchor) {
       _setAnchor(null);
@@ -848,7 +836,6 @@ class _ViewsManagerImpl implements ViewsManager {
       pos = await calcWindowPosition(windowSize, opts.alignment!);
     }
 
-    debugPrint('до запроса на создание окна');
     try {
       await _nativeChannel.createWindowRequest(
         token: token,
@@ -863,12 +850,9 @@ class _ViewsManagerImpl implements ViewsManager {
       throw Exception('Failed to create new window, tokenId: $token. Error: $e, stack: $st');
     }
 
-    debugPrint('после запроса на создание окна');
-
     final newViewId = await _createCompleters[token]!.future.timeout(Duration(seconds: 1), onTimeout: () => null);
     _createCompleters.remove(token);
 
-    debugPrint('после комлитера на создание окна');
     if (newViewId == null) {
       throw Exception('Failed to create new window, tokenId: $token. Error: timeout');
     }
@@ -891,7 +875,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   Future<void> setTaskbarMenu({required List<TaskbarMenuItem> items}) async {
-    //TODO: кастомизация списка меню
+    // TODO: customize taskbar menu items.
   }
 
   @override
@@ -1141,7 +1125,6 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   Future<void> setAspectRatio(int viewId, double ratio) async {
-    //TODO: протестить
     await _viewExistChecker(viewId, () async => await _nativeChannel.setAspectRatio(viewId, ratio));
   }
 
@@ -1244,7 +1227,6 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   Future<void> setProgressBar(double progress) async {
-    //TODO: тест на линуксе (ибунту)
     if (Platform.isLinux) return;
     final id = _lifecycleViewId;
     if (id == null) return;

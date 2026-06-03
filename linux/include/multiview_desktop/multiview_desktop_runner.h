@@ -14,17 +14,17 @@ G_BEGIN_DECLS
 #define FLUTTER_PLUGIN_EXPORT
 #endif
 
-/// Call once at the start of [GApplication::activate] (before creating the
-/// primary [FlView]). Hooks Dart [createWindow] to open additional GTK windows.
+/// Call once at the start of GApplication::activate, before creating the primary FlView.
+/// Hooks Dart createWindow to open additional GTK windows.
 FLUTTER_PLUGIN_EXPORT void multiview_desktop_linux_runner_install(
     GtkApplication* application);
 
-/// Fixes asset/ICU/AOT paths when the binary is launched from the build dir.
-/// Call right after [fl_dart_project_new] in the default runner template.
+/// Fixes asset, ICU, and AOT paths when launched from the build directory.
+/// Call right after fl_dart_project_new in the runner template.
 FLUTTER_PLUGIN_EXPORT void multiview_desktop_linux_runner_prepare_dart_project(
     FlDartProject* project);
 
-/// Call after [fl_register_plugins] on the primary [FlView].
+/// Call after fl_register_plugins on the primary FlView.
 FLUTTER_PLUGIN_EXPORT void multiview_desktop_linux_runner_register_primary(
     GtkWindow* window,
     FlView* view);

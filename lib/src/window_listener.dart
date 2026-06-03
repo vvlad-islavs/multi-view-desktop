@@ -35,7 +35,7 @@ abstract interface class WindowListenerCallbacks {
 
 /// Window lifecycle callbacks for a [State] under [ViewScope].
 ///
-/// Apply on [State] — registration for the current window runs from
+/// Apply on [State]; registration for the current window runs from
 /// [didChangeDependencies], cleanup from [dispose] (shifted id via
 /// [MultiViewDesktop.getIdByContext], no [BuildContext] in [dispose]).
 ///
