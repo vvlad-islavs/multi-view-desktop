@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 import 'dart:ui' show FlutterView, PlatformDispatcher;
 
 import 'package:flutter/foundation.dart';
@@ -45,7 +44,7 @@ _MultiViewRootState get globalRootState {
 
 /// Creates the root multi-view widget.  Used by [runMultiApp] only.
 Future<Widget> createMultiViewRoot(Widget home, Widget Function(Widget child)? scope, MultiAppConfig config) async {
-  final initialWindow = Platform.isWindows ? 0 : 1;
+  final initialWindow = !Platform.isMacOS ? 0 : 1;
   _hasInitView = await _nativeChannel.checkWindowExist(initialWindow) ?? true;
 
   final mainRoot = _MultiViewRoot(home: home, config: config);
@@ -105,7 +104,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   void _initMainView() async {
     // Snapshot to avoid concurrent-modification errors on the live views set.
     final initial = WidgetsBinding.instance.platformDispatcher.views.toList();
-    final excludeId = Platform.isWindows ? -1 : 0;
+    final excludeId = !Platform.isMacOS ? -1 : 0;
     final live = initial.where((v) => v.viewId != excludeId).toList();
     if (live.isEmpty) return;
 
@@ -367,10 +366,15 @@ class _ViewsManagerImpl implements ViewsManager {
     closeMode = config.generalParams.closeMode;
   }
 
-  /// Pushes [CloseMode] to native macOS lifecycle policy (terminate-after-last-window).
+  /// Pushes lifecycle quit policy to the native embedder.
   Future<void> applyNativeLifecyclePolicy() async {
-    if (!Platform.isMacOS) return;
-    await _nativeChannel.setTerminateAfterLastWindowClosed(config.macosParams.closeAppAfterLastWindowClosed);
+    if (Platform.isMacOS) {
+      await _nativeChannel.setTerminateAfterLastWindowClosed(
+        config.macosParams.closeAppAfterLastWindowClosed,
+      );
+    } else if (Platform.isLinux) {
+      await _nativeChannel.setTerminateAfterLastWindowClosed(true);
+    }
   }
 
   WindowOptions _compareGlobalAndNewOpts({WindowOptions? preferred, required WindowOptions global}) {
@@ -439,7 +443,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
   Future<void> registerInitialWindow({required int viewId, required Widget home}) async {
     // Win by default init from 0 id but macos & linux from 1
-    _hotRestartShift = Platform.isWindows ? -1 : 0;
+    _hotRestartShift = !Platform.isMacOS ? -1 : 0;
     if (!_hasInitView) {
       viewId = await openWindow(home);
       _hotRestartShift = viewId - 1;

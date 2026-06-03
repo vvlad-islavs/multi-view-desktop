@@ -26,5 +26,7 @@ flutter:
         pluginClass: MultiviewDesktopPlugin
       windows:
         pluginClass: MultiViewDesktopPlugin
+      linux:
+        pluginClass: MultiviewDesktopPlugin
 
   uses-material-design: true
