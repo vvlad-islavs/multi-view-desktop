@@ -759,7 +759,7 @@ class _ViewsManagerImpl implements ViewsManager {
       await _nativeChannel.setMinSize(viewId, size: opts.minimumSize!);
     }
     if (opts.maximumSize != null) {
-      await _nativeChannel.setMaxSize(viewId, size: opts.minimumSize!);
+      await _nativeChannel.setMaxSize(viewId, size: opts.maximumSize!);
     }
     if (opts.title != null) await _nativeChannel.setTitle(viewId, title: opts.title!);
     if (opts.titleBarStyle != null) {

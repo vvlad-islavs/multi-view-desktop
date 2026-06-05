@@ -338,7 +338,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 onTap: () async {
                   openWindow(
                     const _SecondaryWindowRoot(),
-                    options: WindowOptions(size: const Size(1000, 700), alignment: Alignment.center),
+                    options: WindowOptions(size: const Size(1000, 700), alignment: Alignment.center, title: ' '),
                   );
                 },
               ),
@@ -349,7 +349,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   final currId = MultiViewDesktop.getIdByContext(context);
                   openWindow(
                     const _SecondaryWindowRoot(),
-                    options: WindowOptions(size: const Size(1000, 700), title: 'Window title parent $currId'),
+                    options: WindowOptions(size: const Size(1000, 700), title: ' '),
                     parentContext: context,
                   );
                 },
