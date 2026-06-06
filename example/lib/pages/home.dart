@@ -85,6 +85,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
   }
 
   void _viewListener() {
+    debugPrint('allViews from notif: ${MultiViewDesktop.allViewsIdsNotifier.value}');
     sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
   }
 

@@ -42,10 +42,11 @@ _MultiViewRootState get globalRootState {
   return _rootState!;
 }
 
+int get _initPlatformId => !Platform.isMacOS ? 0 : 1;
+
 /// Creates the root multi-view widget.  Used by [runMultiApp] only.
 Future<Widget> createMultiViewRoot(Widget home, Widget Function(Widget child)? scope, MultiAppConfig config) async {
-  final initialWindow = !Platform.isMacOS ? 0 : 1;
-  _hasInitView = await _nativeChannel.checkWindowExist(initialWindow) ?? true;
+  _hasInitView = await _nativeChannel.checkWindowExist(_initPlatformId) ?? true;
 
   final mainRoot = _MultiViewRoot(home: home, config: config);
   return scope?.call(mainRoot) ?? mainRoot;
@@ -363,9 +364,7 @@ class _ViewsManagerImpl implements ViewsManager {
   /// Pushes lifecycle quit policy to the native embedder.
   Future<void> applyNativeLifecyclePolicy() async {
     if (Platform.isMacOS) {
-      await _nativeChannel.setTerminateAfterLastWindowClosed(
-        config.macosParams.closeAppAfterLastWindowClosed,
-      );
+      await _nativeChannel.setTerminateAfterLastWindowClosed(config.macosParams.closeAppAfterLastWindowClosed);
     } else if (Platform.isLinux) {
       await _nativeChannel.setTerminateAfterLastWindowClosed(true);
     }
@@ -423,6 +422,9 @@ class _ViewsManagerImpl implements ViewsManager {
     return _windows.keys.reduce((a, b) => a < b ? a : b);
   }
 
+  int _initRealId = _initPlatformId;
+  bool _isInitFirstSecondaryView = false;
+
   final Map<int, _WindowEntry> _windows = {};
 
   final ValueNotifier<List<int>> _windowsNotifier = ValueNotifier([]);
@@ -436,18 +438,24 @@ class _ViewsManagerImpl implements ViewsManager {
   List<int> get allShiftedWindowIds => _windows.keys.map((e) => _realToShifted(e)).toList();
 
   Future<void> registerInitialWindow({required int viewId, required Widget home}) async {
-    // Win by default init from 0 id but macos & linux from 1
+    // Win & linux by default init from 0 id but macos from 1
     _hotRestartShift = !Platform.isMacOS ? -1 : 0;
     if (!_hasInitView) {
       viewId = await openWindow(home);
       _hotRestartShift = viewId - 1;
     }
+    _initRealId = viewId;
     _addWindow(viewId, _WindowEntry(widget: home, parentContext: null, parentId: null));
 
     _setAnchor(viewId, force: true);
   }
 
   void registerWindow(int viewId, Widget widget, {required BuildContext? parentContext, int? parentId}) {
+    // if next window id on start is higher 2 then set shift
+    if (allShiftedWindowIds.length == 1 && allShiftedWindowIds.first == 1 && viewId > 2 && !_isInitFirstSecondaryView) {
+      _hotRestartShift = viewId - allShiftedWindowIds.first - 1;
+    }
+    _isInitFirstSecondaryView = true;
     if (parentId != null && !_windows.containsKey(parentId)) {
       throw ArgumentError.value(parentId, 'parentId', 'Parent window is not registered');
     }
@@ -495,9 +503,21 @@ class _ViewsManagerImpl implements ViewsManager {
     _setAnchor(candidates.first);
   }
 
-  int _realToShifted(int viewId) => viewId - _hotRestartShift;
+  int _realToShifted(int viewId) {
+    if (allRealWindowIds.contains(_initPlatformId) && viewId == _initRealId) {
+      return 1;
+    }
 
-  int _shiftedToReal(int viewId) => viewId + _hotRestartShift;
+    return viewId - _hotRestartShift;
+  }
+
+  int _shiftedToReal(int viewId) {
+    if (allRealWindowIds.contains(_initPlatformId) && viewId == 1) {
+      return _initRealId;
+    }
+
+    return viewId + _hotRestartShift;
+  }
 
   List<int> _directChildIds(int parentId) =>
       _windows.entries.where((e) => e.value.parentId == parentId).map((e) => e.key).toList();
@@ -782,12 +802,12 @@ class _ViewsManagerImpl implements ViewsManager {
 
   void _addWindow(int viewId, _WindowEntry entry) {
     _windows[viewId] = entry;
-    _windowsNotifier.value = _windows.entries.map((e) => e.key).toList()..sort();
+    _windowsNotifier.value = _windows.entries.map((e) => _realToShifted(e.key)).toList()..sort();
   }
 
   void _removeWindow(int viewId) {
     _windows.remove(viewId);
-    _windowsNotifier.value = _windows.entries.map((e) => e.key).toList()..sort();
+    _windowsNotifier.value = _windows.entries.map((e) => _realToShifted(e.key)).toList()..sort();
   }
 
   Future<void> disposeView(int viewId) async {
