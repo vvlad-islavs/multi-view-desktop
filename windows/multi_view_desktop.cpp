@@ -120,13 +120,24 @@ namespace {
         if (registered) {
             return;
         }
+        HINSTANCE hInstance = GetModuleHandle(nullptr);
         WNDCLASSEX window_class = {};
         window_class.cbSize = sizeof(WNDCLASSEX);
         window_class.style = CS_HREDRAW | CS_VREDRAW;
         window_class.lpfnWndProc = multi_view_desktop::MultiViewDesktop::HostWndProc;
-        window_class.hInstance = GetModuleHandle(nullptr);
+        window_class.hInstance = hInstance;
         window_class.hCursor = LoadCursor(nullptr, IDC_ARROW);
         window_class.lpszClassName = kMultiViewHostWindowClassName;
+        // Load the app icon from resources so secondary windows show the
+        // same icon as the main window instead of the Windows default.
+        window_class.hIcon = static_cast<HICON>(
+            LoadImage(hInstance, MAKEINTRESOURCE(101), IMAGE_ICON,
+                      0, 0, LR_DEFAULTSIZE | LR_SHARED));
+        window_class.hIconSm = static_cast<HICON>(
+            LoadImage(hInstance, MAKEINTRESOURCE(101), IMAGE_ICON,
+                      GetSystemMetrics(SM_CXSMICON),
+                      GetSystemMetrics(SM_CYSMICON),
+                      LR_SHARED));
         RegisterClassEx(&window_class);
         registered = true;
     }
