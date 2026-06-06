@@ -357,11 +357,13 @@ class _HomePageState extends State<HomePage> with WindowListener {
               if (windowId != 0)
                 _tile('closeWindow', subtitle: 'Close this window', onTap: () => MultiViewDesktop.closeWindow(context)),
               if (!Platform.isLinux) _tile('center', onTap: () => MultiViewDesktop.center(context)),
-              if (!Platform.isLinux) _tile('setAlignment', subtitle: 'Tap a position on the grid below'),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: _AlignmentGrid(onSelected: (alignment) => MultiViewDesktop.setAlignment(context, alignment)),
-              ),
+              if (!Platform.isLinux) ...[
+                _tile('setAlignment', subtitle: 'Tap a position on the grid below'),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: _AlignmentGrid(onSelected: (alignment) => MultiViewDesktop.setAlignment(context, alignment)),
+                ),
+              ],
               _tile(
                 'setSize',
                 subtitle: '760 x 560',
