@@ -12,6 +12,10 @@
 .swiftpm/
 migrate_working_dir/
 
+#linux
+ssh-key
+ssh-key.pub
+
 # IntelliJ related
 *.iml
 *.ipr
