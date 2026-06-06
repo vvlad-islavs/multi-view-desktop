@@ -62,6 +62,7 @@ class MvdLinuxWindow {
   void Center();
   void SetMinimumSize(float w, float h);
   void SetMaximumSize(float w, float h);
+  void ReapplyGeometryHints();
   bool IsResizable();
   void SetResizable(bool v);
   bool IsMinimizable();

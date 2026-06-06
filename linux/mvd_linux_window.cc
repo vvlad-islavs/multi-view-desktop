@@ -204,10 +204,7 @@ void MvdLinuxWindow::SetAspectRatio(float ar) {
   } else {
     hints = static_cast<GdkWindowHints>(hints & ~GDK_HINT_ASPECT);
   }
-  auto* gdk = GetGdkWindow(window);
-  if (gdk) {
-    gdk_window_set_geometry_hints(gdk, &geometry, hints);
-  }
+  ReapplyGeometryHints();
 }
 
 bool MvdLinuxWindow::SetBackgroundColor(int r, int g, int b, int a) {
@@ -278,6 +275,48 @@ void MvdLinuxWindow::Center() {
   }
 }
 
+void MvdLinuxWindow::ReapplyGeometryHints() {
+  if (!window || hints == static_cast<GdkWindowHints>(0)) {
+    return;
+  }
+  GdkWindow* gdk = GetGdkWindow(window);
+  if (!gdk) {
+    // Window not yet realized: GTK stores the hints and re-applies on realization.
+    gtk_window_set_geometry_hints(window, nullptr, &geometry, hints);
+    return;
+  }
+
+  // On GTK3 CSD the GDK/X11 window surface includes the invisible shadow and
+  // resize-handle margins; gtk_window_get_size() returns only the visible
+  // content area. The window manager enforces PMinSize / PMaxSize against the
+  // full X11 window size, so we must add the shadow delta to the requested
+  // content-area limits before passing them to gdk_window_set_geometry_hints.
+  gint gdk_w = gdk_window_get_width(gdk);
+  gint gdk_h = gdk_window_get_height(gdk);
+  gint gtk_w = 0, gtk_h = 0;
+  gtk_window_get_size(window, &gtk_w, &gtk_h);
+  const gint shadow_w = (gdk_w > gtk_w) ? (gdk_w - gtk_w) : 0;
+  const gint shadow_h = (gdk_h > gtk_h) ? (gdk_h - gtk_h) : 0;
+
+  if (shadow_w == 0 && shadow_h == 0) {
+    // Shadow not yet known (window realized but not mapped): fall back to
+    // gtk_window_set_geometry_hints so GTK re-applies after the first map.
+    gtk_window_set_geometry_hints(window, nullptr, &geometry, hints);
+    return;
+  }
+
+  GdkGeometry effective = geometry;
+  if ((hints & GDK_HINT_MIN_SIZE) && geometry.min_width >= 0) {
+    effective.min_width  = geometry.min_width  + shadow_w;
+    effective.min_height = geometry.min_height + shadow_h;
+  }
+  if ((hints & GDK_HINT_MAX_SIZE) && geometry.max_width < G_MAXINT) {
+    effective.max_width  = geometry.max_width  + shadow_w;
+    effective.max_height = geometry.max_height + shadow_h;
+  }
+  gdk_window_set_geometry_hints(gdk, &effective, hints);
+}
+
 void MvdLinuxWindow::SetMinimumSize(float w, float h) {
   if (!window) {
     return;
@@ -289,10 +328,7 @@ void MvdLinuxWindow::SetMinimumSize(float w, float h) {
   } else {
     hints = static_cast<GdkWindowHints>(hints & ~GDK_HINT_MIN_SIZE);
   }
-  auto* gdk = GetGdkWindow(window);
-  if (gdk) {
-    gdk_window_set_geometry_hints(gdk, &geometry, hints);
-  }
+  ReapplyGeometryHints();
 }
 
 void MvdLinuxWindow::SetMaximumSize(float w, float h) {
@@ -312,10 +348,7 @@ void MvdLinuxWindow::SetMaximumSize(float w, float h) {
   if (geometry.max_height < 0) {
     geometry.max_height = G_MAXINT;
   }
-  auto* gdk = GetGdkWindow(window);
-  if (gdk) {
-    gdk_window_set_geometry_hints(gdk, &geometry, hints);
-  }
+  ReapplyGeometryHints();
 }
 
 bool MvdLinuxWindow::IsResizable() {
@@ -348,8 +381,8 @@ void MvdLinuxWindow::SetResizable(bool v) {
     gtk_window_resize(window, w, h);
     gtk_window_set_resizable(window, false);
   } else {
-    gtk_window_set_geometry_hints(window, nullptr, &geometry, hints);
     gtk_window_set_resizable(window, true);
+    ReapplyGeometryHints();
   }
 }
 

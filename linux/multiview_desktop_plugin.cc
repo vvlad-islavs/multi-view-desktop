@@ -197,12 +197,21 @@ static gboolean on_configure(GtkWidget*, GdkEventConfigure*, gpointer data) {
   return FALSE;
 }
 
+static void on_map(GtkWidget*, gpointer data) {
+  const int64_t view_id = pointer_to_view_id(data);
+  auto wm = MvdLinuxWindow::Find(view_id);
+  if (wm) {
+    wm->ReapplyGeometryHints();
+  }
+}
+
 static void connect_window_signals(GtkWindow* window, int64_t view_id) {
   gpointer id_data = view_id_to_pointer(view_id);
   g_signal_connect(window, "delete-event", G_CALLBACK(on_delete), id_data);
   g_signal_connect(window, "focus-in-event", G_CALLBACK(on_focus_in), id_data);
   g_signal_connect(window, "focus-out-event", G_CALLBACK(on_focus_out), id_data);
   g_signal_connect(window, "configure-event", G_CALLBACK(on_configure), id_data);
+  g_signal_connect(window, "map", G_CALLBACK(on_map), id_data);
 }
 
 static void register_window(GtkWindow* window, FlView* view, int64_t view_id) {
