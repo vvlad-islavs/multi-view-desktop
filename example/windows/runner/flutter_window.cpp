@@ -39,13 +39,11 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
   LRESULT result = 0;
+  if (message == WM_FONTCHANGE) {
+   FlutterDesktopEngineReloadSystemFonts(MultiViewDesktopGetEngineRef());
+  }
   if (MultiViewDesktopHandleWindowProc(hwnd, message, wparam, lparam, &result)) {
     return result;
-  }
-
-  switch (message) {
-    case WM_FONTCHANGE:
-      break;
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);

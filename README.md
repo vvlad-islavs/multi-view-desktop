@@ -90,7 +90,9 @@ Edit `linux/runner/my_application.cc`.
    GtkWindow* window =
        GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
-   gtk_window_set_default_size(window, 1280, 720);
+   // ... (header bar setup, gtk_window_set_default_size - unchanged)
+-  gtk_window_set_default_size(window, 1280, 720);
++  gtk_window_set_default_size(window, 800, 600);
 
    g_autoptr(FlDartProject) project = fl_dart_project_new();
 +  multiview_desktop_linux_runner_prepare_dart_project(project);
@@ -98,8 +100,14 @@ Edit `linux/runner/my_application.cc`.
        project, self->dart_entrypoint_arguments);
 
    FlView* view = fl_view_new(project);
+   GdkRGBA background_color;
+   gdk_rgba_parse(&background_color, "#000000");
+   fl_view_set_background_color(view, &background_color);
    gtk_widget_show(GTK_WIDGET(view));
    gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
+
+   g_signal_connect_swapped(view, "first-frame", G_CALLBACK(first_frame_cb),
+                            self);
    gtk_widget_realize(GTK_WIDGET(view));
 
    fl_register_plugins(FL_PLUGIN_REGISTRY(view));
@@ -137,11 +145,39 @@ multiview_desktop_linux_runner_set_default_title("My App");
 
 The example `windows/runner/flutter_window.cpp` and `flutter_window.h` are replaced entirely. Copy the versions from the example app included in this package, or apply the following changes manually.
 
+**`windows/runner/flutter_window.h`**: remove the `FlutterViewController` include and the `flutter_controller_` field; keep only `project_`:
+
+```diff
+ #include <flutter/dart_project.h>
+-#include <flutter/flutter_view_controller.h>
+ #include <memory>
+ #include "win32_window.h"
+
+ class FlutterWindow : public Win32Window {
+  public:
+   explicit FlutterWindow(const flutter::DartProject& project);
+   virtual ~FlutterWindow();
+
+  protected:
+   bool OnCreate() override;
+   void OnDestroy() override;
+   LRESULT MessageHandler(HWND window, UINT const message, WPARAM const wparam,
+                          LPARAM const lparam) noexcept override;
+
+  private:
+   flutter::DartProject project_;
+-  std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+ };
+```
+
+`flutter_controller_` is replaced entirely by the plugin. Leaving the field in the header will cause a compile error because `flutter::FlutterViewController` is no longer included.
+
 **`windows/runner/flutter_window.cpp`**: replace the standard Flutter engine initialization with the multiview_desktop API:
 
 ```diff
  #include "flutter_window.h"
  #include <optional>
+-#include "flutter/generated_plugin_registrant.h"
 +#include <multiview_desktop/multi_view_desktop_plugin.h>
 
  FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -153,11 +189,11 @@ The example `windows/runner/flutter_window.cpp` and `flutter_window.h` are repla
    }
 
    RECT frame = GetClientArea();
-   const int width  = frame.right  - frame.left;
-   const int height = frame.bottom - frame.top;
++  const int width  = frame.right - frame.left;
++  const int height = frame.bottom - frame.top;
 
 -  flutter_controller_ = std::make_unique<flutter::FlutterViewController>(
--      width, height, project_);
+-      frame.right - frame.left, frame.bottom - frame.top, project_);
 -  if (!flutter_controller_->engine() || !flutter_controller_->view()) {
 -    return false;
 -  }
@@ -179,15 +215,44 @@ The example `windows/runner/flutter_window.cpp` and `flutter_window.h` are repla
 +  CenterOnScreen();
    return true;
  }
+ 
+ void FlutterWindow::OnDestroy() {
+-    if (flutter_controller_) {
+-        flutter_controller_ = nullptr;
+-    }
+-
+    Win32Window::OnDestroy();
+ }
 
  LRESULT FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                                        WPARAM const wparam,
                                        LPARAM const lparam) noexcept {
-   LRESULT result = 0;
+
+-   if (flutter_controller_) {
+-     std::optional<LRESULT> result =
+-        flutter_controller_->HandleTopLevelWindowProc(hwnd, message, wparam,
+-                lparam);
+-     if (result) {
+-        return *result;
+-      }
+-    }
+-
+-  switch (message) {
+-  case WM_FONTCHANGE:
+-  flutter_controller_->engine()->ReloadSystemFonts();
+-  break;
+-  }
+
++  LRESULT result = 0;
++
++  if (message == WM_FONTCHANGE) {
++    FlutterDesktopEngineReloadSystemFonts(MultiViewDesktopGetEngineRef());
++  }
 +  if (MultiViewDesktopHandleWindowProc(hwnd, message, wparam, lparam, &result)) {
 +    return result;
 +  }
-   // ...
+
+   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
  }
 ```
 
@@ -195,8 +260,10 @@ The example `windows/runner/flutter_window.cpp` and `flutter_window.h` are repla
 
 ```diff
  FlutterWindow window(project);
- Win32Window::Point origin(0, 0);
- Win32Window::Size size(1280, 720);
+- Win32Window::Point origin(10, 10);
+- Win32Window::Size size(1280, 720);
++ Win32Window::Point origin(0, 0);
++ Win32Window::Size size(800, 600);
  if (!window.Create(L"my_app", origin, size)) {
    return EXIT_FAILURE;
  }
@@ -268,11 +335,6 @@ void Win32Window::CenterOnScreen() {
 
  class MainFlutterWindow: NSWindow {
    override func awakeFromNib() {
--    let flutterViewController = FlutterViewController()
--    let windowFrame = self.frame
--    self.contentViewController = flutterViewController
--    self.setFrame(windowFrame, display: true)
--    RegisterGeneratedPlugins(registry: flutterViewController)
 +    let engine = FlutterEngine(
 +        name: "main_flutter_engine",
 +        project: nil,
@@ -281,11 +343,12 @@ void Win32Window::CenterOnScreen() {
 +    MultiviewDesktopPlugin.prepareEngine(engine, window: self)
 +
 +    let flutterViewController = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
-+    let windowFrame = self.frame
-+    self.contentViewController = flutterViewController
-+    self.setFrame(windowFrame, display: false)
-+
-+    RegisterGeneratedPlugins(registry: flutterViewController)
+-    let flutterViewController = FlutterViewController()
+     let windowFrame = self.frame
+     self.contentViewController = flutterViewController
+     self.setFrame(windowFrame, display: false)
+
+     RegisterGeneratedPlugins(registry: flutterViewController)
      super.awakeFromNib()
    }
  }
@@ -318,6 +381,10 @@ void Win32Window::CenterOnScreen() {
 +    }
 +    return super.applicationShouldHandleReopen(sender, hasVisibleWindows: flag)
 +  }
+
+   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
+        return true
+    }
  }
 ```
 
