@@ -56,12 +56,11 @@ class _MainWindowRootState extends State<MainWindowRoot> {
       if (msg['type'] != 'themeMode') return;
       if (!mounted) return;
       final mode = ThemeMode.values.firstWhere((m) => m.name == msg['value'], orElse: () => ThemeMode.light);
-      MultiViewDesktop.setBrightness(context, mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
+      MultiViewDesktop.ofContext(context).setBrightness(mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await MultiViewDesktop.setBrightness(
-        context,
+      await MultiViewDesktop.ofContext(context).setBrightness(
         themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light,
       );
 

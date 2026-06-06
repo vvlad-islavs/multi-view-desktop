@@ -687,7 +687,7 @@ class _MyPageState extends State<MyPage> with WindowListener {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      MultiViewDesktop.setPreventClose(context, true);
+      MultiViewDesktop.ofContext(context).setPreventClose(true);
     });
   }
 
@@ -710,8 +710,9 @@ class _MyPageState extends State<MyPage> with WindowListener {
       ),
     );
     if (confirmed == true) {
-      await MultiViewDesktop.setPreventClose(context, false);
-      await MultiViewDesktop.closeWindow(context);
+      final win = MultiViewDesktop.ofContext(context);
+      await win.setPreventClose(false);
+      await win.closeWindow();
     }
   }
 }
@@ -745,7 +746,7 @@ To abort a cascade close from inside a secondary window (for example after a use
 void onWindowClose() async {
   final confirmed = await showUnsavedChangesDialog();
   if (!confirmed) {
-    await MultiViewDesktop.cancelCascadeClose(context);
+    await MultiViewDesktop.ofContext(context).cancelCascadeClose();
   }
 }
 ```
@@ -881,13 +882,29 @@ runMultiApp(
 
 ### MultiViewDesktop
 
-Static facade. All window methods resolve the target view from `BuildContext`.
+Per-window methods are accessed through an instance obtained from a factory constructor:
 
-#### Identity
+```dart
+final win = MultiViewDesktop.ofContext(context);
+await win.setTitle('My Window');
+await win.closeWindow();
+
+// Or by view ID:
+await MultiViewDesktop.fromId(viewId).setAlwaysOnTop(true);
+```
+
+App-wide operations (not targeting a specific window) are static:
+
+```dart
+await MultiViewDesktop.closeApp();
+MultiViewDesktop.addListenerForView(viewId, listener);
+```
+
+#### Identity (static)
 
 ##### getIdByContext(BuildContext context) -> int
 
-Returns the numeric OS view ID of the window that owns `context`.
+Returns the shifted view ID of the window that owns `context`.
 
 ##### allViewsIds -> List\<int\>
 
@@ -897,31 +914,21 @@ Snapshot of all secondary view IDs currently registered.
 
 Live-updating notifier. Fires whenever a window opens or closes. Use with `ValueListenableBuilder`.
 
-#### Window lifecycle
+#### Identity (instance)
+
+##### id -> int
+
+The shifted (public) view ID for this instance.
+
+#### App-wide lifecycle (static)
 
 ##### openWindow(Widget child, {WindowOptions? options, BuildContext? parentContext}) -> Future\<int\>
 
 Opens a new OS window showing `child`. Returns the view ID. Available as a top-level function; can be called without `BuildContext`.
 
-##### closeWindow(BuildContext context) -> Future\<void\>
-
-Soft-closes the window that owns `context`. If `setPreventClose` is `true` for that window, emits `onWindowClose` instead of destroying it.
-
 ##### closeApp({CloseMode? closeMode}) -> Future\<void\>
 
 Closes all windows using `closeMode` (or the mode configured in `MultiAppConfig`).
-
-##### isPreventClose(BuildContext context) -> Future\<bool\>
-
-Returns whether close is currently blocked for the window.
-
-##### setPreventClose(BuildContext context, bool isPreventClose) -> Future\<void\>
-
-When `true`, any close attempt (native button or `closeWindow`) is blocked and `onWindowClose` fires instead. Set back to `false` to re-enable.
-
-##### cancelCascadeClose(BuildContext context) -> Future\<void\>
-
-Aborts an in-progress `CloseMode.cascade` sequence that is waiting on this window.
 
 ##### setCloseMode(CloseMode closeMode) -> Future\<void\>
 
@@ -939,265 +946,283 @@ Sets the anchor view ID manually. Only valid for root views (views without a par
 
 Returns the current anchor view ID, or `null` if none is set.
 
-#### Title and appearance
+#### Per-window lifecycle (instance)
 
-##### getTitle(BuildContext context) -> Future\<String\>
+##### closeWindow() -> Future\<void\>
+
+Soft-closes this window. If `setPreventClose` is `true`, emits `onWindowClose` instead of destroying the window.
+
+##### isPreventClose() -> Future\<bool\>
+
+Returns whether close is currently blocked for this window.
+
+##### setPreventClose(bool isPreventClose) -> Future\<void\>
+
+When `true`, any close attempt (native button or `closeWindow`) is blocked and `onWindowClose` fires instead. Set back to `false` to re-enable.
+
+##### cancelCascadeClose() -> Future\<void\>
+
+Aborts an in-progress `CloseMode.cascade` sequence that is waiting on this window.
+
+#### Title and appearance (instance)
+
+##### getTitle() -> Future\<String\>
 
 Returns the native window title.
 
-##### setTitle(BuildContext context, String title) -> Future\<void\>
+##### setTitle(String title) -> Future\<void\>
 
 Changes the native window title shown in the title bar and dock tooltip.
 
-##### setTitleBarStyle(BuildContext context, TitleBarStyle style, {bool windowButtonVisibility = true}) -> Future\<void\>
+##### setTitleBarStyle(TitleBarStyle style, {bool windowButtonVisibility = true}) -> Future\<void\>
 
 Changes the title-bar style. Pass `TitleBarStyle.hidden` for a frameless window. `windowButtonVisibility` controls whether the traffic-light / caption buttons are still drawn when the bar is hidden.
 
-##### getTitleBarStyle(BuildContext context) -> Future\<({TitleBarStyle? style, bool? buttonVisibility})\>
+##### getTitleBarStyle() -> Future\<({TitleBarStyle? style, bool? buttonVisibility})\>
 
 Returns the current title-bar style and button visibility.
 
-##### setAsFrameless(BuildContext context) -> Future\<void\>
+##### setAsFrameless() -> Future\<void\>
 
 Removes the native title bar and border entirely.
 
-##### setBackgroundColor(BuildContext context, Color color) -> Future\<void\>
+##### setBackgroundColor(Color color) -> Future\<void\>
 
 Sets the native window background color behind the Flutter view. Use `Colors.transparent` for a transparent window.
 
-##### setBrightness(BuildContext context, Brightness brightness) -> Future\<void\>
+##### setBrightness(Brightness brightness) -> Future\<void\>
 
 Sets the preferred appearance of native chrome (light or dark).
 
-##### setOpacity(BuildContext context, double opacity) -> Future\<void\>
+##### setOpacity(double opacity) -> Future\<void\>
 
 Sets window opacity in the range `0.0` (fully transparent) to `1.0` (fully opaque).
 
-##### getOpacity(BuildContext context) -> Future\<double\>
+##### getOpacity() -> Future\<double\>
 
 Returns the current window opacity.
 
-##### hasShadow(BuildContext context) -> Future\<bool\>
+##### hasShadow() -> Future\<bool\>
 
 Returns whether the window draws a native drop shadow.
 
-##### setHasShadow(BuildContext context, bool value) -> Future\<void\>
+##### setHasShadow(bool value) -> Future\<void\>
 
 Enables or disables the native drop shadow. No-op on Linux.
 
-#### Size and position
+#### Size and position (instance)
 
-##### getBounds(BuildContext context) -> Future\<Rect\>
+##### getBounds() -> Future\<Rect\>
 
 Returns the window frame in Flutter logical coordinates (position and size combined).
 
-##### getSize(BuildContext context) -> Future\<Size\>
+##### getSize() -> Future\<Size\>
 
 Returns the content size in logical pixels.
 
-##### getPosition(BuildContext context) -> Future\<Offset\>
+##### getPosition() -> Future\<Offset\>
 
 Returns the top-left position of the window.
 
-##### setSize(BuildContext context, Size size) -> Future\<void\>
+##### setSize(Size size) -> Future\<void\>
 
 Resizes the window to `size` in logical pixels.
 
-##### setPosition(BuildContext context, Offset position) -> Future\<void\>
+##### setPosition(Offset position) -> Future\<void\>
 
 Moves the window so its top-left corner is at `position`. Silent on Wayland (Linux).
 
-##### center(BuildContext context) -> Future\<void\>
+##### center() -> Future\<void\>
 
 Centers the window on the screen that contains the largest portion of it.
 
-##### setAlignment(BuildContext context, Alignment alignment) -> Future\<void\>
+##### setAlignment(Alignment alignment) -> Future\<void\>
 
 Positions the window using `alignment` on the display under the cursor. Silent on Wayland (Linux).
 
-##### setMinimumSize(BuildContext context, Size size) -> Future\<void\>
+##### setMinimumSize(Size size) -> Future\<void\>
 
 Sets the minimum size the user can resize the window to.
 
-##### setMaximumSize(BuildContext context, Size size) -> Future\<void\>
+##### setMaximumSize(Size size) -> Future\<void\>
 
 Sets the maximum size the user can resize the window to.
 
-##### setAspectRatio(BuildContext context, double ratio) -> Future\<void\>
+##### setAspectRatio(double ratio) -> Future\<void\>
 
 Locks the content area to a fixed aspect ratio (`width / height`). Pass `0` to remove the constraint.
 
-#### Visibility and focus
+#### Visibility and focus (instance)
 
-##### show(BuildContext context) -> Future\<void\>
+##### show() -> Future\<void\>
 
 Shows the window if it was hidden.
 
-##### hide(BuildContext context) -> Future\<void\>
+##### hide() -> Future\<void\>
 
 Hides the window without closing it.
 
-##### isVisible(BuildContext context) -> Future\<bool\>
+##### isVisible() -> Future\<bool\>
 
 Returns whether the window is currently visible.
 
-##### focus(BuildContext context) -> Future\<void\>
+##### focus() -> Future\<void\>
 
 Brings the window to the front and gives it keyboard focus.
 
-##### blur(BuildContext context) -> Future\<void\>
+##### blur() -> Future\<void\>
 
 Removes keyboard focus from the window.
 
-##### isFocused(BuildContext context) -> Future\<bool\>
+##### isFocused() -> Future\<bool\>
 
 Returns whether this window is the current focused window.
 
-#### Maximize, minimize, full screen
+#### Maximize, minimize, full screen (instance)
 
-##### isMaximized(BuildContext context) -> Future\<bool\>
+##### isMaximized() -> Future\<bool\>
 
 Returns whether the window is in the maximized state.
 
-##### maximize(BuildContext context, {bool vertically = false}) -> Future\<void\>
+##### maximize({bool vertically = false}) -> Future\<void\>
 
 Maximizes the window.
 
-##### unmaximize(BuildContext context) -> Future\<void\>
+##### unmaximize() -> Future\<void\>
 
 Restores the window from the maximized state.
 
-##### isMinimized(BuildContext context) -> Future\<bool\>
+##### isMinimized() -> Future\<bool\>
 
 Returns whether the window is minimized to the dock or taskbar.
 
-##### minimize(BuildContext context) -> Future\<void\>
+##### minimize() -> Future\<void\>
 
 Minimizes the window.
 
-##### restore(BuildContext context) -> Future\<void\>
+##### restore() -> Future\<void\>
 
 Restores the window from the minimized state.
 
-##### isFullScreen(BuildContext context) -> Future\<bool\>
+##### isFullScreen() -> Future\<bool\>
 
 Returns whether the window is in native full-screen mode.
 
-##### setFullScreen(BuildContext context, bool isFullScreen) -> Future\<void\>
+##### setFullScreen(bool isFullScreen) -> Future\<void\>
 
 Enters or exits native full-screen mode.
 
-#### Resizability and movability
+#### Resizability and movability (instance)
 
-##### isResizable(BuildContext context) -> Future\<bool\>
+##### isResizable() -> Future\<bool\>
 
 Returns whether the user can resize the window by dragging its edges.
 
-##### setResizable(BuildContext context, bool isResizable) -> Future\<void\>
+##### setResizable(bool isResizable) -> Future\<void\>
 
 Enables or disables user resizing.
 
-##### isMovable(BuildContext context) -> Future\<bool\>
+##### isMovable() -> Future\<bool\>
 
 Returns whether the window can be moved by dragging the title bar.
 
-##### setMovable(BuildContext context, bool isMovable) -> Future\<void\>
+##### setMovable(bool isMovable) -> Future\<void\>
 
 Enables or disables moving the window by dragging. On Linux this maps to `setResizable`.
 
-##### isMinimizable(BuildContext context) -> Future\<bool\>
+##### isMinimizable() -> Future\<bool\>
 
 Returns whether the minimize button is enabled.
 
-##### setMinimizable(BuildContext context, bool isMinimizable) -> Future\<void\>
+##### setMinimizable(bool isMinimizable) -> Future\<void\>
 
 Enables or disables the minimize button and action.
 
-##### isMaximizable(BuildContext context) -> Future\<bool\>
+##### isMaximizable() -> Future\<bool\>
 
 Returns whether the maximize / zoom button is enabled.
 
-##### setMaximizable(BuildContext context, bool isMaximizable) -> Future\<void\>
+##### setMaximizable(bool isMaximizable) -> Future\<void\>
 
 Enables or disables the maximize button and action.
 
-##### isClosable(BuildContext context) -> Future\<bool\>
+##### isClosable() -> Future\<bool\>
 
 Returns whether the close button is enabled.
 
-##### setClosable(BuildContext context, bool isClosable) -> Future\<void\>
+##### setClosable(bool isClosable) -> Future\<void\>
 
 Enables or disables the close button and native close action.
 
 #### Always on top and taskbar
 
-##### isAlwaysOnTop(BuildContext context) -> Future\<bool\>
+##### isAlwaysOnTop() -> Future\<bool\>  (instance)
 
 Returns whether the window floats above normal application windows.
 
-##### setAlwaysOnTop(BuildContext context, bool isAlwaysOnTop) -> Future\<void\>
+##### setAlwaysOnTop(bool isAlwaysOnTop) -> Future\<void\>  (instance)
 
 Keeps the window above other windows. On Linux depends on compositor support.
 
-##### isHideAppFromTaskbar() -> Future\<bool\>
+##### isHideAppFromTaskbar() -> Future\<bool\>  (static)
 
 Returns whether the application icon is hidden from the dock / taskbar (app-wide).
 
-##### hideAppFromTaskbar(bool isHideAppFromTaskbar) -> Future\<void\>
+##### hideAppFromTaskbar(bool isHideAppFromTaskbar) -> Future\<void\>  (static)
 
 Hides or shows the application icon in the dock / taskbar app-wide.
 
-##### isHideAppTabFromTaskbar(BuildContext context) -> Future\<bool\>
+##### isHideAppTabFromTaskbar() -> Future\<bool\>  (instance)
 
 Returns whether this specific window is hidden from the taskbar (Windows / Linux).
 
-##### hideCurrentAppTabFromTaskbar(BuildContext context, bool isHideAppFromTaskbar) -> Future\<void\>
+##### hideCurrentAppTabFromTaskbar(bool isHide) -> Future\<void\>  (instance)
 
 Hides or shows this window in the taskbar (Windows / Linux).
 
-#### Drag and resize (used by widgets)
+#### Drag and resize (instance, used by widgets)
 
-##### startDragging(BuildContext context) -> Future\<void\>
+##### startDragging() -> Future\<void\>
 
 Starts a native window-move drag session. Called automatically by `DragToMoveArea`.
 
-##### startResizing(BuildContext context, ResizeEdge edge) -> Future\<void\>
+##### startResizing(ResizeEdge edge) -> Future\<void\>
 
 Starts a native window-resize drag session from `edge`. Called automatically by `DragToResizeArea`.
 
-#### Mouse events
+#### Mouse events (instance)
 
-##### setIgnoreMouseEvents(BuildContext context, bool ignore, {bool mouseMoveEvents = false}) -> Future\<void\>
+##### setIgnoreMouseEvents(bool ignore, {bool mouseMoveEvents = false}) -> Future\<void\>
 
 When `ignore` is `true`, all mouse events pass through the window. If `mouseMoveEvents` is `true`, mouse move events still arrive despite `ignore` being set.
 
-##### isIgnoreMouseEvents(BuildContext context) -> Future\<({bool mouseMoveEvents, bool ignore})\>
+##### isIgnoreMouseEvents() -> Future\<({bool mouseMoveEvents, bool ignore})\>
 
 Returns the current mouse pass-through state.
 
-##### popUpWindowMenu(BuildContext context) -> Future\<void\>
+##### popUpWindowMenu() -> Future\<void\>
 
 Shows the native window context menu at the current cursor position (macOS).
 
-#### macOS-specific
+#### macOS-specific (instance)
 
-##### isHideFromCollection(BuildContext context) -> Future\<bool\>
+##### isHideFromCollection() -> Future\<bool\>
 
 Returns whether the window is excluded from Mission Control (macOS).
 
-##### hideFromCollection(BuildContext context, bool isHideFromCollection) -> Future\<void\>
+##### hideFromCollection(bool isHideFromCollection) -> Future\<void\>
 
 Hides or shows the window in Mission Control and Expose (macOS).
 
-##### isVisibleOnAllWorkspaces(BuildContext context) -> Future\<bool\>
+##### isVisibleOnAllWorkspaces() -> Future\<bool\>
 
 Returns whether the window is pinned to all Spaces (macOS).
 
-##### setVisibleOnAllWorkspaces(BuildContext context, bool visible, {bool visibleOnFullScreen = false}) -> Future\<void\>
+##### setVisibleOnAllWorkspaces(bool visible, {bool visibleOnFullScreen = false}) -> Future\<void\>
 
 Pins or unpins the window across all Spaces (macOS).
 
-##### setBadgeLabel(BuildContext context, {String? label}) -> Future\<void\>
+##### setBadgeLabel({String? label}) -> Future\<void\>
 
 Sets the dock icon badge text for this window (macOS). Pass `null` to clear the badge.
 

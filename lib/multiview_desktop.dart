@@ -12,11 +12,14 @@
 /// openWindow(const SettingsPage(), options: WindowOptions(title: 'Settings'));
 /// ```
 ///
-/// **Control the current window**: pass [BuildContext] from the target view:
+/// **Control the current window**: obtain an instance from [BuildContext] or a view ID:
 /// ```dart
-/// final id = MultiViewDesktop.getCurrentId(context);
-/// await MultiViewDesktop.closeWindow(context);
-/// await MultiViewDesktop.setTitleBarStyle(context, TitleBarStyle.hidden);
+/// final win = MultiViewDesktop.ofContext(context);
+/// await win.closeWindow();
+/// await win.setTitleBarStyle(TitleBarStyle.hidden);
+///
+/// // Or by shifted view ID:
+/// await MultiViewDesktop.fromId(viewId).setTitle('Settings');
 /// ```
 ///
 /// See also [WindowListener], [WindowCommunicator], and [WindowOptions].

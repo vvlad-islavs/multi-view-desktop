@@ -98,19 +98,19 @@ class _WindowButtons extends StatelessWidget {
         _CaptionButton(
           icon: Icons.remove,
           foreground: foreground,
-          onPressed: () => MultiViewDesktop.minimize(context),
+          onPressed: () => MultiViewDesktop.ofContext(context).minimize(),
         ),
         _CaptionButton(
           icon: Icons.crop_square,
           foreground: foreground,
           onPressed: () {
-            final ctx = context;
-            MultiViewDesktop.isMaximized(ctx).then((isMax) {
-              if (!ctx.mounted) return;
+            final win = MultiViewDesktop.ofContext(context);
+            win.isMaximized().then((isMax) {
+              if (!context.mounted) return;
               if (isMax) {
-                MultiViewDesktop.unmaximize(ctx);
+                win.unmaximize();
               } else {
-                MultiViewDesktop.maximize(ctx);
+                win.maximize();
               }
             });
           },
@@ -119,7 +119,7 @@ class _WindowButtons extends StatelessWidget {
           icon: Icons.close,
           foreground: foreground,
           hoverColor: Colors.red,
-          onPressed: () => MultiViewDesktop.closeWindow(context),
+          onPressed: () => MultiViewDesktop.ofContext(context).closeWindow(),
         ),
         const SizedBox(width: 4),
       ],
