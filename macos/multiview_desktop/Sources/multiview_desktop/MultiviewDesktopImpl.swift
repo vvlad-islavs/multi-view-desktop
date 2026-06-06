@@ -298,12 +298,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         let newController = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
         let viewId = newController.viewIdentifier
 
-        var styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
-        if titleBarStyleName == "hidden" {
-            styleMask = windowButtonVisibility
-                ? [.fullSizeContentView, .closable, .miniaturizable, .resizable]
-                : [.fullSizeContentView, .resizable]
-        }
+        let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
 
         let newWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -323,7 +318,11 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         if titleBarStyleName == "hidden" {
             newWindow.titleVisibility = .hidden
             newWindow.titlebarAppearsTransparent = true
+            newWindow.styleMask.insert(.fullSizeContentView)
         }
+        newWindow.standardWindowButton(.closeButton)?.isHidden = !windowButtonVisibility
+        newWindow.standardWindowButton(.miniaturizeButton)?.isHidden = !windowButtonVisibility
+        newWindow.standardWindowButton(.zoomButton)?.isHidden = !windowButtonVisibility
 
         if let position,
            let x = cgFloat(from: position["x"]),

@@ -48,6 +48,11 @@ int get _initPlatformId => !Platform.isMacOS ? 0 : 1;
 Future<Widget> createMultiViewRoot(Widget home, Widget Function(Widget child)? scope, MultiAppConfig config) async {
   _hasInitView = await _nativeChannel.checkWindowExist(_initPlatformId) ?? true;
 
+  // Reset native behavioral flags before the widget tree is built
+  if (_hasInitView) {
+    await _nativeChannel.resetWindowToDefaults(_initPlatformId);
+  }
+
   final mainRoot = _MultiViewRoot(home: home, config: config);
   return scope?.call(mainRoot) ?? mainRoot;
 }

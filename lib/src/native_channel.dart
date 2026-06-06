@@ -676,4 +676,29 @@ class NativeChannel {
       {'terminateAfterLastWindowClosed': terminate},
     );
   }
+
+  /// Resets all programmatic window state to defaults after a hot restart.
+  ///
+  /// Called when the OS window survived the restart ([checkWindowExist] returned
+  /// true). Resets behavioral flags that Dart tracks internally (preventClose,
+  /// close state machine, resizability, interactivity, etc.) so they do not
+  /// carry over from the previous Dart session. Visual properties such as
+  /// title, size, and position are intentionally left unchanged.
+  Future<void> resetWindowToDefaults(int viewId) async {
+    await Future.wait([
+      setPreventClose(viewId, isPreventClose: false),
+      setPreConfirmClose(viewId, false),
+      setConfirmClose(viewId, isConfirm: false),
+      setResizable(viewId, true),
+      setMovable(viewId, true),
+      setMinimizable(viewId, true),
+      setMaximizable(viewId, true),
+      setClosable(viewId, true),
+      setAlwaysOnTop(viewId, isAlwaysOnTop: false),
+      setOpacity(viewId, 1.0),
+      setAspectRatio(viewId, 0),
+      setIgnoreMouseEvents(viewId, false),
+      setTitleBarStyle(viewId, style: TitleBarStyle.normal, buttonVisibility: true),
+    ]);
+  }
 }
