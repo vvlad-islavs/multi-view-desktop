@@ -36,6 +36,7 @@ class MvdLinuxWindow {
   GdkGeometry geometry{};
   GdkWindowHints hints = static_cast<GdkWindowHints>(0);
   GtkCssProvider* css_provider = nullptr;
+  GtkCssProvider* csd_radius_provider = nullptr;
   gchar* title_bar_style = nullptr;
   GdkEventButton last_button{};
 

@@ -20,6 +20,9 @@ MvdLinuxWindow::~MvdLinuxWindow() {
   if (css_provider) {
     g_object_unref(css_provider);
   }
+  if (csd_radius_provider) {
+    g_object_unref(csd_radius_provider);
+  }
   if (title_bar_style) {
     g_free(title_bar_style);
   }
@@ -474,6 +477,28 @@ void MvdLinuxWindow::SetTitleBarStyle(const gchar* style, bool wbv) {
         gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(hb), FALSE);
       }
     }
+    // When the header bar is hidden the CSD frame still has rounded top
+    // corners, but Flutter's GL content is rectangular and protrudes past
+    // them. Fix: override the CSS border-radius of the window content area
+    // to 0, which makes the inner visible area square-cornered so it matches
+    // Flutter's rectangular rendering. The outer shadow decoration is
+    // separate and remains unchanged.
+    if (!csd_radius_provider) {
+      csd_radius_provider = gtk_css_provider_new();
+      // Use PRIORITY_USER (800) so our rule beats the theme (PRIORITY_THEME=200)
+      // and application-level providers (PRIORITY_APPLICATION=600).
+      // Target both window.csd (background) and decoration (shadow/border) nodes
+      // since Adwaita rounds corners on both elements independently.
+      gtk_style_context_add_provider(
+          gtk_widget_get_style_context(GTK_WIDGET(window)),
+          GTK_STYLE_PROVIDER(csd_radius_provider),
+          GTK_STYLE_PROVIDER_PRIORITY_USER);
+    }
+    gtk_css_provider_load_from_data(
+        csd_radius_provider,
+        hidden ? "window.csd { border-radius: 0; }\n"
+                 "decoration { border-radius: 0; }" : "",
+        -1, nullptr);
   } else {
     gtk_window_set_decorated(window, !hidden);
   }
