@@ -80,7 +80,21 @@ Edit `linux/runner/my_application.cc`.
  #include "flutter/generated_plugin_registrant.h"
 ```
 
-2. In `my_application_activate`, call `multiview_desktop_linux_runner_install` before creating any window, call `multiview_desktop_linux_runner_prepare_dart_project` right after `fl_dart_project_new`, and call `multiview_desktop_linux_runner_register_primary` after `fl_register_plugins`:
+2. Add a `first-frame` callback before `my_application_activate`. The primary window must stay hidden until Flutter paints its first frame; otherwise users see a blank window. Secondary windows opened by the runner follow the same pattern automatically.
+
+```diff
+ G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
+
++// Called when first Flutter frame received.
++static void first_frame_cb(MyApplication* self, FlView* view) {
++  gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
++}
++
+ // Implements GApplication::activate.
+ static void my_application_activate(GApplication* application) {
+```
+
+3. In `my_application_activate`, call `multiview_desktop_linux_runner_install` before creating any window, call `multiview_desktop_linux_runner_prepare_dart_project` right after `fl_dart_project_new`, and call `multiview_desktop_linux_runner_register_primary` after `fl_register_plugins`. Connect `first_frame_cb` to the view's `first-frame` signal and do **not** call `gtk_widget_show` on the window itself — the callback shows the top-level widget once rendering starts.
 
 ```diff
  static void my_application_activate(GApplication* application) {
@@ -115,11 +129,13 @@ Edit `linux/runner/my_application.cc`.
 +  multiview_desktop_linux_runner_register_primary(window, view);
 
    gtk_widget_grab_focus(GTK_WIDGET(view));
+-  gtk_widget_show(GTK_WIDGET(window));
  }
 ```
 
 What each call does:
 
+- `first_frame_cb`: shows the top-level `GtkWindow` after Flutter renders the first frame. Connect it with `g_signal_connect_swapped(view, "first-frame", G_CALLBACK(first_frame_cb), self)` and call `gtk_widget_realize` on the view before registering plugins.
 - `multiview_desktop_linux_runner_install`: hooks the `GtkApplication` so that new GTK windows can be created when Dart calls `openWindow`. Must be the very first call in `activate`.
 - `multiview_desktop_linux_runner_prepare_dart_project`: fixes asset, ICU, and AOT paths when launching from the build directory. Required so that secondary views can locate the bundle.
 - `multiview_desktop_linux_runner_register_primary`: registers the primary window and view with the plugin so that per-window APIs work on the main window.
