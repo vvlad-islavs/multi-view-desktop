@@ -425,7 +425,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 (v) => v ? MultiViewDesktop.of(context).maximize() : MultiViewDesktop.of(context).unmaximize(),
               ),
               _tile('minimize', onTap: () => MultiViewDesktop.of(context).minimize()),
-              _switchTile('alwaysOnTop', _isAlwaysOnTop, (v) => MultiViewDesktop.of(context).setAlwaysOnTop(v)),
+              if(!Platform.isLinux)_switchTile('alwaysOnTop', _isAlwaysOnTop, (v) => MultiViewDesktop.of(context).setAlwaysOnTop(v)),
               if (Platform.isMacOS)
                 _switchTile(
                   'hideFromCollection',

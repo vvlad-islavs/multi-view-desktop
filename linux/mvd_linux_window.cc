@@ -78,6 +78,7 @@ void MvdLinuxWindow::SetAsFrameless() {
     gtk_widget_set_visible(hb, FALSE);
   }
   gtk_window_set_decorated(window, FALSE);
+  ReapplyGeometryHints();
 }
 
 void MvdLinuxWindow::Close() {
@@ -279,42 +280,51 @@ void MvdLinuxWindow::ReapplyGeometryHints() {
   if (!window || hints == static_cast<GdkWindowHints>(0)) {
     return;
   }
+
+  // Measure the CSD shadow: on X11 the GDK surface includes the invisible
+  // shadow/resize-handle margins that gtk_window_get_size() excludes.
+  // On Wayland or when the titlebar is hidden the delta is 0.
+  gint shadow_w = 0, shadow_h = 0;
   GdkWindow* gdk = GetGdkWindow(window);
-  if (!gdk) {
-    // Window not yet realized: GTK stores the hints and re-applies on realization.
-    gtk_window_set_geometry_hints(window, nullptr, &geometry, hints);
-    return;
+  if (gdk) {
+    gint gdk_w = gdk_window_get_width(gdk);
+    gint gdk_h = gdk_window_get_height(gdk);
+    gint gtk_w = 0, gtk_h = 0;
+    gtk_window_get_size(window, &gtk_w, &gtk_h);
+    shadow_w = (gdk_w > gtk_w) ? (gdk_w - gtk_w) : 0;
+    shadow_h = (gdk_h > gtk_h) ? (gdk_h - gtk_h) : 0;
   }
 
-  // On GTK3 CSD the GDK/X11 window surface includes the invisible shadow and
-  // resize-handle margins; gtk_window_get_size() returns only the visible
-  // content area. The window manager enforces PMinSize / PMaxSize against the
-  // full X11 window size, so we must add the shadow delta to the requested
-  // content-area limits before passing them to gdk_window_set_geometry_hints.
-  gint gdk_w = gdk_window_get_width(gdk);
-  gint gdk_h = gdk_window_get_height(gdk);
-  gint gtk_w = 0, gtk_h = 0;
-  gtk_window_get_size(window, &gtk_w, &gtk_h);
-  const gint shadow_w = (gdk_w > gtk_w) ? (gdk_w - gtk_w) : 0;
-  const gint shadow_h = (gdk_h > gtk_h) ? (gdk_h - gtk_h) : 0;
-
-  if (shadow_w == 0 && shadow_h == 0) {
-    // Shadow not yet known (window realized but not mapped): fall back to
-    // gtk_window_set_geometry_hints so GTK re-applies after the first map.
-    gtk_window_set_geometry_hints(window, nullptr, &geometry, hints);
-    return;
-  }
-
+  // Pre-adjust the content-area limits by the shadow delta before handing
+  // them to GTK. gtk_window_compute_hints passes user-set hints straight
+  // through to gdk_window_set_geometry_hints without adding the CSD shadow
+  // itself, and the X11 WM enforces PMinSize/PMaxSize against the full X11
+  // window (content + shadow). Pre-adjusting compensates for that offset.
+  // On Wayland / hidden-titlebar (shadow == 0) effective == geometry, which
+  // is correct because the compositor uses surface-area coordinates.
   GdkGeometry effective = geometry;
-  if ((hints & GDK_HINT_MIN_SIZE) && geometry.min_width >= 0) {
-    effective.min_width  = geometry.min_width  + shadow_w;
-    effective.min_height = geometry.min_height + shadow_h;
+  if (shadow_w > 0 || shadow_h > 0) {
+    if ((hints & GDK_HINT_MIN_SIZE) && geometry.min_width >= 0) {
+      effective.min_width  = geometry.min_width  + shadow_w;
+      effective.min_height = geometry.min_height + shadow_h;
+    }
+    if ((hints & GDK_HINT_MAX_SIZE) && geometry.max_width < G_MAXINT) {
+      effective.max_width  = geometry.max_width  + shadow_w;
+      effective.max_height = geometry.max_height + shadow_h;
+    }
   }
-  if ((hints & GDK_HINT_MAX_SIZE) && geometry.max_width < G_MAXINT) {
-    effective.max_width  = geometry.max_width  + shadow_w;
-    effective.max_height = geometry.max_height + shadow_h;
-  }
-  gdk_window_set_geometry_hints(gdk, &effective, hints);
+
+  // Always go through gtk_window_set_geometry_hints so GTK's internal state
+  // (used by gtk_window_constrain_size during interactive CSD resize) stays
+  // in sync with the WM / compositor constraints. Using a single code path
+  // also prevents GTK's own resize cycle from later overwriting the values
+  // with non-shadow-adjusted ones (which happened when we mixed
+  // gtk_window_set_geometry_hints and gdk_window_set_geometry_hints).
+  gtk_window_set_geometry_hints(window, nullptr, &effective, hints);
+  // gtk_window_set_geometry_hints queues a resize internally; call
+  // gtk_widget_queue_resize as well to guarantee the hints are committed to
+  // the compositor/WM in the current frame even on older GTK3 versions.
+  gtk_widget_queue_resize(GTK_WIDGET(window));
 }
 
 void MvdLinuxWindow::SetMinimumSize(float w, float h) {
@@ -471,6 +481,11 @@ void MvdLinuxWindow::SetTitleBarStyle(const gchar* style, bool wbv) {
     g_free(title_bar_style);
   }
   title_bar_style = g_strdup(style);
+
+  // Hiding the header bar (or changing the decorated state) causes GTK to
+  // schedule a layout pass that may reset xdg_toplevel.set_min/max_size.
+  // Re-apply immediately so GTK's upcoming compute_hints pass sees our values.
+  ReapplyGeometryHints();
 }
 
 FlValue* MvdLinuxWindow::GetTitleBarStyle() {
