@@ -7,15 +7,24 @@ description: >-
 version: 1.0.0
 
 repository: https://github.com/vvlad-islavs/multiview_desktop
+homepage: https://github.com/vvlad-islavs/multiview_desktop
+issue_tracker: https://github.com/vvlad-islavs/multiview_desktop/issues
+
+platforms:
+  linux:
+  macos:
+  windows:
 
 topics:
-  - desktop
+  - window
+  - window-customize
   - window-manager
   - multi-window
+  - desktop
 
 environment:
-  sdk: ^3.11.5
-
+  sdk: ">=3.10.0 <4.0.0"
+  flutter: ">=3.38.2"
 
 dependencies:
   flutter:
