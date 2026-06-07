@@ -507,13 +507,24 @@ void MvdLinuxWindow::SetSkipTaskbar(bool v) {
 }
 
 double MvdLinuxWindow::GetOpacity() {
-  return window ? gtk_widget_get_opacity(GTK_WIDGET(window)) : 1.0;
+  return opacity;
 }
 
 void MvdLinuxWindow::SetOpacity(double o) {
-  if (window) {
-    gtk_widget_set_opacity(GTK_WIDGET(window), o);
+  if (!window) {
+    return;
   }
+  opacity = o;
+  GdkWindow* gdk = GetGdkWindow(window);
+  if (gdk && o < 1.0) {
+    // When the window is semi-transparent the compositor must blend it with
+    // whatever is behind it. If GDK has advertised an opaque region (which
+    // Flutter's GL view typically does), some compositors skip the background
+    // read and produce visual trails/ghosts. Clearing the opaque region
+    // forces the compositor to perform proper alpha compositing.
+    gdk_window_set_opaque_region(gdk, nullptr);
+  }
+  gtk_widget_set_opacity(GTK_WIDGET(window), o);
 }
 
 void MvdLinuxWindow::SetBrightness(const gchar* brightness) {

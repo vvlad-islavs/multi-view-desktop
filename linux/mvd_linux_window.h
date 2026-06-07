@@ -31,6 +31,7 @@ class MvdLinuxWindow {
   bool window_button_visibility = true;
   bool is_ignore_mouse_events = false;
   bool is_forward_mouse_events = false;
+  double opacity = 1.0;
 
   GdkGeometry geometry{};
   GdkWindowHints hints = static_cast<GdkWindowHints>(0);
