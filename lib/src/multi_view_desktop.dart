@@ -33,7 +33,7 @@ class MultiViewDesktop {
   MultiViewDesktop._({required int realId}) : _realId = realId;
 
   /// Creates an instance bound to the window that owns [context].
-  factory MultiViewDesktop.ofContext(BuildContext context) =>
+  factory MultiViewDesktop.of(BuildContext context) =>
       MultiViewDesktop._(realId: _getRealId(context));
 
   /// Creates an instance bound to the window with the given shifted [viewId].
@@ -79,7 +79,7 @@ class MultiViewDesktop {
     BuildContext? parent,
   }) async {
     final parentId = parent == null ? null : _getRealId(parent);
-    return await _manager.createWindow(
+    final realId = await _manager.createWindow(
       newOpts: options,
       onCreated: (int newId) async {
         globalRootState.addView(
@@ -91,6 +91,8 @@ class MultiViewDesktop {
       },
       parent: parentId,
     );
+
+    return _manager.realToShiftedId(realId);
   }
 
   /// Closes all windows using [closeMode] or the mode set in [MultiAppConfig].

@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show internal;
 import 'package:flutter/material.dart';
 
 import 'title_bar_style.dart';

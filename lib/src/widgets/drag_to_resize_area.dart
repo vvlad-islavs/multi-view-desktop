@@ -36,7 +36,7 @@ class DragToResizeArea extends StatelessWidget {
       behavior: HitTestBehavior.translucent,
       onPanStart: (_) {
         if (enableResizeEdge == false) return;
-        MultiViewDesktop.ofContext(context).startResizing(resizeEdge);
+        MultiViewDesktop.of(context).startResizing(resizeEdge);
       },
       child: child,
     );

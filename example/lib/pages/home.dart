@@ -61,7 +61,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
       _refreshState();
       final parentContext = ParentWindowScope.of(context).parentContext;
       unawaited(
-        MultiViewDesktop.ofContext(context).setTitle(
+        MultiViewDesktop.of(context).setTitle(
           parentContext != null && parentContext.mounted
               ? 'Window $currentId, parent: ${MultiViewDesktop.getIdByContext(parentContext)}'
               : 'Window $currentId',
@@ -104,7 +104,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
 
   Future<void> _refreshState() async {
     if (!mounted) return;
-    final win = MultiViewDesktop.ofContext(context);
+    final win = MultiViewDesktop.of(context);
     final hideTaskbar = await _safeFuture(win.isHideAppTabFromTaskbar);
     final fs = await _safeFuture(win.isFullScreen);
     final max = await _safeFuture(win.isMaximized);
@@ -168,7 +168,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
   @override
   void onWindowClose() async {
     if (!mounted) return;
-    final win = MultiViewDesktop.ofContext(context);
+    final win = MultiViewDesktop.of(context);
     win.focus();
     // Show a confirmation dialog. can accept (remove preventClose and
     // close the window) or decline (explicitly cancel a pending cascade close).
@@ -295,7 +295,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   builder: (context, _) {
                     return _switchTile('hideAppFromTaskbar', sharedConfig.isHideAppFromTaskbar, (v) async {
                       await MultiViewDesktop.hideAppFromTaskbar(v);
-                      if (v) await MultiViewDesktop.ofContext(context).focus();
+                      if (v) await MultiViewDesktop.of(context).focus();
                       sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
                     });
                   },
@@ -355,29 +355,29 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 },
               ),
               if (windowId != 0)
-                _tile('closeWindow', subtitle: 'Close this window', onTap: () => MultiViewDesktop.ofContext(context).closeWindow()),
-              if (!Platform.isLinux) _tile('center', onTap: () => MultiViewDesktop.ofContext(context).center()),
+                _tile('closeWindow', subtitle: 'Close this window', onTap: () => MultiViewDesktop.of(context).closeWindow()),
+              if (!Platform.isLinux) _tile('center', onTap: () => MultiViewDesktop.of(context).center()),
               if (!Platform.isLinux) ...[
                 _tile('setAlignment', subtitle: 'Tap a position on the grid below'),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: _AlignmentGrid(onSelected: (alignment) => MultiViewDesktop.ofContext(context).setAlignment(alignment)),
+                  child: _AlignmentGrid(onSelected: (alignment) => MultiViewDesktop.of(context).setAlignment(alignment)),
                 ),
               ],
               _tile(
                 'setSize',
                 subtitle: '760 x 560',
-                onTap: () => MultiViewDesktop.ofContext(context).setSize(const Size(760, 560)),
+                onTap: () => MultiViewDesktop.of(context).setSize(const Size(760, 560)),
               ),
               _tile(
                 'setTitle',
                 subtitle: 'Window $windowId (demo)',
-                onTap: () => MultiViewDesktop.ofContext(context).setTitle('Window $windowId (demo)'),
+                onTap: () => MultiViewDesktop.of(context).setTitle('Window $windowId (demo)'),
               ),
               _tile(
                 'getBounds',
                 onTap: () async {
-                  final b = await MultiViewDesktop.ofContext(context).getBounds();
+                  final b = await MultiViewDesktop.of(context).getBounds();
                   if (!context.mounted) return;
                   _log(
                     'bounds: ${b.left.toInt()},${b.top.toInt()} '
@@ -392,14 +392,14 @@ class _HomePageState extends State<HomePage> with WindowListener {
             // ----------------------------------------------------------------
             _section('TITLE BAR', [
               _switchTile('titleBarStyle hidden', _titleBarHidden, (v) async {
-                await MultiViewDesktop.ofContext(context).setTitleBarStyle(
+                await MultiViewDesktop.of(context).setTitleBarStyle(
                   v ? TitleBarStyle.hidden : TitleBarStyle.normal,
                   windowButtonVisibility: !_titleBarButtonVisibility,
                 );
               }),
               if (Platform.isMacOS)
                 _switchTile('titleBarButtonVisibility', !_titleBarButtonVisibility, (v) async {
-                  await MultiViewDesktop.ofContext(context).setTitleBarStyle(
+                  await MultiViewDesktop.of(context).setTitleBarStyle(
                     _titleBarHidden ? TitleBarStyle.hidden : TitleBarStyle.normal,
                     windowButtonVisibility: v,
                   );
@@ -408,7 +408,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 'setAsFrameless',
                 subtitle: 'Remove frame entirely',
                 onTap: () async {
-                  await MultiViewDesktop.ofContext(context).setAsFrameless();
+                  await MultiViewDesktop.of(context).setAsFrameless();
                   await _refreshState();
                 },
               ),
@@ -418,31 +418,31 @@ class _HomePageState extends State<HomePage> with WindowListener {
             // Visibility states
             // ----------------------------------------------------------------
             _section('VISIBILITY', [
-              _switchTile('fullScreen', _isFullScreen, (v) => MultiViewDesktop.ofContext(context).setFullScreen(v)),
+              _switchTile('fullScreen', _isFullScreen, (v) => MultiViewDesktop.of(context).setFullScreen(v)),
               _switchTile(
                 'maximized',
                 _isMaximized,
-                (v) => v ? MultiViewDesktop.ofContext(context).maximize() : MultiViewDesktop.ofContext(context).unmaximize(),
+                (v) => v ? MultiViewDesktop.of(context).maximize() : MultiViewDesktop.of(context).unmaximize(),
               ),
-              _tile('minimize', onTap: () => MultiViewDesktop.ofContext(context).minimize()),
-              _switchTile('alwaysOnTop', _isAlwaysOnTop, (v) => MultiViewDesktop.ofContext(context).setAlwaysOnTop(v)),
+              _tile('minimize', onTap: () => MultiViewDesktop.of(context).minimize()),
+              _switchTile('alwaysOnTop', _isAlwaysOnTop, (v) => MultiViewDesktop.of(context).setAlwaysOnTop(v)),
               if (Platform.isMacOS)
                 _switchTile(
                   'hideFromCollection',
                   _isHideFromCollection,
-                  (v) => MultiViewDesktop.ofContext(context).hideFromCollection(v),
+                  (v) => MultiViewDesktop.of(context).hideFromCollection(v),
                 ),
               if (Platform.isWindows)
                 _switchTile(
                   'hideCurrentTabFromTaskbar',
                   _isHideFromTaskBar,
-                  (v) => MultiViewDesktop.ofContext(context).hideCurrentAppTabFromTaskbar(v),
+                  (v) => MultiViewDesktop.of(context).hideCurrentAppTabFromTaskbar(v),
                 ),
               if (Platform.isMacOS)
                 _switchTile(
                   'visibleOnAllWorkspaces',
                   _visibleOnAllWorkspaces,
-                  (v) => MultiViewDesktop.ofContext(context).setVisibleOnAllWorkspaces(v),
+                  (v) => MultiViewDesktop.of(context).setVisibleOnAllWorkspaces(v),
                 ),
               if (!Platform.isLinux) _tile('progressBarExample', onTap: () => _progressBarExample()),
             ]),
@@ -451,14 +451,14 @@ class _HomePageState extends State<HomePage> with WindowListener {
             // Capabilities
             // ----------------------------------------------------------------
             _section('WINDOW CAPABILITIES', [
-              _switchTile('resizable', _isResizable, (v) => MultiViewDesktop.ofContext(context).setResizable(v)),
-              if (Platform.isMacOS) _switchTile('movable', _isMovable, (v) => MultiViewDesktop.ofContext(context).setMovable(v)),
-              _switchTile('minimizable', _isMinimizable, (v) => MultiViewDesktop.ofContext(context).setMinimizable(v)),
+              _switchTile('resizable', _isResizable, (v) => MultiViewDesktop.of(context).setResizable(v)),
+              if (Platform.isMacOS) _switchTile('movable', _isMovable, (v) => MultiViewDesktop.of(context).setMovable(v)),
+              _switchTile('minimizable', _isMinimizable, (v) => MultiViewDesktop.of(context).setMinimizable(v)),
               if (!Platform.isLinux)
-                _switchTile('maximizable', _isMaximizable, (v) => MultiViewDesktop.ofContext(context).setMaximizable(v)),
-              _switchTile('closable', _isClosable, (v) => MultiViewDesktop.ofContext(context).setClosable(v)),
+                _switchTile('maximizable', _isMaximizable, (v) => MultiViewDesktop.of(context).setMaximizable(v)),
+              _switchTile('closable', _isClosable, (v) => MultiViewDesktop.of(context).setClosable(v)),
               _switchTile('ignoreMouseEvents', _ignoreMouseEvents, (v) async {
-                final win = MultiViewDesktop.ofContext(context);
+                final win = MultiViewDesktop.of(context);
                 await win.setIgnoreMouseEvents(v, mouseMoveEvents: false);
                 if (!v) return;
                 Future.delayed(Duration(seconds: 5), () => win.setIgnoreMouseEvents(false));
@@ -466,7 +466,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
               _switchTile(
                 'preventClose',
                 _isPreventClose,
-                (v) async => await MultiViewDesktop.ofContext(context).setPreventClose(v),
+                (v) async => await MultiViewDesktop.of(context).setPreventClose(v),
               ),
             ]),
 
@@ -475,7 +475,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
             // ----------------------------------------------------------------
             _section('APPEARANCE', [
               if (Platform.isMacOS)
-                _switchTile('hasShadow', _hasShadow, (v) => MultiViewDesktop.ofContext(context).setHasShadow(v)),
+                _switchTile('hasShadow', _hasShadow, (v) => MultiViewDesktop.of(context).setHasShadow(v)),
               _tile(
                 'opacity',
                 subtitle: _opacity.toStringAsFixed(2),
@@ -488,7 +488,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     divisions: 8,
                     onChanged: (v) {
                       setState(() => _opacity = v);
-                      MultiViewDesktop.ofContext(context).setOpacity(v);
+                      MultiViewDesktop.of(context).setOpacity(v);
                     },
                   ),
                 ),
@@ -496,9 +496,9 @@ class _HomePageState extends State<HomePage> with WindowListener {
               _tile(
                 'setBackgroundColor',
                 subtitle: 'Set window background transparent',
-                onTap: () => MultiViewDesktop.ofContext(context).setBackgroundColor(Colors.transparent),
+                onTap: () => MultiViewDesktop.of(context).setBackgroundColor(Colors.transparent),
               ),
-              _tile('Pop up menu', onTap: () => MultiViewDesktop.ofContext(context).popUpWindowMenu()),
+              _tile('Pop up menu', onTap: () => MultiViewDesktop.of(context).popUpWindowMenu()),
             ]),
 
             // ----------------------------------------------------------------
@@ -721,11 +721,11 @@ class _SecondaryWindowRootState extends State<_SecondaryWindowRoot> {
       if (msg['type'] != 'themeMode') return;
       if (!mounted) return;
       final mode = ThemeMode.values.firstWhere((m) => m.name == msg['value'], orElse: () => ThemeMode.light);
-      MultiViewDesktop.ofContext(context).setBrightness(mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
+      MultiViewDesktop.of(context).setBrightness(mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
     });
 
     WidgetsBinding.instance.addPostFrameCallback(
-      (_) => MultiViewDesktop.ofContext(context).setBrightness(
+      (_) => MultiViewDesktop.of(context).setBrightness(
         themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light,
       ),
     );

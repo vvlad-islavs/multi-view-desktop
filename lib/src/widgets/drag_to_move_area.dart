@@ -27,7 +27,7 @@ class DragToMoveArea extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onPanStart: (_) => MultiViewDesktop.ofContext(context).startDragging(),
+      onPanStart: (_) => MultiViewDesktop.of(context).startDragging(),
       // Absorb double-tap to avoid accidental maximize on the drag area.
       onDoubleTap: () {},
       child: child,
