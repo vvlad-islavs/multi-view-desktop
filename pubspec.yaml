@@ -6,9 +6,9 @@ description: >-
 
 version: 1.0.1
 
-repository: https://github.com/vvlad-islavs/multiview_desktop
-homepage: https://github.com/vvlad-islavs/multiview_desktop
-issue_tracker: https://github.com/vvlad-islavs/multiview_desktop/issues
+repository: https://github.com/vvlad-islavs/multi-view-desktop
+homepage: https://github.com/vvlad-islavs/multi-view-desktop
+issue_tracker: https://github.com/vvlad-islavs/multi-view-desktop/issues
 
 platforms:
   linux:
