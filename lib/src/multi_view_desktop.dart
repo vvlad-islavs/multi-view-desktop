@@ -27,7 +27,7 @@ import 'view_root.dart' show globalRootState;
 class MultiViewDesktop {
   final int _realId;
 
-  /// The shifted (public) view ID for this instance.
+  /// The public view ID for this instance.
   int get id => _manager.realToShiftedId(_realId);
 
   MultiViewDesktop._({required int realId}) : _realId = realId;
@@ -36,7 +36,7 @@ class MultiViewDesktop {
   factory MultiViewDesktop.of(BuildContext context) =>
       MultiViewDesktop._(realId: _getRealId(context));
 
-  /// Creates an instance bound to the window with the given shifted [viewId].
+  /// Creates an instance bound to the window with the given public [viewId].
   factory MultiViewDesktop.fromId(int viewId) =>
       MultiViewDesktop._(realId: _manager.shiftedToRealId(viewId));
 
@@ -55,11 +55,11 @@ class MultiViewDesktop {
   /// In-process message bus shared by all views in this isolate.
   static WindowCommunicator get communicator => globalRootState.communicator;
 
-  /// Returns the shifted view ID of the window that owns [context].
+  /// Returns the public view ID of the window that owns [context].
   static int getIdByContext(BuildContext context) =>
       _manager.realToShiftedId(_getRealId(context));
 
-  /// Snapshot of shifted view IDs for all secondary windows currently open.
+  /// Snapshot of public view IDs for all secondary windows currently open.
   static List<int> get allViewsIds =>
       List.unmodifiable(globalRootState.allShiftedViewsId);
 
@@ -108,7 +108,7 @@ class MultiViewDesktop {
   /// Returns the currently active close mode.
   static CloseMode getCloseMode() => _manager.getAppCloseMode();
 
-  /// Sets the anchor view by shifted [viewId]. Only valid for root views.
+  /// Sets the anchor view by public [viewId]. Only valid for root views.
   static Future<bool> setAnchorId(int viewId) async {
     return await _manager.setAnchorId(viewId);
   }
@@ -120,20 +120,20 @@ class MultiViewDesktop {
   // App-wide: listeners
   // ---------------------------------------------------------------------------
 
-  /// Subscribes [listener] to events for the window with the given shifted [shiftedViewId].
+  /// Subscribes [listener] to events for the window with the given public [publicViewId].
   static void addListenerForView(
-    int shiftedViewId,
+    int publicViewId,
     WindowListenerCallbacks listener,
   ) {
-    _manager.addListener(_manager.shiftedToRealId(shiftedViewId), listener);
+    _manager.addListener(_manager.shiftedToRealId(publicViewId), listener);
   }
 
-  /// Unsubscribes [listener] from events for the given shifted [shiftedViewId].
+  /// Unsubscribes [listener] from events for the given public [publicViewId].
   static void removeListenerForView(
-    int shiftedViewId,
+    int publicViewId,
     WindowListenerCallbacks listener,
   ) {
-    _manager.removeListener(_manager.shiftedToRealId(shiftedViewId), listener);
+    _manager.removeListener(_manager.shiftedToRealId(publicViewId), listener);
   }
 
   // ---------------------------------------------------------------------------
