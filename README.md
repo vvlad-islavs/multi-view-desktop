@@ -703,7 +703,7 @@ class _MyPageState extends State<MyPage> with WindowListener {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      MultiViewDesktop.ofContext(context).setPreventClose(true);
+      MultiViewDesktop.of(context).setPreventClose(true);
     });
   }
 
@@ -726,7 +726,7 @@ class _MyPageState extends State<MyPage> with WindowListener {
       ),
     );
     if (confirmed == true) {
-      final win = MultiViewDesktop.ofContext(context);
+      final win = MultiViewDesktop.of(context);
       await win.setPreventClose(false);
       await win.closeWindow();
     }
@@ -762,7 +762,7 @@ To abort a cascade close from inside a secondary window (for example after a use
 void onWindowClose() async {
   final confirmed = await showUnsavedChangesDialog();
   if (!confirmed) {
-    await MultiViewDesktop.ofContext(context).cancelCascadeClose();
+    await MultiViewDesktop.of(context).cancelCascadeClose();
   }
 }
 ```
@@ -901,7 +901,7 @@ runMultiApp(
 Per-window methods are accessed through an instance obtained from a factory constructor:
 
 ```dart
-final win = MultiViewDesktop.ofContext(context);
+final win = MultiViewDesktop.of(context);
 await win.setTitle('My Window');
 await win.closeWindow();
 

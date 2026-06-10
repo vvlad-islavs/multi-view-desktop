@@ -10,12 +10,12 @@ import 'view_root.dart' show globalRootState;
 ///
 /// Create an instance once per call site and invoke methods on it:
 /// ```dart
-/// final win = MultiViewDesktop.ofContext(context);
+/// final win = MultiViewDesktop.of(context);
 /// await win.setTitle('Settings');
 /// await win.setTitleBarStyle(TitleBarStyle.hidden);
 ///
 /// // Or inline:
-/// await MultiViewDesktop.ofContext(context).closeWindow();
+/// await MultiViewDesktop.of(context).closeWindow();
 /// await MultiViewDesktop.fromId(id).setAlwaysOnTop(true);
 /// ```
 ///

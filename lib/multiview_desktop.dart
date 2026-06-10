@@ -14,7 +14,7 @@
 ///
 /// **Control the current window**: obtain an instance from [BuildContext] or a view ID:
 /// ```dart
-/// final win = MultiViewDesktop.ofContext(context);
+/// final win = MultiViewDesktop.of(context);
 /// await win.closeWindow();
 /// await win.setTitleBarStyle(TitleBarStyle.hidden);
 ///
