@@ -131,8 +131,6 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
       final orphaned = live.where((v) => !registered.contains(v.viewId)).toList();
       _viewsManagerImpl.removeOrphanViewsForceAfterRestart(orphaned.map((e) => e.viewId).toList());
     }
-
-    _applyOptionsToInitialAnchor();
   }
 
   @override
@@ -166,13 +164,6 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   // --------------------------------------------------------------------------
   // Internal helpers
   // --------------------------------------------------------------------------
-
-  Future<void> _applyOptionsToInitialAnchor() async {
-    final anchorId = _viewsManagerImpl.anchorId;
-    if (anchorId == null) return;
-    await _viewsManagerImpl.applyOptions(anchorId, opts: widget.config.globalOptions);
-    unawaited(_nativeChannel.show(anchorId));
-  }
 
   void _handleClose(int viewId) {
     if (!mounted) return;
@@ -469,13 +460,55 @@ class _ViewsManagerImpl implements ViewsManager {
     // Win & linux by default init from 0 id but macos from 1
     _hotRestartShift = !Platform.isMacOS ? -1 : 0;
     if (!_hasInitView) {
-      viewId = await openWindow((context, _) => homeBuilder(context));
-      _hotRestartShift = viewId - 1;
+      viewId = await _createNextMainWindowAfterRestart(homeBuilder);
     }
-    _initRealId = viewId;
-    _addWindow(viewId, _WindowEntry(widgetBuilder: homeBuilder, parentContext: null, parentId: null));
 
+    _hotRestartShift = viewId - 1;
+    _initRealId = viewId;
     _setAnchor(viewId, force: true);
+    await _applyOptionsToInitialAnchor();
+
+    globalRootState.addView(viewId, homeBuilder, parentContext: null, parentId: null);
+  }
+
+  Future<int> _createNextMainWindowAfterRestart(Widget Function(BuildContext) homeBuilder) async {
+    final opts = config.globalOptions;
+    final int token = _nextToken++;
+    _createCompleters[token] = Completer();
+
+    Offset? pos;
+    final windowSize = Size(opts.size?.width ?? 800.0, opts.size?.height ?? 600.0);
+    if (opts.alignment != null) {
+      pos = await calcWindowPosition(windowSize, opts.alignment!);
+    }
+
+    try {
+      await _nativeChannel.createWindowRequest(
+        token: token,
+        title: opts.title ?? '',
+        titleBarStyleStr: opts.titleBarStyle?.name ?? 'normal',
+        windowButtonVisibility: opts.windowButtonVisibility ?? true,
+        windowSize: windowSize,
+        pos: pos,
+      );
+    } catch (e, st) {
+      throw Exception('Failed to create new window, tokenId: $token. Error: $e, stack: $st');
+    }
+
+    final newRealId = await _createCompleters[token]!.future.timeout(Duration(seconds: 1), onTimeout: () => null);
+    _createCompleters.remove(token);
+
+    if (newRealId == null) {
+      throw Exception('Failed to create new window, tokenId: $token. Error: timeout');
+    }
+
+    return newRealId;
+  }
+
+  Future<void> _applyOptionsToInitialAnchor() async {
+    if (anchorId == null) return;
+    await applyOptions(anchorId!, opts: config.globalOptions);
+    unawaited(_nativeChannel.show(anchorId!));
   }
 
   void registerWindow(
@@ -493,10 +526,9 @@ class _ViewsManagerImpl implements ViewsManager {
       throw ArgumentError.value(parentId, 'parentId', 'Parent window is not registered');
     }
     _addWindow(viewId, _WindowEntry(widgetBuilder: widgetBuilder, parentContext: parentContext, parentId: parentId));
-    _notifyObservers((o) => o.onWindowOpened(
-      _realToShifted(viewId),
-      parentViewId: parentId != null ? _realToShifted(parentId) : null,
-    ));
+    _notifyObservers(
+      (o) => o.onWindowOpened(_realToShifted(viewId), parentViewId: parentId != null ? _realToShifted(parentId) : null),
+    );
     if (_anchorId == null) {
       _setAnchor(viewId);
     }
@@ -696,7 +728,9 @@ class _ViewsManagerImpl implements ViewsManager {
   // --------------------------------------------------------------------------
 
   void _dispatchViewEvent(int viewId, String eventName) {
-    _notifyObservers((o) => o.onWindowEvent(_realToShifted(viewId), eventName));
+    if (_windows.keys.contains(viewId)) {
+      _notifyObservers((o) => o.onWindowEvent(_realToShifted(viewId), eventName));
+    }
     final list = _listeners[viewId];
     if (list == null) return;
     for (final l in List<WindowListenerCallbacks>.from(list)) {
@@ -858,7 +892,9 @@ class _ViewsManagerImpl implements ViewsManager {
 
   Future<void> disposeView(int viewId) async {
     final shiftedViewId = _realToShifted(viewId);
-    _notifyObservers((o) => o.onWindowClosed(shiftedViewId));
+    if (_windows.keys.contains(viewId)) {
+      _notifyObservers((o) => o.onWindowClosed(shiftedViewId));
+    }
     final wasAnchor = viewId == _anchorId;
     if (wasAnchor) {
       _setAnchor(null);

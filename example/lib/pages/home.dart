@@ -353,7 +353,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                       debugPrint('new id from context: $idCtx, new id from builder: $viewId');
                       return const _SecondaryWindowRoot();
                     },
-                    options: WindowOptions(size: const Size(1000, 700), title: ' ', alignment: Alignment.centerRight),
+                    options: WindowOptions(size: const Size(1000, 700), title: ' ', alignment: Alignment.center),
                     parentContext: context,
                   );
                 },

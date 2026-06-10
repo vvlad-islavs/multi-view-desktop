@@ -35,9 +35,7 @@
 ///
 /// All [viewId] values are the public (shifted) IDs, consistent with
 /// [MultiViewDesktop.getIdByContext] and [MultiViewDesktop.allViewsIds].
-class WindowObserver {
-  const WindowObserver();
-
+abstract class WindowObserver {
   /// Called after a new OS window has been opened and its widget tree
   /// registered.
   ///

@@ -1,3 +1,5 @@
+import 'dart:developer';
+
 import 'package:flutter/material.dart';
 
 import 'package:multiview_desktop/multiview_desktop.dart';
@@ -25,8 +27,31 @@ void main() {
         windowButtonVisibility: true,
         title: 'Window 1',
       ),
+      observers: [AppWindowObserver()]
     ),
   );
+}
+
+class AppWindowObserver extends WindowObserver {
+  @override
+  void onWindowOpened(int viewId, {int? parentViewId}) {
+    log('window $viewId opened', name: 'MVD');
+  }
+
+  @override
+  void onWindowClosed(int viewId) {
+    log('window $viewId closed', name: 'MVD');
+  }
+
+  @override
+  void onAnchorChanged(int? previousViewId, int? newViewId) {
+    log('anchor: $previousViewId -> $newViewId', name: 'MVD');
+  }
+
+  @override
+  void onWindowEvent(int viewId, String eventName) {
+    log('window event for view $viewId: $eventName', name: 'MVD');
+  }
 }
 
 // ---------------------------------------------------------------------------
