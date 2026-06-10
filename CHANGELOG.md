@@ -1,3 +1,7 @@
+## 1.0.2
+
+- Linux min/max size fix. Repository link fix.
+
 ## 1.0.1
 
 - Linux setup doc update
