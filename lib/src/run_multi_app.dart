@@ -1,9 +1,10 @@
 import 'package:flutter/widgets.dart';
+import 'package:meta/meta.dart';
 
 import 'multi_view_desktop.dart';
 import 'view_root.dart' show createMultiViewRoot;
+import 'window_observer.dart';
 import 'window_options.dart';
-import 'package:meta/meta.dart';
 
 /// The entry point for a multiview_desktop application.
 ///
@@ -33,10 +34,23 @@ class MultiAppConfig {
   /// Default [WindowOptions] merged into every new window (per-window options override).
   final WindowOptions globalOptions;
 
+  /// List of observers notified on window lifecycle events.
+  ///
+  /// Observers receive callbacks when windows are opened, closed, or when the
+  /// anchor changes. See [WindowObserver] for the full list of events.
+  ///
+  /// ```dart
+  /// config: MultiAppConfig(
+  ///   observers: [MyWindowObserver()],
+  /// )
+  /// ```
+  final List<WindowObserver> observers;
+
   MultiAppConfig._({
     required this.generalParams,
     this.globalOptions = const WindowOptions(),
     required this.macosParams,
+    this.observers = const [],
   });
 
   /// Creates configuration for [runMultiApp].
@@ -44,14 +58,17 @@ class MultiAppConfig {
   /// - [generalParams] cross-platform params
   /// - [macosParams] macos specific params
   /// - [globalWindowOptions] are applied to the main window at startup and merged into [openWindow].
+  /// - [observers] are notified on window lifecycle events (see [WindowObserver]).
   factory MultiAppConfig({
     MultiPlatformParams? generalParams,
     MacosPlatformParams? macosParams,
     WindowOptions? globalWindowOptions,
+    List<WindowObserver>? observers,
   }) => MultiAppConfig._(
     globalOptions: globalWindowOptions ?? WindowOptions(),
     generalParams: generalParams ?? MultiPlatformParams.defaultParams(),
     macosParams: macosParams ?? MacosPlatformParams.defaultParams(),
+    observers: observers ?? const [],
   );
 
   factory MultiAppConfig._defaultConfig() => MultiAppConfig._(

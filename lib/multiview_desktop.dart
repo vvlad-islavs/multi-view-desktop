@@ -32,6 +32,7 @@ export 'src/title_bar_style.dart';
 export 'src/parent_window_scope.dart';
 export 'src/window_communicator.dart';
 export 'src/window_listener.dart';
+export 'src/window_observer.dart';
 export 'src/window_options.dart';
 export 'src/widgets/drag_to_move_area.dart';
 export 'src/widgets/drag_to_resize_area.dart';

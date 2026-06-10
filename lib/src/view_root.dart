@@ -376,9 +376,17 @@ class _ViewsManagerImpl implements ViewsManager {
   /// Active strategy when the main window's close button is pressed.
   late CloseMode closeMode;
 
+  List<WindowObserver> get _observers => config.observers;
+
   _ViewsManagerImpl({required this.config, required this.cascadeCloseService, required this.communicator}) {
     _nativeChannel.setMethodCallHandler(_onStaticCall);
     closeMode = config.generalParams.closeMode;
+  }
+
+  void _notifyObservers(void Function(WindowObserver) action) {
+    for (final observer in _observers) {
+      action(observer);
+    }
   }
 
   /// Pushes lifecycle quit policy to the native embedder.
@@ -485,6 +493,10 @@ class _ViewsManagerImpl implements ViewsManager {
       throw ArgumentError.value(parentId, 'parentId', 'Parent window is not registered');
     }
     _addWindow(viewId, _WindowEntry(widgetBuilder: widgetBuilder, parentContext: parentContext, parentId: parentId));
+    _notifyObservers((o) => o.onWindowOpened(
+      _realToShifted(viewId),
+      parentViewId: parentId != null ? _realToShifted(parentId) : null,
+    ));
     if (_anchorId == null) {
       _setAnchor(viewId);
     }
@@ -492,7 +504,12 @@ class _ViewsManagerImpl implements ViewsManager {
 
   Future<void> _setAnchor(int? viewId, {bool force = false}) async {
     if (!config.generalParams.enableDynamicAnchor && !force) return;
+    final previousShifted = _anchorId != null ? _realToShifted(_anchorId!) : null;
     _anchorId = viewId;
+    final newShifted = viewId != null ? _realToShifted(viewId) : null;
+    if (previousShifted != newShifted) {
+      _notifyObservers((o) => o.onAnchorChanged(previousShifted, newShifted));
+    }
     if (viewId == null) return;
     await _nativeChannel.setAnchorViewId(viewId);
   }
@@ -679,6 +696,7 @@ class _ViewsManagerImpl implements ViewsManager {
   // --------------------------------------------------------------------------
 
   void _dispatchViewEvent(int viewId, String eventName) {
+    _notifyObservers((o) => o.onWindowEvent(_realToShifted(viewId), eventName));
     final list = _listeners[viewId];
     if (list == null) return;
     for (final l in List<WindowListenerCallbacks>.from(list)) {
@@ -839,13 +857,15 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   Future<void> disposeView(int viewId) async {
+    final shiftedViewId = _realToShifted(viewId);
+    _notifyObservers((o) => o.onWindowClosed(shiftedViewId));
     final wasAnchor = viewId == _anchorId;
     if (wasAnchor) {
       _setAnchor(null);
     }
     _listeners.remove(viewId);
     _removeWindow(viewId);
-    communicator.disposeViewByShiftedId(_realToShifted(viewId));
+    communicator.disposeViewByShiftedId(shiftedViewId);
     if (wasAnchor) {
       _promoteAnchor();
     }

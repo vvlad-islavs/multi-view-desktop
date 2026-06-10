@@ -27,10 +27,12 @@ Unlike libraries that spawn a new Flutter engine per window, multiview_desktop u
   - [Close mode](#close-mode)
   - [Frameless windows](#frameless-windows)
   - [Watching the window list](#watching-the-window-list)
+  - [Window observers](#window-observers)
   - [Application config](#application-config)
 - [API](#api)
   - [MultiViewDesktop](#multiviewdesktop-1)
   - [WindowListener](#windowlistener-1)
+  - [WindowObserver](#windowobserver-1)
   - [WindowCommunicator](#windowcommunicator-1)
   - [WindowOptions](#windowoptions-1)
   - [MultiAppConfig](#multiappconfig-1)
@@ -860,6 +862,53 @@ ValueListenableBuilder<List<int>>(
 
 ---
 
+### Window observers
+
+`WindowObserver` lets you monitor window lifecycle events from one central place, without adding a `WindowListener` mixin to every widget. The design mirrors `NavigatorObserver` in Flutter: extend the class, override only the methods you need, and register the instance in `MultiAppConfig`.
+
+```dart
+class AppWindowObserver extends WindowObserver {
+  @override
+  void onWindowOpened(int viewId, {int? parentViewId}) {
+    print('window $viewId opened (parent: $parentViewId)');
+  }
+
+  @override
+  void onWindowClosed(int viewId) {
+    print('window $viewId closed');
+  }
+
+  @override
+  void onAnchorChanged(int? previousViewId, int? newViewId) {
+    print('anchor changed: $previousViewId -> $newViewId');
+  }
+
+  @override
+  void onWindowEvent(int viewId, String eventName) {
+    // Receives every native event: focus, blur, maximize, resize, move, close, etc.
+    // Useful for analytics or structured logging across all windows.
+  }
+}
+
+void main() {
+  runMultiApp(
+    home: ...,
+    config: MultiAppConfig(
+      observers: [AppWindowObserver()],
+    ),
+  );
+}
+```
+
+Multiple observers can be registered at once. All view IDs passed to the callbacks are the same public IDs as those returned by `MultiViewDesktop.getIdByContext` and `MultiViewDesktop.allViewsIds`.
+
+`WindowObserver` and `WindowListener` serve different purposes:
+
+- `WindowListener` is a mixin on `State` that reacts to events in a single widget's window, typically to update UI.
+- `WindowObserver` is a global sink registered once, covering all windows. Use it for logging, analytics, or infrastructure concerns that span the entire application.
+
+---
+
 ### Application config
 
 `MultiAppConfig` is passed to `runMultiApp` once:
@@ -880,6 +929,7 @@ runMultiApp(
       size: const Size(1280, 720),
       title: 'My App',
     ),
+    observers: [AppWindowObserver()],
   ),
 );
 ```
@@ -1316,6 +1366,30 @@ The view ID that this listener is currently registered for.
 
 ---
 
+### WindowObserver
+
+Global observer for window lifecycle events across the entire application. Extend this class and override the callbacks you need. Register instances via `MultiAppConfig.observers`.
+
+All view ID parameters are public (shifted) IDs, matching `MultiViewDesktop.getIdByContext` and `MultiViewDesktop.allViewsIds`.
+
+##### onWindowOpened(int viewId, {int? parentViewId}) -> void
+
+Called after a new OS window has been opened and its widget tree registered. `parentViewId` is the ID of the window that called `openWindow`, or `null` if no parent context was passed.
+
+##### onWindowClosed(int viewId) -> void
+
+Called after an OS window has been closed and its widget tree disposed.
+
+##### onAnchorChanged(int? previousViewId, int? newViewId) -> void
+
+Called when the anchor window changes. The anchor is the root window that receives app-level close events. Both arguments are `null` when no anchor exists (e.g. during shutdown).
+
+##### onWindowEvent(int viewId, String eventName) -> void
+
+Called for every native event delivered to the window. `eventName` values: `focus`, `blur`, `maximize`, `unmaximize`, `minimize`, `restore`, `resize`, `resized`, `move`, `moved`, `enter-full-screen`, `leave-full-screen`, `close`. Fires before individual `WindowListener` callbacks in the widget tree.
+
+---
+
 ### WindowCommunicator
 
 In-process message bus. Accessible via `MultiViewDesktop.communicator`.
@@ -1383,6 +1457,10 @@ macOS-specific parameters.
 ##### globalWindowOptions -> WindowOptions
 
 Default `WindowOptions` merged into every new window. Per-window options override these.
+
+##### observers -> List\<WindowObserver\>
+
+List of observers notified on window lifecycle events. See [WindowObserver](#windowobserver-1).
 
 ---
 
