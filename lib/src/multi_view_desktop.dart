@@ -33,12 +33,10 @@ class MultiViewDesktop {
   MultiViewDesktop._({required int realId}) : _realId = realId;
 
   /// Creates an instance bound to the window that owns [context].
-  factory MultiViewDesktop.of(BuildContext context) =>
-      MultiViewDesktop._(realId: _getRealId(context));
+  factory MultiViewDesktop.of(BuildContext context) => MultiViewDesktop._(realId: _getRealId(context));
 
   /// Creates an instance bound to the window with the given public [viewId].
-  factory MultiViewDesktop.fromId(int viewId) =>
-      MultiViewDesktop._(realId: _manager.shiftedToRealId(viewId));
+  factory MultiViewDesktop.fromId(int viewId) => MultiViewDesktop._(realId: _manager.shiftedToRealId(viewId));
 
   // ---------------------------------------------------------------------------
   // Internal helpers
@@ -56,16 +54,13 @@ class MultiViewDesktop {
   static WindowCommunicator get communicator => globalRootState.communicator;
 
   /// Returns the public view ID of the window that owns [context].
-  static int getIdByContext(BuildContext context) =>
-      _manager.realToShiftedId(_getRealId(context));
+  static int getIdByContext(BuildContext context) => _manager.realToShiftedId(_getRealId(context));
 
   /// Snapshot of public view IDs for all secondary windows currently open.
-  static List<int> get allViewsIds =>
-      List.unmodifiable(globalRootState.allShiftedViewsId);
+  static List<int> get allViewsIds => List.unmodifiable(globalRootState.allShiftedViewsId);
 
   /// Live-updating notifier; fires whenever a window opens or closes.
-  static ValueNotifier<List<int>> get allViewsIdsNotifier =>
-      globalRootState.windowsIdsNotif;
+  static ValueNotifier<List<int>> get allViewsIdsNotifier => globalRootState.windowsIdsNotif;
 
   // ---------------------------------------------------------------------------
   // App-wide: lifecycle
@@ -74,17 +69,17 @@ class MultiViewDesktop {
   /// Opens a new OS window showing [child].
   @internal
   static Future<int> addWindow(
-    Widget child, {
+    Widget Function(BuildContext context, int publicId) child, {
     WindowOptions? options,
     BuildContext? parent,
   }) async {
     final parentId = parent == null ? null : _getRealId(parent);
     final realId = await _manager.createWindow(
       newOpts: options,
-      onCreated: (int newId) async {
+      onCreated: (int newRealId) async {
         globalRootState.addView(
-          newId,
-          child,
+          newRealId,
+          (context) => child(context, _manager.realToShiftedId(newRealId)),
           parentContext: parent,
           parentId: parentId,
         );
@@ -121,18 +116,12 @@ class MultiViewDesktop {
   // ---------------------------------------------------------------------------
 
   /// Subscribes [listener] to events for the window with the given public [publicViewId].
-  static void addListenerForView(
-    int publicViewId,
-    WindowListenerCallbacks listener,
-  ) {
+  static void addListenerForView(int publicViewId, WindowListenerCallbacks listener) {
     _manager.addListener(_manager.shiftedToRealId(publicViewId), listener);
   }
 
   /// Unsubscribes [listener] from events for the given public [publicViewId].
-  static void removeListenerForView(
-    int publicViewId,
-    WindowListenerCallbacks listener,
-  ) {
+  static void removeListenerForView(int publicViewId, WindowListenerCallbacks listener) {
     _manager.removeListener(_manager.shiftedToRealId(publicViewId), listener);
   }
 
@@ -200,15 +189,8 @@ class MultiViewDesktop {
   }
 
   /// Changes the title-bar style. Pass [TitleBarStyle.hidden] for a frameless window.
-  Future<void> setTitleBarStyle(
-    TitleBarStyle style, {
-    bool windowButtonVisibility = true,
-  }) async {
-    await _manager.setTitleBarStyle(
-      _realId,
-      style,
-      windowButtonVisibility: windowButtonVisibility,
-    );
+  Future<void> setTitleBarStyle(TitleBarStyle style, {bool windowButtonVisibility = true}) async {
+    await _manager.setTitleBarStyle(_realId, style, windowButtonVisibility: windowButtonVisibility);
   }
 
   /// Returns the current title-bar style and button visibility.
@@ -477,10 +459,7 @@ class MultiViewDesktop {
 
   /// When [ignore] is `true`, all mouse events pass through the window.
   /// If [mouseMoveEvents] is `true`, mouse move events still arrive.
-  Future<void> setIgnoreMouseEvents(
-    bool ignore, {
-    bool mouseMoveEvents = false,
-  }) async {
+  Future<void> setIgnoreMouseEvents(bool ignore, {bool mouseMoveEvents = false}) async {
     await _manager.setIgnoreMouseEvents(_realId, ignore, forward: mouseMoveEvents);
   }
 
@@ -514,15 +493,8 @@ class MultiViewDesktop {
   }
 
   /// Pins or unpins the window across all Spaces (macOS).
-  Future<void> setVisibleOnAllWorkspaces(
-    bool visible, {
-    bool visibleOnFullScreen = false,
-  }) async {
-    await _manager.setVisibleOnAllWorkspaces(
-      _realId,
-      visible,
-      visibleOnFullScreen: visibleOnFullScreen,
-    );
+  Future<void> setVisibleOnAllWorkspaces(bool visible, {bool visibleOnFullScreen = false}) async {
+    await _manager.setVisibleOnAllWorkspaces(_realId, visible, visibleOnFullScreen: visibleOnFullScreen);
   }
 
   /// Sets the dock icon badge label for this window (macOS). Pass `null` to clear.

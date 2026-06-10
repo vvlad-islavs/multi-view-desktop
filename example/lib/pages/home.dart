@@ -338,7 +338,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 subtitle: 'Open a new window',
                 onTap: () async {
                   openWindow(
-                    const _SecondaryWindowRoot(),
+                    (ctx, viewId) => const _SecondaryWindowRoot(),
                     options: WindowOptions(size: const Size(1000, 700), alignment: Alignment.center, title: ' '),
                   );
                 },
@@ -348,20 +348,30 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 subtitle: 'Open a new child window',
                 onTap: () async {
                   openWindow(
-                    const _SecondaryWindowRoot(),
-                    options: WindowOptions(size: const Size(1000, 700), title: ' '),
+                    (ctx, viewId) {
+                      final idCtx = MultiViewDesktop.of(ctx).id;
+                      debugPrint('new id from context: $idCtx, new id from builder: $viewId');
+                      return const _SecondaryWindowRoot();
+                    },
+                    options: WindowOptions(size: const Size(1000, 700), title: ' ', alignment: Alignment.centerRight),
                     parentContext: context,
                   );
                 },
               ),
               if (windowId != 0)
-                _tile('closeWindow', subtitle: 'Close this window', onTap: () => MultiViewDesktop.of(context).closeWindow()),
+                _tile(
+                  'closeWindow',
+                  subtitle: 'Close this window',
+                  onTap: () => MultiViewDesktop.of(context).closeWindow(),
+                ),
               if (!Platform.isLinux) _tile('center', onTap: () => MultiViewDesktop.of(context).center()),
               if (!Platform.isLinux) ...[
                 _tile('setAlignment', subtitle: 'Tap a position on the grid below'),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: _AlignmentGrid(onSelected: (alignment) => MultiViewDesktop.of(context).setAlignment(alignment)),
+                  child: _AlignmentGrid(
+                    onSelected: (alignment) => MultiViewDesktop.of(context).setAlignment(alignment),
+                  ),
                 ),
               ],
               _tile(
@@ -425,7 +435,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 (v) => v ? MultiViewDesktop.of(context).maximize() : MultiViewDesktop.of(context).unmaximize(),
               ),
               _tile('minimize', onTap: () => MultiViewDesktop.of(context).minimize()),
-              if(!Platform.isLinux)_switchTile('alwaysOnTop', _isAlwaysOnTop, (v) => MultiViewDesktop.of(context).setAlwaysOnTop(v)),
+              if (!Platform.isLinux)
+                _switchTile('alwaysOnTop', _isAlwaysOnTop, (v) => MultiViewDesktop.of(context).setAlwaysOnTop(v)),
               if (Platform.isMacOS)
                 _switchTile(
                   'hideFromCollection',
@@ -452,7 +463,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
             // ----------------------------------------------------------------
             _section('WINDOW CAPABILITIES', [
               _switchTile('resizable', _isResizable, (v) => MultiViewDesktop.of(context).setResizable(v)),
-              if (Platform.isMacOS) _switchTile('movable', _isMovable, (v) => MultiViewDesktop.of(context).setMovable(v)),
+              if (Platform.isMacOS)
+                _switchTile('movable', _isMovable, (v) => MultiViewDesktop.of(context).setMovable(v)),
               _switchTile('minimizable', _isMinimizable, (v) => MultiViewDesktop.of(context).setMinimizable(v)),
               if (!Platform.isLinux)
                 _switchTile('maximizable', _isMaximizable, (v) => MultiViewDesktop.of(context).setMaximizable(v)),
@@ -716,7 +728,7 @@ class _SecondaryWindowRootState extends State<_SecondaryWindowRoot> {
     super.initState();
     themeConfig.addListener(_onThemeChanged);
     // Also listen for broadcast theme changes to update native brightness.
-      MultiViewDesktop.communicator.onBroadcast.listen((msg) {
+    MultiViewDesktop.communicator.onBroadcast.listen((msg) {
       if (msg is! Map) return;
       if (msg['type'] != 'themeMode') return;
       if (!mounted) return;
@@ -725,9 +737,9 @@ class _SecondaryWindowRootState extends State<_SecondaryWindowRoot> {
     });
 
     WidgetsBinding.instance.addPostFrameCallback(
-      (_) => MultiViewDesktop.of(context).setBrightness(
-        themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light,
-      ),
+      (_) => MultiViewDesktop.of(
+        context,
+      ).setBrightness(themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light),
     );
   }
 

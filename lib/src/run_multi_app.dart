@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'multi_view_desktop.dart';
 import 'view_root.dart' show createMultiViewRoot;
 import 'window_options.dart';
+import 'package:meta/meta.dart';
 
 /// The entry point for a multiview_desktop application.
 ///
@@ -18,7 +19,7 @@ import 'window_options.dart';
 ///
 /// [home] is rendered in the initial (main) OS window.  Additional windows
 /// are opened via [openWindow].
-void runMultiApp({required Widget home, Widget Function(Widget child)? globalScope, MultiAppConfig? config}) async {
+void runMultiApp({required Widget Function(BuildContext globalScopeContext, int publicId) home, Widget Function(Widget child)? globalScope, MultiAppConfig? config}) async {
   WidgetsFlutterBinding.ensureInitialized();
   runWidget(await createMultiViewRoot(home, globalScope, config ?? MultiAppConfig._defaultConfig()));
 }
@@ -60,6 +61,7 @@ class MultiAppConfig {
 }
 
 class MultiPlatformParams {
+  ///
   final bool enableDynamicAnchor;
   final CloseMode closeMode;
 
@@ -74,10 +76,12 @@ class MacosPlatformParams {
   final bool saveLastWindowToReopen;
 
   // TODO: handle taskbar click after all windows are closed.
+  @experimental
   final Function? onTaskbarTap;
 
   const MacosPlatformParams({
     this.saveLastWindowToReopen = true,
+    @experimental
     this.onTaskbarTap,
     this.closeAppAfterLastWindowClosed = false,
   });
@@ -121,9 +125,9 @@ enum CloseMode {
 ///
 /// ```dart
 /// ElevatedButton(
-///   onPressed: () => openWindow(const SettingsPage()),
+///   onPressed: () => openWindow((context, viewId)=> const SettingsPage()),
 ///   child: const Text('Open settings'),
 /// )
 /// ```
-Future<int> openWindow(Widget child, {WindowOptions? options, BuildContext? parentContext}) =>
-    MultiViewDesktop.addWindow(child, options: options, parent: parentContext);
+Future<int> openWindow(Widget Function (BuildContext context, int publicId) childBuilder, {WindowOptions? options, BuildContext? parentContext}) =>
+    MultiViewDesktop.addWindow(childBuilder, options: options, parent: parentContext);

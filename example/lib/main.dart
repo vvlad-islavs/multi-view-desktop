@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 
 import 'package:multiview_desktop/multiview_desktop.dart';
@@ -8,13 +7,13 @@ import 'utils/theme_config.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runMultiApp(
-    home: const MainWindowRoot(),
+    home: (globalScopeContext, id) => const MainWindowRoot(),
     config: MultiAppConfig(
       generalParams: MultiPlatformParams(enableDynamicAnchor: true, closeMode: CloseMode.cascade),
       macosParams: MacosPlatformParams(
         saveLastWindowToReopen: true,
         closeAppAfterLastWindowClosed: false,
-        onTaskbarTap: null,
+        // onTaskbarTap: null,
       ),
       globalWindowOptions: WindowOptions(
         minimumSize: Size(1000, 700),
@@ -61,9 +60,9 @@ class _MainWindowRootState extends State<MainWindowRoot> {
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await MultiViewDesktop.of(context).setBrightness(
-        themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light,
-      );
+      await MultiViewDesktop.of(
+        context,
+      ).setBrightness(themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light);
 
       sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
       sharedConfig.closeMode = MultiViewDesktop.getCloseMode();

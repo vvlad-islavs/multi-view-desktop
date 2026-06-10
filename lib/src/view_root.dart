@@ -18,9 +18,9 @@ import 'utils/calc_window_position.dart';
 // ---------------------------------------------------------------------------
 
 class _WindowEntry {
-  const _WindowEntry({required this.widget, required this.parentContext, this.parentId});
+  const _WindowEntry({required this.widgetBuilder, required this.parentContext, this.parentId});
 
-  final Widget widget;
+  final Widget Function(BuildContext) widgetBuilder;
   final BuildContext? parentContext;
   final int? parentId;
 }
@@ -45,7 +45,11 @@ _MultiViewRootState get globalRootState {
 int get _initPlatformId => !Platform.isMacOS ? 0 : 1;
 
 /// Creates the root multi-view widget.  Used by [runMultiApp] only.
-Future<Widget> createMultiViewRoot(Widget home, Widget Function(Widget child)? scope, MultiAppConfig config) async {
+Future<Widget> createMultiViewRoot(
+  Widget Function(BuildContext, int) home,
+  Widget Function(Widget)? scope,
+  MultiAppConfig config,
+) async {
   _hasInitView = await _nativeChannel.checkWindowExist(_initPlatformId) ?? true;
 
   // Reset native behavioral flags before the widget tree is built
@@ -53,7 +57,7 @@ Future<Widget> createMultiViewRoot(Widget home, Widget Function(Widget child)? s
     await _nativeChannel.resetWindowToDefaults(_initPlatformId);
   }
 
-  final mainRoot = _MultiViewRoot(home: home, config: config);
+  final mainRoot = _MultiViewRoot(homeBuilder: home, config: config);
   return scope?.call(mainRoot) ?? mainRoot;
 }
 
@@ -67,9 +71,9 @@ Future<Widget> createMultiViewRoot(Widget home, Widget Function(Widget child)? s
 /// opened or closed.  Each child is wrapped in a [ViewScope] so that any
 /// descendant can call [MultiViewDesktop.getIdByContext].
 class _MultiViewRoot extends StatefulWidget {
-  const _MultiViewRoot({required this.home, required this.config});
+  const _MultiViewRoot({required this.homeBuilder, required this.config});
 
-  final Widget home;
+  final Widget Function(BuildContext, int) homeBuilder;
   final MultiAppConfig config;
 
   @override
@@ -116,7 +120,10 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
 
     // After hot restart the lowest live view id may not be 1 (e.g. if view 1 was closed).
     live.sort((a, b) => a.viewId.compareTo(b.viewId));
-    await _viewsManagerImpl.registerInitialWindow(viewId: live.first.viewId, home: widget.home);
+    await _viewsManagerImpl.registerInitialWindow(
+      viewId: live.first.viewId,
+      homeBuilder: (context) => widget.homeBuilder(context, 1),
+    );
     unawaited(_viewsManagerImpl.applyNativeLifecyclePolicy());
     // Only for debug. Closes all windows from past session on hot restart
     if (!kReleaseMode) {
@@ -174,9 +181,14 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   }
 
   /// Registers [child] as the widget tree for a newly created [viewId].
-  void addView(int viewId, Widget child, {int? parentId, required BuildContext? parentContext}) {
+  void addView(
+    int viewId,
+    Widget Function(BuildContext) childBuilder, {
+    int? parentId,
+    required BuildContext? parentContext,
+  }) {
     setState(() {
-      _viewsManagerImpl.registerWindow(viewId, child, parentContext: parentContext, parentId: parentId);
+      _viewsManagerImpl.registerWindow(viewId, childBuilder, parentContext: parentContext, parentId: parentId);
     });
   }
 
@@ -200,7 +212,10 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
             view: flutterView,
             child: ParentWindowScope(
               parentContext: parentContext,
-              child: ViewScope(viewId: id, child: entry.value.widget),
+              child: ViewScope(
+                viewId: id,
+                child: Builder(builder: (context) => entry.value.widgetBuilder(context)),
+              ),
             ),
           ),
         );
@@ -442,20 +457,25 @@ class _ViewsManagerImpl implements ViewsManager {
 
   List<int> get allShiftedWindowIds => _windows.keys.map((e) => _realToShifted(e)).toList();
 
-  Future<void> registerInitialWindow({required int viewId, required Widget home}) async {
+  Future<void> registerInitialWindow({required int viewId, required Widget Function(BuildContext) homeBuilder}) async {
     // Win & linux by default init from 0 id but macos from 1
     _hotRestartShift = !Platform.isMacOS ? -1 : 0;
     if (!_hasInitView) {
-      viewId = await openWindow(home);
+      viewId = await openWindow((context, _) => homeBuilder(context));
       _hotRestartShift = viewId - 1;
     }
     _initRealId = viewId;
-    _addWindow(viewId, _WindowEntry(widget: home, parentContext: null, parentId: null));
+    _addWindow(viewId, _WindowEntry(widgetBuilder: homeBuilder, parentContext: null, parentId: null));
 
     _setAnchor(viewId, force: true);
   }
 
-  void registerWindow(int viewId, Widget widget, {required BuildContext? parentContext, int? parentId}) {
+  void registerWindow(
+    int viewId,
+    Widget Function(BuildContext) widgetBuilder, {
+    required BuildContext? parentContext,
+    int? parentId,
+  }) {
     // if next window id on start is higher 2 then set shift
     if (allShiftedWindowIds.length == 1 && allShiftedWindowIds.first == 1 && viewId > 2 && !_isInitFirstSecondaryView) {
       _hotRestartShift = viewId - allShiftedWindowIds.first - 1;
@@ -464,7 +484,7 @@ class _ViewsManagerImpl implements ViewsManager {
     if (parentId != null && !_windows.containsKey(parentId)) {
       throw ArgumentError.value(parentId, 'parentId', 'Parent window is not registered');
     }
-    _addWindow(viewId, _WindowEntry(widget: widget, parentContext: parentContext, parentId: parentId));
+    _addWindow(viewId, _WindowEntry(widgetBuilder: widgetBuilder, parentContext: parentContext, parentId: parentId));
     if (_anchorId == null) {
       _setAnchor(viewId);
     }
@@ -703,14 +723,17 @@ class _ViewsManagerImpl implements ViewsManager {
     await _nativeChannel.softCloseWindow(rootId);
   }
 
+  bool _isLastMacosRootView(int id) =>
+      ((_anchorCandidates(excludingViewId: id).isEmpty || !config.generalParams.enableDynamicAnchor) &&
+      config.macosParams.saveLastWindowToReopen &&
+      _anchorId == id);
+
   Future<void> _removeViewsCascade(int rootId, {bool reverse = true}) async {
     Future<void> closeRoot() async {
       await _nativeChannel.setPreConfirmClose(rootId, true);
       if (Platform.isMacOS) {
         // Hide the anchor instead of closing it when macOS dock restore is enabled.
-        if ((_anchorCandidates(excludingViewId: rootId).isEmpty || !config.generalParams.enableDynamicAnchor) &&
-            config.macosParams.saveLastWindowToReopen &&
-            _anchorId == rootId) {
+        if (_isLastMacosRootView(rootId)) {
           await _nativeChannel.hide(rootId);
           await _nativeChannel.setPreConfirmClose(rootId, false);
           return;
