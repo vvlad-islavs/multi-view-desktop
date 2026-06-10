@@ -27,6 +27,7 @@ class MvdLinuxWindow {
   bool is_pre_confirm = false;
   bool is_minimizable = true;
   bool is_resizable = true;
+  bool is_fullscreen = false;
   bool is_skip_taskbar = false;
   bool window_button_visibility = true;
   bool is_ignore_mouse_events = false;
@@ -35,6 +36,15 @@ class MvdLinuxWindow {
 
   GdkGeometry geometry{};
   GdkWindowHints hints = static_cast<GdkWindowHints>(0);
+  // Last shadow delta measured in a non-maximized/non-fullscreen state.
+  // Used to keep hints correct when ReapplyGeometryHints is called while the
+  // window is maximized or fullscreen (where GTK hides the CSD shadow).
+  gint cached_shadow_w = 0;
+  gint cached_shadow_h = 0;
+  // Header bar height stored during the last HIDE operation so the SHOW
+  // direction can use it (gtk_widget_get_preferred_height of a hidden bar
+  // returns 0 on some GTK versions).
+  gint stored_hb_h = 0;
   GtkCssProvider* css_provider = nullptr;
   GtkCssProvider* csd_radius_provider = nullptr;
   gchar* title_bar_style = nullptr;
@@ -64,7 +74,9 @@ class MvdLinuxWindow {
   void Center();
   void SetMinimumSize(float w, float h);
   void SetMaximumSize(float w, float h);
+  void RefreshShadowCache();
   void ReapplyGeometryHints();
+  void ClampWindowToConstraints();
   bool IsResizable();
   void SetResizable(bool v);
   bool IsMinimizable();

@@ -1,4 +1,5 @@
 #include "mvd_linux_window.h"
+#include <gtk/gtk.h>
 
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
@@ -190,6 +191,7 @@ void MvdLinuxWindow::SetFullScreen(bool fs) {
   if (!window) {
     return;
   }
+  is_fullscreen = fs;
   if (fs) {
     gtk_window_fullscreen(window);
   } else {
@@ -279,54 +281,62 @@ void MvdLinuxWindow::Center() {
   }
 }
 
+void MvdLinuxWindow::RefreshShadowCache() {
+  // Only measure the CSD shadow in the normal (non-maximized, non-fullscreen)
+  // state. In maximized/fullscreen GTK suppresses the shadow, so the delta
+  // would be 0 — which would wrongly overwrite a valid cached value.
+  if (!window || gtk_window_is_maximized(window) || is_fullscreen) {
+    return;
+  }
+  GdkWindow* gdk = GetGdkWindow(window);
+  if (!gdk) {
+    return;
+  }
+  gint gdk_w = gdk_window_get_width(gdk);
+  gint gdk_h = gdk_window_get_height(gdk);
+  gint gtk_w = 0, gtk_h = 0;
+  gtk_window_get_size(window, &gtk_w, &gtk_h);
+  const gint sw = (gdk_w > gtk_w) ? (gdk_w - gtk_w) : 0;
+  const gint sh = (gdk_h > gtk_h) ? (gdk_h - gtk_h) : 0;
+
+  // Re-apply hints only when the cache value actually changes (first non-zero
+  // measurement, or if the shadow size changes due to theme switching).
+  const bool changed = (sw > 0 && sw != cached_shadow_w) ||
+                       (sh > 0 && sh != cached_shadow_h);
+  if (sw > 0) { cached_shadow_w = sw; }
+  if (sh > 0) { cached_shadow_h = sh; }
+  if (changed && hints != static_cast<GdkWindowHints>(0)) {
+    ReapplyGeometryHints();
+  }
+}
+
 void MvdLinuxWindow::ReapplyGeometryHints() {
   if (!window || hints == static_cast<GdkWindowHints>(0)) {
     return;
   }
 
-  // Measure the CSD shadow: on X11 the GDK surface includes the invisible
-  // shadow/resize-handle margins that gtk_window_get_size() excludes.
-  // On Wayland or when the titlebar is hidden the delta is 0.
-  gint shadow_w = 0, shadow_h = 0;
-  GdkWindow* gdk = GetGdkWindow(window);
-  if (gdk) {
-    gint gdk_w = gdk_window_get_width(gdk);
-    gint gdk_h = gdk_window_get_height(gdk);
-    gint gtk_w = 0, gtk_h = 0;
-    gtk_window_get_size(window, &gtk_w, &gtk_h);
-    shadow_w = (gdk_w > gtk_w) ? (gdk_w - gtk_w) : 0;
-    shadow_h = (gdk_h > gtk_h) ? (gdk_h - gtk_h) : 0;
-  }
-
-  // Pre-adjust the content-area limits by the shadow delta before handing
-  // them to GTK. gtk_window_compute_hints passes user-set hints straight
-  // through to gdk_window_set_geometry_hints without adding the CSD shadow
-  // itself, and the X11 WM enforces PMinSize/PMaxSize against the full X11
-  // window (content + shadow). Pre-adjusting compensates for that offset.
-  // On Wayland / hidden-titlebar (shadow == 0) effective == geometry, which
-  // is correct because the compositor uses surface-area coordinates.
+  // Use the cached shadow delta measured by RefreshShadowCache() during normal
+  // window state. This avoids any live measurement here so that the function
+  // works correctly regardless of the current window state (maximized,
+  // fullscreen, mid-transition). RefreshShadowCache() is called from
+  // on_configure (fires in every normal-state resize) and keeps the cache
+  // up-to-date without touching hints on every frame.
+  //
+  // On Wayland or when the window is frameless the cache stays 0, which is
+  // correct because the compositor uses surface-area coordinates directly.
   GdkGeometry effective = geometry;
-  if (shadow_w > 0 || shadow_h > 0) {
+  if (cached_shadow_w > 0 || cached_shadow_h > 0) {
     if ((hints & GDK_HINT_MIN_SIZE) && geometry.min_width >= 0) {
-      effective.min_width  = geometry.min_width  + shadow_w;
-      effective.min_height = geometry.min_height + shadow_h;
+      effective.min_width  = geometry.min_width  + cached_shadow_w;
+      effective.min_height = geometry.min_height + cached_shadow_h;
     }
     if ((hints & GDK_HINT_MAX_SIZE) && geometry.max_width < G_MAXINT) {
-      effective.max_width  = geometry.max_width  + shadow_w;
-      effective.max_height = geometry.max_height + shadow_h;
+      effective.max_width  = geometry.max_width  + cached_shadow_w;
+      effective.max_height = geometry.max_height + cached_shadow_h;
     }
   }
 
-  // Always go through gtk_window_set_geometry_hints so GTK's internal state
-  // (used by gtk_window_constrain_size during interactive CSD resize) stays
-  // in sync with the WM / compositor constraints. Using a single code path
-  // also prevents GTK's own resize cycle from later overwriting the values
-  // with non-shadow-adjusted ones (which happened when we mixed
-  // gtk_window_set_geometry_hints and gdk_window_set_geometry_hints).
   gtk_window_set_geometry_hints(window, nullptr, &effective, hints);
-  // gtk_window_set_geometry_hints queues a resize internally; call
-  // gtk_widget_queue_resize as well to guarantee the hints are committed to
-  // the compositor/WM in the current frame even on older GTK3 versions.
   gtk_widget_queue_resize(GTK_WIDGET(window));
 }
 
@@ -456,18 +466,73 @@ void MvdLinuxWindow::SetTitle(const gchar* t) {
   }
 }
 
+void MvdLinuxWindow::ClampWindowToConstraints() {
+  if (!window || gtk_window_is_maximized(window) || is_fullscreen) {
+    return;
+  }
+  if (hints == static_cast<GdkWindowHints>(0)) {
+    return;
+  }
+  gint w = 0, h = 0;
+  gtk_window_get_size(window, &w, &h);
+  gint new_w = w, new_h = h;
+
+  if ((hints & GDK_HINT_MIN_SIZE) && geometry.min_width >= 0) {
+    if (new_w < geometry.min_width) { new_w = geometry.min_width; }
+    if (new_h < geometry.min_height) { new_h = geometry.min_height; }
+  }
+  if ((hints & GDK_HINT_MAX_SIZE) && geometry.max_width < G_MAXINT) {
+    if (new_w > geometry.max_width) { new_w = geometry.max_width; }
+    if (new_h > geometry.max_height) { new_h = geometry.max_height; }
+  }
+
+  if (new_w != w || new_h != h) {
+    gtk_window_resize(window, new_w, new_h);
+  }
+}
+
 void MvdLinuxWindow::SetTitleBarStyle(const gchar* style, bool wbv) {
   if (!window) {
     return;
   }
   window_button_visibility = wbv;
   const bool hidden = g_strcmp0(style, "hidden") == 0;
+
+  // Capture the current window size before any changes so we can restore it
+  // in the idle callback (GTK auto-grows/shrinks by hb_h when toggling the
+  // header bar, and gtk_window_resize in the idle corrects this).
+  gint orig_w = 0, orig_h = 0;
+  gtk_window_get_size(window, &orig_w, &orig_h);
+
   GtkWidget* hb = HeaderBarOf(window);
+  gint hb_h = 0;
+  if (hb && !gtk_window_is_maximized(window) && !is_fullscreen) {
+    if (hidden && gtk_widget_is_visible(hb)) {
+      // Measure and persist the header bar height while it is still visible.
+      // gtk_widget_get_preferred_height of a hidden widget returns 0 on some
+      // GTK versions, so we cache it here for the reverse (show) direction.
+      hb_h = gtk_widget_get_allocated_height(hb);
+      // g_print("[MVD]   hb_h: %d\n", hb_h);
+      // if (hb_h <= 1) {
+        // gtk_widget_get_preferred_height(hb, nullptr, &hb_h);
+      // }
+      stored_hb_h = hb_h;
+    } else if (!hidden && !gtk_widget_is_visible(hb)) {
+      // hb_h = stored_hb_h;
+    }
+
+  }
+
   if (hb) {
     if (!hidden) {
       gtk_window_set_decorated(window, TRUE);
     }
     gtk_widget_set_visible(hb, !hidden);
+
+    gint win_w_after = 0, win_h_after = 0;
+    gtk_window_get_size(window, &win_w_after, &win_h_after);
+    // g_print("[MVD]   after set_visible: %dx%d\n", win_w_after, win_h_after);
+
     if (GTK_IS_HEADER_BAR(hb)) {
       if (wbv) {
         gtk_header_bar_set_decoration_layout(GTK_HEADER_BAR(hb), nullptr);
@@ -477,6 +542,7 @@ void MvdLinuxWindow::SetTitleBarStyle(const gchar* style, bool wbv) {
         gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(hb), FALSE);
       }
     }
+
     // When the header bar is hidden the CSD frame still has rounded top
     // corners, but Flutter's GL content is rectangular and protrudes past
     // them. Fix: override the CSS border-radius of the window content area
@@ -499,19 +565,54 @@ void MvdLinuxWindow::SetTitleBarStyle(const gchar* style, bool wbv) {
         hidden ? "window.csd { border-radius: 0; }\n"
                  "decoration { border-radius: 0; }" : "",
         -1, nullptr);
+
+    // Clear the shadow cache: it was measured with the header bar visible and
+    // includes the header bar height in the GDK-GTK delta. After toggling
+    // visibility the shadow extents change; on_configure will re-measure.
+    cached_shadow_w = 0;
+    cached_shadow_h = 0;
   } else {
     gtk_window_set_decorated(window, !hidden);
   }
+  
+  ReapplyGeometryHints();
+
   if (title_bar_style) {
     g_free(title_bar_style);
   }
   title_bar_style = g_strdup(style);
 
-  // Hiding the header bar (or changing the decorated state) causes GTK to
-  // schedule a layout pass that may reset xdg_toplevel.set_min/max_size.
-  // Re-apply immediately so GTK's upcoming compute_hints pass sees our values.
-  ReapplyGeometryHints();
+  // After GTK's layout pass (auto-grows/shrinks the window by hb_h and shifts
+  // the content position), restore the original size AND compensate the Y
+  // position so visible content stays at the same screen coordinates:
+  //   HIDE: content shifts UP inside surface → move surface DOWN by hb_h.
+  //   SHOW: inverse — move surface UP by hb_h.
+  // if (!gtk_window_is_maximized(window) && !is_fullscreen && orig_w > 0 && orig_h > 0) {
+    // struct Args { MvdLinuxWindow* self; gint w, h, hb_h; bool hidden; };
+    // auto* args = new Args{this, orig_w, orig_h, hb_h, hidden};
+    // g_idle_add_full(
+        // G_PRIORITY_LOW,
+        // [](gpointer data) -> gboolean {
+          // auto* a = static_cast<Args*>(data);
+          // gtk_window_resize(a->self->window, a->w, a->h);
+          // gint cx = 0, cy = 0;
+          // gtk_window_get_position(window, &cx, &cy);
+          // GtkWindowPosition position = GtkWindowPosition();
+          // gtk_window_set_position(window, GTK_WIN_POS_MOUSE);
+          // if (a->hb_h > 0) {
+          //   gint cx = 0, cy = 0;
+          //   gtk_window_get_position(a->self->window, &cx, &cy);
+          //   gtk_window_move(a->self->window, cx,
+          //                   cy + (a->hidden ? a->hb_h : -a->hb_h));
+          // }
+          // g_print("[MVD]   hb_h3: %d\n", hb_h);
+          // delete a;
+          // return G_SOURCE_REMOVE;
+        // },
+        // args, nullptr);
+  // }
 }
+
 
 FlValue* MvdLinuxWindow::GetTitleBarStyle() {
   const char* style = title_bar_style ? title_bar_style : "normal";

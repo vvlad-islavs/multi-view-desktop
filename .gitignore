@@ -13,6 +13,7 @@
 migrate_working_dir/
 
 #linux
+compile_commands.json
 ssh-key
 ssh-key.pub
 

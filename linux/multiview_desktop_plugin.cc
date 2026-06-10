@@ -193,7 +193,14 @@ static gboolean on_focus_out(GtkWidget*, GdkEvent*, gpointer data) {
 }
 
 static gboolean on_configure(GtkWidget*, GdkEventConfigure*, gpointer data) {
-  emit_event("resize", pointer_to_view_id(data));
+  const int64_t view_id = pointer_to_view_id(data);
+  emit_event("resize", view_id);
+  // Keep the shadow cache fresh so ReapplyGeometryHints always has a correct
+  // delta regardless of when it is called (including during maximized/fullscreen).
+  auto wm = MvdLinuxWindow::Find(view_id);
+  if (wm) {
+    wm->RefreshShadowCache();
+  }
   return FALSE;
 }
 
@@ -205,6 +212,36 @@ static void on_map(GtkWidget*, gpointer data) {
   }
 }
 
+// Re-apply geometry hints when the window leaves a maximized or fullscreen
+// state. While maximized/fullscreen the CSD shadow is hidden (shadow delta ==
+// 0), so any ReapplyGeometryHints call issued during that time used the cached
+// shadow. Now that the window is back in the normal state the CSD shadow is
+// restored and we must re-apply with the live (correct) measurement.
+static gboolean on_window_state(GtkWidget*, GdkEventWindowState* event,
+                                gpointer data) {
+  const GdkWindowState left = static_cast<GdkWindowState>(
+      event->changed_mask & ~event->new_window_state);
+  const bool left_max_or_fs =
+      (left & GDK_WINDOW_STATE_MAXIMIZED) ||
+      (left & GDK_WINDOW_STATE_FULLSCREEN);
+  const int64_t view_id = pointer_to_view_id(data);
+  auto wm = MvdLinuxWindow::Find(view_id);
+  if (!wm) { return FALSE; }
+
+  // Keep our own is_fullscreen flag in sync with the actual GDK state so it
+  // stays correct even when fullscreen is exited by the WM (e.g. Escape key)
+  // rather than through SetFullScreen().
+  if (event->changed_mask & GDK_WINDOW_STATE_FULLSCREEN) {
+    wm->is_fullscreen =
+        (event->new_window_state & GDK_WINDOW_STATE_FULLSCREEN) != 0;
+  }
+
+  if (left_max_or_fs) {
+    wm->ReapplyGeometryHints();
+  }
+  return FALSE;
+}
+
 static void connect_window_signals(GtkWindow* window, int64_t view_id) {
   gpointer id_data = view_id_to_pointer(view_id);
   g_signal_connect(window, "delete-event", G_CALLBACK(on_delete), id_data);
@@ -212,6 +249,8 @@ static void connect_window_signals(GtkWindow* window, int64_t view_id) {
   g_signal_connect(window, "focus-out-event", G_CALLBACK(on_focus_out), id_data);
   g_signal_connect(window, "configure-event", G_CALLBACK(on_configure), id_data);
   g_signal_connect(window, "map", G_CALLBACK(on_map), id_data);
+  g_signal_connect(window, "window-state-event",
+                   G_CALLBACK(on_window_state), id_data);
 }
 
 static void register_window(GtkWindow* window, FlView* view, int64_t view_id) {
