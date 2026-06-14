@@ -1044,7 +1044,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   bool _isLastMacosRootView(int id) =>
-      ((_anchorCandidates(excludingViewId: id).isEmpty || !config.generalParams.enableDynamicAnchor) &&
+      ((_anchorCandidates(excludingViewId: id).isEmpty) &&
       config.macosParams.saveLastWindowToReopen &&
       _anchorId == id);
 
