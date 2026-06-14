@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
@@ -24,6 +26,9 @@ import 'view_root.dart' show globalRootState;
 /// await MultiViewDesktop.closeApp();
 /// MultiViewDesktop.addListenerForView(id, listener);
 /// ```
+
+typedef WindowInfo = ({bool isModal, bool isDialog});
+
 class MultiViewDesktop {
   final int _realId;
 
@@ -57,10 +62,16 @@ class MultiViewDesktop {
   static int getIdByContext(BuildContext context) => _manager.realToShiftedId(_getRealId(context));
 
   /// Snapshot of public view IDs for all secondary windows currently open.
-  static List<int> get allViewsIds => List.unmodifiable(globalRootState.allShiftedViewsId);
+  static List<int> get allWindowViewIds => List.unmodifiable(globalRootState.allShiftedViewsId);
+
+  /// Snapshot of public view IDs for all dialogs currently open.
+  static List<int> get allDialogViewsIds => List.unmodifiable(globalRootState.dialogsIdsNotif.value);
 
   /// Live-updating notifier; fires whenever a window opens or closes.
-  static ValueNotifier<List<int>> get allViewsIdsNotifier => globalRootState.windowsIdsNotif;
+  static ValueNotifier<List<int>> get allWindowIdsNotifier => globalRootState.windowsIdsNotif;
+
+  /// Live-updating notifier; fires whenever a dialog opens or closes.
+  static ValueNotifier<List<int>> get allDialogIdsNotifier => globalRootState.dialogsIdsNotif;
 
   // ---------------------------------------------------------------------------
   // App-wide: lifecycle
@@ -77,7 +88,7 @@ class MultiViewDesktop {
     final realId = await _manager.createWindow(
       newOpts: options,
       onCreated: (int newRealId) async {
-        globalRootState.addView(
+        globalRootState.addWindowView(
           newRealId,
           (context) => child(context, _manager.realToShiftedId(newRealId)),
           parentContext: parent,
@@ -88,6 +99,36 @@ class MultiViewDesktop {
     );
 
     return _manager.realToShiftedId(realId);
+  }
+
+  /// Opens a dialog window bound to [parentContext].
+  ///
+  /// See [openDialog] for the full documentation.
+  @internal
+  static Future<T?> addDialog<T>(
+    Widget Function(BuildContext context, int publicId) child, {
+    required BuildContext parentContext,
+    DialogOptions? options,
+  }) async {
+    final parentRealId = _getRealId(parentContext);
+    final completer = Completer<T>();
+    await _manager.createDialog(
+      newOpts: options,
+      parentRealId: parentRealId,
+      onCreated: (int newRealId) async {
+        globalRootState.addDialogView(
+          newRealId,
+          (context) => child(context, _manager.realToShiftedId(newRealId)),
+          parentContext: parentContext,
+          parentId: parentRealId,
+          isModalDialog: options?.modal ?? false,
+          focusOnClose: options?.blockParentCloseAndFocus ?? false,
+          closeCompleter: completer,
+        );
+      },
+    );
+
+    return completer.future;
   }
 
   /// Closes all windows using [closeMode] or the mode set in [MultiAppConfig].
@@ -152,10 +193,21 @@ class MultiViewDesktop {
   // Per-window: lifecycle
   // ---------------------------------------------------------------------------
 
+  WindowInfo getWindowInfo() {
+    return _manager.windowType(_realId);
+  }
+
   /// Soft-closes this window. If `setPreventClose(true)` was set, fires
   /// [WindowListener.onWindowClose] instead of destroying the window.
   Future<void> closeWindow() async {
-    await _manager.closeWindow(_realId);
+    await _manager.closeView(_realId);
+  }
+
+  /// Closes dialog by context.
+  /// Params:
+  /// - [res]: optional res that return `await openDialog`
+  Future<void> closeDialog<T>([T? res]) async {
+    await _manager.closeView<T>(_realId, dialogRes: res);
   }
 
   /// Returns whether close is currently blocked for this window.
@@ -169,7 +221,7 @@ class MultiViewDesktop {
     await _manager.setPreventClose(_realId, isPreventClose);
   }
 
-  /// Aborts an in-progress [CloseMode.cascade] that is waiting on this window.
+  /// Aborts an in-progress [CloseMode.softCascade] that is waiting on this window.
   Future<void> cancelCascadeClose() async {
     await _manager.cancelCascadeClose(_realId);
   }
@@ -189,12 +241,24 @@ class MultiViewDesktop {
   }
 
   /// Changes the title-bar style. Pass [TitleBarStyle.hidden] for a frameless window.
-  Future<void> setTitleBarStyle(TitleBarStyle style, {bool windowButtonVisibility = true}) async {
-    await _manager.setTitleBarStyle(_realId, style, windowButtonVisibility: windowButtonVisibility);
+  Future<void> setTitleBarStyle(
+    TitleBarStyle style, {
+    bool closeVisibility = true,
+    bool maximizeVisibility = true,
+    bool minimizeVisibility = true,
+  }) async {
+    await _manager.setTitleBarStyle(
+      _realId,
+      style,
+      closeVisibility: closeVisibility,
+      maximizeVisibility: maximizeVisibility,
+      minimizeVisibility: minimizeVisibility,
+    );
   }
 
   /// Returns the current title-bar style and button visibility.
-  Future<({TitleBarStyle? style, bool? buttonVisibility})> getTitleBarStyle() async {
+  Future<({TitleBarStyle? style, bool? closeVisibility, bool? maximizeVisibility, bool? minimizeVisibility})>
+  getTitleBarStyle() async {
     return await _manager.getTitleBarStyle(_realId);
   }
 
@@ -266,6 +330,10 @@ class MultiViewDesktop {
   /// Positions the window using [alignment] on the display under the cursor.
   Future<void> setAlignment(Alignment alignment) async {
     await _manager.setAlignment(_realId, alignment);
+  }
+
+  Future<void> setDialogAlignment(Alignment alignment) async {
+    await _manager.setAlignment(_realId, alignment, insideParent: true);
   }
 
   /// Sets the minimum size the user can resize the window to.

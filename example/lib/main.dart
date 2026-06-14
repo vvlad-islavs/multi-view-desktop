@@ -10,8 +10,12 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runMultiApp(
     home: (globalScopeContext, id) => const MainWindowRoot(),
+    globalScope: (child){
+      //any providers...
+      return child;
+    },
     config: MultiAppConfig(
-      generalParams: MultiPlatformParams(enableDynamicAnchor: true, closeMode: CloseMode.cascade),
+      generalParams: MultiPlatformParams(enableDynamicAnchor: true, closeMode: CloseMode.softCascade),
       macosParams: MacosPlatformParams(
         saveLastWindowToReopen: true,
         closeAppAfterLastWindowClosed: false,
@@ -27,7 +31,8 @@ void main() {
         windowButtonVisibility: true,
         title: 'Window 1',
       ),
-      observers: [AppWindowObserver()]
+      globalDialogOptions: DialogOptions(modal: false, blockParentCloseAndFocus: false, windowButtonVisibility: true),
+      observers: [AppWindowObserver()],
     ),
   );
 }
@@ -35,12 +40,22 @@ void main() {
 class AppWindowObserver extends WindowObserver {
   @override
   void onWindowOpened(int viewId, {int? parentViewId}) {
-    log('window $viewId opened', name: 'MVD');
+    log('window $viewId opened, parent $parentViewId', name: 'MVD');
   }
 
   @override
   void onWindowClosed(int viewId) {
     log('window $viewId closed', name: 'MVD');
+  }
+
+  @override
+  void onDialogClose(int dialogId) {
+    log('Dialog $dialogId closed', name: 'MVD');
+  }
+
+  @override
+  void onDialogOpened(int dialogId, {required int parentViewId}) {
+    log('dialog $dialogId opened, parent $parentViewId', name: 'MVD');
   }
 
   @override
@@ -51,6 +66,11 @@ class AppWindowObserver extends WindowObserver {
   @override
   void onWindowEvent(int viewId, String eventName) {
     log('window event for view $viewId: $eventName', name: 'MVD');
+  }
+
+  @override
+  void onDialogEvent(int viewId, String eventName) {
+    log('dialog event for view $viewId: $eventName', name: 'MVD');
   }
 }
 

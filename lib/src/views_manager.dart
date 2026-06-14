@@ -18,8 +18,26 @@ abstract class ViewsManager {
   /// [parent] will be in future for parent-window placement.
   Future<int> createWindow({WindowOptions? newOpts, required Future<void> Function(int) onCreated, int? parent});
 
+  /// Creates a dialog window bound to [parentRealId].
+  ///
+  /// Dialogs differ from regular windows in the following ways:
+  /// - They always close when their parent closes, regardless of [CloseMode].
+  /// - They cannot enter full-screen mode.
+  /// - They are hidden from the taskbar / Mission Control on creation.
+  /// - They are centered over their parent window.
+  ///
+  /// When [modal] is `true`, the parent window's [DialogModalLayer] will show a
+  /// scrim for the duration that this dialog is open.
+  Future<int> createDialog({
+    DialogOptions? newOpts,
+    required int parentRealId,
+    required Future<void> Function(int) onCreated,
+  });
+
+  WindowInfo windowType(int viewId);
+
   /// Soft closes [viewId]
-  Future<void> closeWindow(int viewId);
+  Future<void> closeView<T>(int viewId, {T? dialogRes});
 
   /// Closes all views by using [closeMode] strategy or mode from [runMultiApp -> config -> closeMode] that can be overridden with [setAppCloseMode]
   Future<void> closeApp({CloseMode? closeMode});
@@ -30,7 +48,7 @@ abstract class ViewsManager {
   /// Blocks or allows closing [viewId]; blocked close emits [WindowListener.onWindowClose].
   Future<void> setPreventClose(int viewId, bool isPreventClose);
 
-  /// Aborts an in-progress [CloseMode.cascade] waiting on [viewId].
+  /// Aborts an in-progress [CloseMode.softCascade] waiting on [viewId].
   Future<void> cancelCascadeClose(int viewId);
 
   /// Updates the strategy used when the main window close button is pressed.
@@ -43,9 +61,9 @@ abstract class ViewsManager {
 
   Future<void> setTitle(int viewId, String title);
 
-  Future<void> setTitleBarStyle(int viewId, TitleBarStyle style, {bool windowButtonVisibility = true});
+  Future<void> setTitleBarStyle(int viewId, TitleBarStyle style,{bool closeVisibility = true, bool maximizeVisibility = true, bool minimizeVisibility = true});
 
-  Future<({TitleBarStyle? style, bool? buttonVisibility})> getTitleBarStyle(int viewId);
+  Future<({TitleBarStyle? style, bool? closeVisibility, bool? maximizeVisibility, bool? minimizeVisibility})> getTitleBarStyle(int viewId);
 
   /// Removes native title bar and frame chrome.
   Future<void> setAsFrameless(int viewId);
@@ -81,7 +99,7 @@ abstract class ViewsManager {
 
   Future<void> center(int viewId);
 
-  Future<void> setAlignment(int viewId, Alignment alignment);
+  Future<void> setAlignment(int viewId, Alignment alignment, {bool insideParent = false});
 
   Future<void> setMinimumSize(int viewId, Size size);
 

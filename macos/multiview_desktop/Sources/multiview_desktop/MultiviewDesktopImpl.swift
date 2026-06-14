@@ -91,6 +91,9 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     private(set) var mainViewId: Int64?
 
     private var windowStates: [Int64: WindowState] = [:]
+    /// Maps a sheet (modal dialog) viewId to the NSWindow it is attached to.
+    /// Populated in [createModalDialogWindow]; cleared when the sheet is dismissed.
+    private var sheetParents: [Int64: NSWindow] = [:]
     private var channel: FlutterMethodChannel?
     private var activationObserver: NSObjectProtocol?
 
@@ -217,6 +220,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             result(windows[viewId] != nil)
         case "createWindow":
             createSecondaryWindow(args: args, result: result)
+        case "createModalDialog":
+            createModalDialogWindow(args: args, result: result)
         case "setTerminateAfterLastWindowClosed":
             let terminate = args["terminateAfterLastWindowClosed"] as? Bool ?? true
             setTerminateAfterLastWindowClosed(terminate)
@@ -349,6 +354,95 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         result(nil)
     }
 
+    // MARK: - Modal dialog (sheet)
+
+    /// Creates a modal dialog window attached to its parent via `NSWindow.beginSheet(_:)`.
+    ///
+    /// The sheet slides down from the parent's title bar, dims the parent window,
+    /// and blocks all user input to it until the sheet is dismissed.  When the
+    /// sheet window is closed through the normal soft-close cycle, `endSheet` is
+    /// called automatically in `windowShouldClose` before the window is destroyed.
+    private func createModalDialogWindow(args: [String: Any], result: FlutterResult) {
+        guard let engine else {
+            result(FlutterError(code: "NO_ENGINE", message: "Engine not available", details: nil))
+            return
+        }
+
+        let token = args["token"] as? Int ?? 0
+        let parentId = int64(from: args, key: "parentId")
+
+        guard let parentWindow = windows[parentId] else {
+            result(FlutterError(
+                code: "NO_PARENT",
+                message: "No parent window for viewId \(parentId)",
+                details: nil
+            ))
+            return
+        }
+
+        let width  = args["width"]  as? CGFloat ?? 400
+        let height = args["height"] as? CGFloat ?? 300
+        let title  = args["title"]  as? String  ?? ""
+        let modal  = args["modal"]  as? Bool  ?? false
+        let position = args["position"] as? [String: Any]
+        let titleBarStyleName      = args["titleBarStyle"]         as? String ?? "normal"
+        let windowButtonVisibility = args["windowButtonVisibility"] as? Bool   ?? true
+
+        let newController = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
+        let viewId = newController.viewIdentifier
+
+        // Sheets are typically non-miniaturizable and non-zoomable.
+        let styleMask: NSWindow.StyleMask = [.titled, .closable, .resizable]
+
+        let newWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+            styleMask: styleMask,
+            backing: .buffered,
+            defer: false
+        )
+        newWindow.contentViewController = newController
+        newWindow.setContentSize(NSSize(width: width, height: height))
+        newWindow.title = title
+        newWindow.isReleasedWhenClosed = false
+
+        if titleBarStyleName == "hidden" {
+            newWindow.titleVisibility = .hidden
+            newWindow.titlebarAppearsTransparent = true
+            newWindow.styleMask.insert(.fullSizeContentView)
+        }
+        // Sheets do not have miniaturize / zoom traffic-light buttons.
+        newWindow.standardWindowButton(.closeButton)?.isHidden    = !windowButtonVisibility
+        newWindow.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        newWindow.standardWindowButton(.zoomButton)?.isHidden        = true
+
+        registerWindow(newWindow, viewId: viewId)
+
+        if modal {
+            parentWindow.beginSheet(newWindow)
+            sheetParents[viewId] = parentWindow
+        } else {
+            if let position,
+            let x = cgFloat(from: position["x"]),
+            let y = cgFloat(from: position["y"]) {
+                var frameRect = newWindow.frame
+                frameRect.topLeft = CGPoint(x: x, y: y)
+                newWindow.setFrameOrigin(frameRect.origin)
+            } else {
+                newWindow.center()
+            }
+//            newWindow.makeKeyAndOrderFront(nil)
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.channel?.invokeMethod(
+                "onEvent",
+                arguments: ["eventName": "viewCreated", "viewId": Int(viewId), "token": token]
+            )
+        }
+
+        result(nil)
+    }
+
     // MARK: - NSWindowDelegate
 
     /// Implements soft-close: main pre-confirm -> prevent-close -> confirm-close -> destroy.
@@ -373,7 +467,14 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             return false
         }
 
-        // emitEvent("close", viewId: viewId)
+
+//        if let parentWindow = sheetParents[viewId] {
+//            sheetParents.removeValue(forKey: viewId)
+//            parentWindow.endSheet(sender)
+//            sender.close()
+//            return false
+//        }
+
         return true
     }
 
@@ -382,6 +483,12 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
               let viewId = viewIdForWindow(closingWindow)
         else {
             return
+        }
+
+
+        if let parentWindow = sheetParents[viewId] {
+            parentWindow.endSheet(closingWindow)
+            sheetParents.removeValue(forKey: viewId)
         }
 
         windows.removeValue(forKey: viewId)
@@ -517,6 +624,18 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             window.performClose(nil)
             result(nil)
 
+        case "destroyWindow":
+            // Synchronous forced destruction — bypasses windowShouldClose entirely.
+            // For sheet windows, endSheet is called first so the parent window is
+            // unblocked before the sheet is destroyed.  This guarantees that any
+            // subsequent performClose on the parent is not silently dropped by macOS.
+            if let parentWindow = sheetParents[viewId] {
+                sheetParents.removeValue(forKey: viewId)
+                parentWindow.endSheet(window)
+            }
+            window.close()
+            result(nil)
+
         case "isPreventClose":
             result(state.isPreventClose)
 
@@ -539,20 +658,23 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         case "getTitleBarStyle":
             let titleBarStyle: String = window.titleVisibility == .hidden ? "hidden" : "normal"
 
-            let buttonVisibility: Bool? =
-                (window.standardWindowButton(.closeButton)?.isHidden ?? true)
-                    && (window.standardWindowButton(.miniaturizeButton)?.isHidden ?? true)
-                    && (window.standardWindowButton(.zoomButton)?.isHidden ?? true)
+            let closeVisibility: Bool? = !(window.standardWindowButton(.closeButton)?.isHidden ?? true)
+            let minimizeVisibility: Bool? = !(window.standardWindowButton(.miniaturizeButton)?.isHidden ?? true)
+            let maximizeVisibility: Bool? = !(window.standardWindowButton(.zoomButton)?.isHidden ?? true)
             let res: [String: Any] = [
                 "style": titleBarStyle,
-                "windowButtonVisibility": buttonVisibility as Any
+                "closeVisibility": closeVisibility as Any,
+                "maximizeVisibility": maximizeVisibility as Any,
+                "minimizeVisibility": minimizeVisibility as Any
             ]
 
             result(res)
 
         case "setTitleBarStyle":
             let titleBarStyle: String = args?["titleBarStyle"] as? String ?? "normal"
-            let buttonVisibility: Bool = args?["windowButtonVisibility"] as? Bool ?? true
+            let closeVisibility: Bool = args?["closeVisibility"] as? Bool ?? true
+            let maximizeVisibility: Bool = args?["maximizeVisibility"] as? Bool ?? true
+            let minimizeVisibility: Bool = args?["minimizeVisibility"] as? Bool ?? true
 
             if titleBarStyle == "hidden" {
                 window.titleVisibility = .hidden
@@ -567,12 +689,15 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             window.isOpaque = false
             window.hasShadow = true
 
-            let titleBarView: NSView = (window.standardWindowButton(.closeButton)?.superview)!.superview!
-            titleBarView.isHidden = false
+            // The superview chain may be absent for sheet windows whose title-bar
+            // structure differs from a standard top-level window; skip safely.
+            if let titleBarView = window.standardWindowButton(.closeButton)?.superview?.superview {
+                titleBarView.isHidden = false
+            }
 
-            window.standardWindowButton(.closeButton)?.isHidden = !buttonVisibility
-            window.standardWindowButton(.miniaturizeButton)?.isHidden = !buttonVisibility
-            window.standardWindowButton(.zoomButton)?.isHidden = !buttonVisibility
+            window.standardWindowButton(.closeButton)?.isHidden = !closeVisibility
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = !minimizeVisibility
+            window.standardWindowButton(.zoomButton)?.isHidden = !maximizeVisibility
 
             result(nil)
 

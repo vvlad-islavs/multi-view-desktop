@@ -34,7 +34,7 @@
 /// ```
 ///
 /// All [viewId] values are the public (shifted) IDs, consistent with
-/// [MultiViewDesktop.getIdByContext] and [MultiViewDesktop.allViewsIds].
+/// [MultiViewDesktop.getIdByContext] and [MultiViewDesktop.allWindowViewIds].
 abstract class WindowObserver {
   /// Called after a new OS window has been opened and its widget tree
   /// registered.
@@ -44,10 +44,24 @@ abstract class WindowObserver {
   /// [openWindow], or `null` when no parent context was passed.
   void onWindowOpened(int viewId, {int? parentViewId}) {}
 
+
+  /// Called after a new OS dialog has been opened and its widget tree
+  /// registered.
+  ///
+  /// [viewId] is the public view ID of the new dialog.
+  /// [parentViewId] is the public view ID of the window that called
+  /// [openWindow]
+  void onDialogOpened(int dialogId, {required int parentViewId}) {}
+
   /// Called after an OS window has been closed and its widget tree disposed.
   ///
   /// [viewId] is the public view ID of the closed window.
   void onWindowClosed(int viewId) {}
+
+  /// Called after an OS dialog has been closed and its widget tree disposed.
+  ///
+  /// [viewId] is the public view ID of the closed window.
+  void onDialogClose(int dialogId) {}
 
   /// Called when the anchor window changes.
   ///
@@ -71,4 +85,17 @@ abstract class WindowObserver {
   /// cross-window logging or analytics without needing a [WindowListener]
   /// mixin in every widget.
   void onWindowEvent(int viewId, String eventName) {}
+
+
+  /// Called for every native dialog event received by this view.
+  ///
+  /// [eventName] is the raw event name from the native layer:
+  /// `focus`, `blur`, `maximize`, `unmaximize`,
+  /// `resize`, `resized`, `move`, `moved`, `close`.
+  ///
+  ///
+  /// Fires alongside the individual [WindowListener] callbacks. Useful for
+  /// cross-window logging or analytics without needing a [WindowListener]
+  /// mixin in every widget.
+  void onDialogEvent(int viewId, String eventName) {}
 }
