@@ -21,9 +21,13 @@ class DragToResizeArea extends StatelessWidget {
     this.enableResizeEdge,
   });
 
+  /// Which edge or corner initiates the native resize drag.
   final ResizeEdge resizeEdge;
+
+  /// Hit target shown to the user (often a thin [SizedBox] on the window edge).
   final Widget child;
 
+  /// When false, dragging this area does not start a resize. Defaults to enabled.
   final bool? enableResizeEdge;
 
   @override

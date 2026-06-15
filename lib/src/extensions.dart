@@ -22,9 +22,20 @@ extension MvdContext on BuildContext {
     DialogOptions? options,
   }) => run_app.openDialog<T>(childBuilder, parentContext: this, options: options);
 
-  /// Closes the dialog for this context. [res] completes the [openDialog] future.
+  /// Closes the dialog for this context.
+  ///
+  /// [res] completes the `await openDialog<T>()` future on the caller side.
+  ///
+  /// ```dart
+  /// ElevatedButton(
+  ///   onPressed: () => context.closeDialog('ok'),
+  ///   child: const Text('Save'),
+  /// )
+  /// ```
   Future<void> closeDialog<T>([T? res]) => MultiViewDesktop.of(this).closeDialog(res);
 
   /// [MultiViewDesktop] instance for the window that owns this context.
+  ///
+  /// Same as [MultiViewDesktop.of](this).
   MultiViewDesktop get viewController => MultiViewDesktop.of(this);
 }

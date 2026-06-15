@@ -48,13 +48,19 @@ class AppShellController {
   /// Latest snapshot applied to secondary and dialog entry shells.
   AppShellSnapshot? get snapshot => _registry.snapshot;
 
+  /// [Listenable] that fires when [snapshot] changes. Use in [ListenableBuilder].
   Listenable get listenable => _registry;
 
+  /// Replaces the entire shell snapshot. Rebuilds all secondary and dialog views.
   void apply(AppShellSnapshot snapshot) => _registry.replace(snapshot);
 
+  /// Merges [patch] into the current snapshot. Rebuilds secondary and dialog views.
   void patch(AppShellPatch patch) => _registry.patch(patch);
 
   /// Replaces [snapshot] with app-wide fields copied from [app].
+  ///
+  /// Useful when the main window uses [MaterialApp] and you want to push its
+  /// settings to secondary windows manually.
   void applyFromMaterialApp(MaterialApp app) =>
       _registry.replace(AppShellSnapshot.fromMaterialApp(app));
 

@@ -3,9 +3,7 @@ import 'package:flutter/material.dart';
 import 'app_shell/view_shell_overrides.dart';
 import 'title_bar_style.dart';
 
-/// Initial configuration applied to a window when it is first created.
-///
-/// Pass to [addWindow] to control the initial appearance and position.
+/// Pass to [openWindow] to control initial appearance and position.
 class WindowOptions {
   const WindowOptions({
     this.size,
@@ -55,10 +53,10 @@ class WindowOptions {
   /// Whether the window stays above other application windows.
   final bool? alwaysOnTop;
 
-/// Per-view overrides merged on top of [MultiViewDesktop.appShell].
-///
-/// Set [ViewShellOverrides.appearance] for theme or locale on this window only.
-/// Set [ViewShellOverrides.routerConfig], [ViewShellOverrides.home], or [routes]
-/// for a dedicated navigator or router stack on this view.
+  /// Per-view overrides merged on top of [MultiViewDesktop.appShell].
+  ///
+  /// Set [ViewShellOverrides.appearance] for theme or locale on this window only.
+  /// Set [ViewShellOverrides.routerConfig], [ViewShellOverrides.home], or [routes]
+  /// for a dedicated navigator or router stack on this view.
   final ViewShellOverrides? shellOverrides;
 }

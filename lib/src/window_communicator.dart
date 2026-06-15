@@ -50,10 +50,14 @@ abstract class WindowCommunicator {
   /// Delivers [message] to every active listener registered for [viewId]
   /// via [onDirect].
   ///
-  /// If no one is listening the message is silently dropped
+  /// Returns nothing. If no listener is subscribed, the message is dropped.
   void send(int viewId, dynamic message);
 
+  /// Delivers [message] to every view subscribed to [onBroadcast].
+  ///
+  /// Returns nothing. If no listener is subscribed, the message is dropped.
   void broadcast(dynamic message);
 
+  /// Releases stream controllers. Called internally on app shutdown.
   Future<void> dispose();
 }

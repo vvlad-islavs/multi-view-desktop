@@ -20,6 +20,7 @@ class DragToMoveArea extends StatelessWidget {
     required this.child,
   });
 
+  /// Child widget that receives drag gestures to move the window.
   final Widget child;
 
   @override

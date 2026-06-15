@@ -78,31 +78,72 @@ class ViewShellOverrides {
   // Navigation (per-view only)
   // ---------------------------------------------------------------------------
 
+  /// Navigator key for this view only.
   final GlobalKey<NavigatorState>? navigatorKey;
+
+  /// Scaffold messenger key for this view only.
   final GlobalKey<ScaffoldMessengerState>? scaffoldMessengerKey;
+
+  /// Root widget when this view uses imperative routing instead of a router.
   final Widget? home;
+
+  /// Named routes map for this view.
   final Map<String, WidgetBuilder>? routes;
+
+  /// Initial route name when [routes] is used.
   final String? initialRoute;
+
+  /// Route generator for this view.
   final RouteFactory? onGenerateRoute;
+
+  /// Builds the initial route stack for this view.
   final InitialRouteListFactory? onGenerateInitialRoutes;
+
+  /// Fallback route generator for unknown names.
   final RouteFactory? onUnknownRoute;
+
+  /// Called when a [NavigationNotification] is dispatched in this view.
   final NotificationListenerCallback<NavigationNotification>? onNavigationNotification;
+
+  /// Observers attached to this view's navigator.
   final List<NavigatorObserver>? navigatorObservers;
+
+  /// Wraps the navigator for this view.
   final TransitionBuilder? builder;
+
+  /// Window title string used by the entry shell on this view.
   final String? title;
+
+  /// Generates the title from [BuildContext] on this view.
   final GenerateAppTitle? onGenerateTitle;
+
+  /// Router config for this view (Flutter 3.7+ declarative routing).
   final RouterConfig<Object>? routerConfig;
+
+  /// Route information provider for this view's router.
   final RouteInformationProvider? routeInformationProvider;
+
+  /// Route information parser for this view's router.
   final RouteInformationParser<Object>? routeInformationParser;
+
+  /// Router delegate for this view.
   final RouterDelegate<Object>? routerDelegate;
+
+  /// Back button dispatcher for this view's router.
   final BackButtonDispatcher? backButtonDispatcher;
+
+  /// Custom [PageRoute] factory for this view.
   final PageRouteFactory? pageRouteBuilder;
+
+  /// Restoration scope id for this view's navigator.
   final String? restorationScopeId;
 
   /// Whether this view uses a router-based entry instead of [home].
   bool get usesRouter => routerConfig != null || routerDelegate != null;
 
   /// Combines [base] with [delta]. Non-null fields in [delta] replace [base].
+  ///
+  /// Returns the merged overrides. Used internally when patching view shells.
   static ViewShellOverrides merge(ViewShellOverrides? base, ViewShellOverrides delta) {
     if (base == null) return delta;
     return ViewShellOverrides(
