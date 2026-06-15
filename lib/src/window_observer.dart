@@ -68,7 +68,7 @@ abstract class WindowObserver {
   /// The anchor is the root window that receives app-level close events
   /// from the native close button or dock icon. It is promoted automatically
   /// when the current anchor closes, or changed manually via
-  /// [MultiViewDesktop.setAnchorId].
+  /// [MultiViewDesktop.setPublicAnchorId].
   ///
   /// [previousViewId] and [newViewId] are public view IDs, or `null`
   /// when no anchor exists (e.g. during shutdown).

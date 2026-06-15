@@ -73,6 +73,13 @@ class MultiViewDesktop {
   /// Live-updating notifier; fires whenever a dialog opens or closes.
   static ValueNotifier<List<int>> get allDialogIdsNotifier => globalRootState.dialogsIdsNotif;
 
+  /// Shared entry shell for secondary and dialog views (theme, locale, and similar).
+  ///
+  /// Update through [AppShellController.patch] from any window. This works after
+  /// the main window was closed. While the main window is open, the registry is
+  /// also synced from the main [MaterialApp] on each frame.
+  static AppShellController get appShell => globalRootState.appShell;
+
   // ---------------------------------------------------------------------------
   // App-wide: lifecycle
   // ---------------------------------------------------------------------------
@@ -93,6 +100,7 @@ class MultiViewDesktop {
           (context) => child(context, _manager.realToShiftedId(newRealId)),
           parentContext: parent,
           parentId: parentId,
+          shellOverrides: options?.shellOverrides,
         );
       },
       parent: parentId,
@@ -123,6 +131,7 @@ class MultiViewDesktop {
           parentId: parentRealId,
           isModalDialog: options?.modal ?? false,
           closeCompleter: completer,
+          shellOverrides: options?.shellOverrides,
         );
       },
     );
@@ -145,11 +154,11 @@ class MultiViewDesktop {
 
   /// Sets the anchor view by public [viewId]. Only valid for root views.
   static Future<bool> setAnchorId(int viewId) async {
-    return await _manager.setAnchorId(viewId);
+    return await _manager.setPublicAnchorId(viewId);
   }
 
   /// Returns the current anchor view ID, or `null` if none is set.
-  static int? getAnchorId() => _manager.getAnchorId();
+  static int? getAnchorId() => _manager.getPublicAnchorId();
 
   // ---------------------------------------------------------------------------
   // App-wide: listeners
@@ -224,6 +233,22 @@ class MultiViewDesktop {
   Future<void> cancelCascadeClose() async {
     await _manager.cancelCascadeClose(_realId);
   }
+
+  /// Merges [overrides] into this view's entry shell (theme/locale and navigation).
+  ///
+  /// Appearance fields in [overrides.appearance] are merged on top of the
+  /// global [appShell] snapshot. Navigation fields apply only to this view.
+  void patchViewShell(ViewShellOverrides overrides) {
+    _manager.patchViewShell(_realId, overrides);
+  }
+
+  /// Replaces this view's entry shell overrides, or clears them when null.
+  void setViewShellOverrides(ViewShellOverrides? overrides) {
+    _manager.setViewShellOverrides(_realId, overrides);
+  }
+
+  /// Current entry shell overrides for this view, if any.
+  ViewShellOverrides? get viewShellOverrides => _manager.getViewShellOverrides(_realId);
 
   // ---------------------------------------------------------------------------
   // Per-window: title and appearance

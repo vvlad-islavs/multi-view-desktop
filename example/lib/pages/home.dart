@@ -23,7 +23,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with WindowListener {
   final GlobalKey _dialogKey = GlobalKey();
-  final GlobalKey _modellessDialogKey = GlobalKey();
+  final GlobalKey _modelessDialogKey = GlobalKey();
 
   // Window state mirrors
   bool _isFullScreen = false;
@@ -190,24 +190,21 @@ class _HomePageState extends State<HomePage> with WindowListener {
     if (allDialogs.isNotEmpty) {
       for (final dialog in allDialogs) {
         // if (dialog.isModal) {
-          await MultiViewDesktop.fromId(dialog.id).closeDialog();
+        await MultiViewDesktop.fromId(dialog.id).closeDialog();
         // }
       }
     }
     final accept = await context.openDialog<bool?>(
       (ctx, id) {
         ctx.viewController.focus();
-        return MaterialApp(
-          debugShowCheckedModeBanner: false,
-          home: AlertViewDialog(
-            key: _dialogKey,
-            title: 'Close window?',
-            content: 'This window has preventClose enabled.',
-            actions: [
-              TextButton(onPressed: () => ctx.closeDialog(), child: const Text('Cancel')),
-              TextButton(onPressed: () => ctx.closeDialog<bool>(true), child: const Text('Close')),
-            ],
-          ),
+        return AlertViewDialog(
+          key: _dialogKey,
+          title: 'Close window?',
+          content: 'This window has preventClose enabled.',
+          actions: [
+            TextButton(onPressed: () => ctx.closeDialog(), child: const Text('Cancel')),
+            TextButton(onPressed: () => ctx.closeDialog<bool>(true), child: const Text('Close')),
+          ],
         );
       },
       options: DialogOptions(
@@ -301,8 +298,6 @@ class _HomePageState extends State<HomePage> with WindowListener {
     final windowId = MultiViewDesktop.of(context).id;
     final windowInfo = MultiViewDesktop.of(context).getWindowInfo();
 
-    final isDark = themeConfig.themeMode == ThemeMode.dark;
-
     return SafeArea(
       child: DialogModalLayer(
         showBarrierForNotModalDialog: true,
@@ -326,13 +321,22 @@ class _HomePageState extends State<HomePage> with WindowListener {
               // Theme (shared across all windows - no IPC needed!)
               // ----------------------------------------------------------------
               _section('SHARED STATE (same isolate)', [
-                _tile(
-                  'ThemeMode',
-                  subtitle: themeConfig.themeMode.name,
-                  trailing: Switch(
-                    value: isDark,
-                    onChanged: (_) => themeConfig.setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark),
-                  ),
+                ListenableBuilder(
+                  listenable: themeConfig,
+                  builder: (context, _) {
+                    final dark = themeConfig.themeMode == ThemeMode.dark;
+                    return _tile(
+                      'ThemeMode',
+                      subtitle: themeConfig.themeMode.name,
+                      trailing: Switch(
+                        value: dark,
+                        onChanged: (_) {
+                          MultiViewDesktop.appShell.patch(AppShellPatch(themeMode: dark ? ThemeMode.light : ThemeMode.dark));
+                          themeConfig.setThemeMode(dark ? ThemeMode.light : ThemeMode.dark);
+                        },
+                      ),
+                    );
+                  },
                 ),
                 if (!Platform.isLinux)
                   ListenableBuilder(
@@ -384,7 +388,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   subtitle: 'Open a new window',
                   onTap: () async {
                     openWindow(
-                      (ctx, viewId) => const _SecondaryWindowRoot(),
+                      (ctx, viewId) => const HomePage(),
                       options: WindowOptions(size: const Size(1000, 700), alignment: Alignment.center, title: ' '),
                     );
                   },
@@ -396,7 +400,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     onTap: () async {
                       openWindow(
                         (ctx, viewId) {
-                          return const _SecondaryWindowRoot();
+                          return const HomePage();
                         },
                         options: WindowOptions(size: const Size(1000, 700), title: ' ', alignment: Alignment.center),
                         parentContext: context,
@@ -419,7 +423,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                       await openDialog(
                         (ctx, viewId) {
                           // doOnBuilt(viewId);
-                          return _SecondaryWindowRoot();
+                          return HomePage();
                         },
                         options: DialogOptions(
                           size: const Size(450, 300),
@@ -439,7 +443,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     onTap: () async {
                       openDialog(
                         (ctx, viewId) {
-                          return const _SecondaryWindowRoot();
+                          return const HomePage();
                         },
                         options: DialogOptions(size: const Size(450, 300), title: ' ', isResizable: false, modal: true),
                         parentContext: context,

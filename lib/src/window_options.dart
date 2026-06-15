@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_shell/view_shell_overrides.dart';
 import 'title_bar_style.dart';
 
 /// Initial configuration applied to a window when it is first created.
@@ -18,6 +19,7 @@ class WindowOptions {
     this.title,
     this.fullScreen,
     this.alwaysOnTop,
+    this.shellOverrides,
   });
 
   /// Initial content size in logical pixels. Defaults to 800x600 when omitted.
@@ -52,4 +54,11 @@ class WindowOptions {
 
   /// Whether the window stays above other application windows.
   final bool? alwaysOnTop;
+
+/// Per-view overrides merged on top of [MultiViewDesktop.appShell].
+///
+/// Set [ViewShellOverrides.appearance] for theme or locale on this window only.
+/// Set [ViewShellOverrides.routerConfig], [ViewShellOverrides.home], or [routes]
+/// for a dedicated navigator or router stack on this view.
+  final ViewShellOverrides? shellOverrides;
 }

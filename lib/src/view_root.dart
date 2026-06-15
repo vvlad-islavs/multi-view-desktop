@@ -11,28 +11,49 @@ import 'package:multiview_desktop/src/native_channel.dart';
 import 'package:multiview_desktop/src/view_scope.dart';
 import 'package:multiview_desktop/src/views_manager.dart';
 
+import 'impl/cascade_close_service_impl.dart';
+import 'impl/modal_state_service.dart';
+import 'impl/window_communicator_impl.dart';
+import 'shared_entry_app.dart';
+import 'app_shell/app_shell_registry.dart';
 import 'utils/calc_window_position.dart';
+import 'utils/mapped_value_notifier.dart';
 
 // ---------------------------------------------------------------------------
 // Per-window registration (widget tree + optional parent link).
 // ---------------------------------------------------------------------------
 abstract class _ViewEntry {
-  const _ViewEntry({required this.widgetBuilder, required this.parentContext});
+  _ViewEntry({
+    required this.widgetBuilder,
+    required this.parentContext,
+    ViewShellOverrides? initialShellOverrides,
+  }) : viewShellOverrides = ValueNotifier<ViewShellOverrides?>(initialShellOverrides);
 
   final Widget Function(BuildContext) widgetBuilder;
   final BuildContext? parentContext;
+
+  /// Per-view shell overrides (appearance and navigation) for this [View].
+  final ValueNotifier<ViewShellOverrides?> viewShellOverrides;
+
+  void disposeEntryResources() => viewShellOverrides.dispose();
 }
 
 class _WindowEntry extends _ViewEntry {
-  const _WindowEntry({required super.widgetBuilder, required super.parentContext, this.parentId});
+  _WindowEntry({
+    required super.widgetBuilder,
+    required super.parentContext,
+    super.initialShellOverrides,
+    this.parentId,
+  });
 
   final int? parentId;
 }
 
 class _DialogEntry<T> extends _ViewEntry {
-  const _DialogEntry({
+  _DialogEntry({
     required super.widgetBuilder,
     required super.parentContext,
+    super.initialShellOverrides,
     required this.parentId,
     required this.isModal,
     required this.closeCompleter,
@@ -128,6 +149,10 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   ValueNotifier<List<DialogInfo>> getDialogModalNotifier(int realViewId) =>
       _viewsManagerImpl.getDialogModalPublicIdsFromRealParentIdNotifier(realViewId);
 
+  final AppShellRegistry _appShellRegistry = AppShellRegistry();
+
+  late final AppShellController appShell = AppShellController(_appShellRegistry);
+
   // --------------------------------------------------------------------------
 
   @override
@@ -136,8 +161,8 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     _rootState = this;
     _viewsManagerImpl = _ViewsManagerImpl(
       config: widget.config,
-      cascadeCloseService: _CascadeCloseService(),
-      communicator: _WindowCommunicatorImpl(),
+      cascadeCloseService: CascadeCloseService(),
+      communicator: WindowCommunicatorImpl(),
     );
     WidgetsBinding.instance.addObserver(this);
 
@@ -200,7 +225,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
 
   void _handleClose(int viewId) {
     if (!mounted) return;
-    _viewsManagerImpl.disposeView(viewId);
+    _viewsManagerImpl._disposeView(viewId);
     setState(() {});
   }
 
@@ -210,9 +235,16 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     Widget Function(BuildContext) childBuilder, {
     required BuildContext? parentContext,
     int? parentId,
+    ViewShellOverrides? shellOverrides,
   }) {
     setState(() {
-      _viewsManagerImpl.registerWindow(viewId, childBuilder, parentContext: parentContext, parentId: parentId);
+      _viewsManagerImpl.registerWindow(
+        viewId,
+        childBuilder,
+        parentContext: parentContext,
+        parentId: parentId,
+        shellOverrides: shellOverrides,
+      );
     });
   }
 
@@ -223,6 +255,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     required int parentId,
     required Completer<T?> closeCompleter,
     bool isModalDialog = false,
+    ViewShellOverrides? shellOverrides,
   }) {
     setState(() {
       _viewsManagerImpl.registerDialog<T>(
@@ -232,6 +265,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
         parentId: parentId,
         isModal: isModalDialog,
         closeCompleter: closeCompleter,
+        shellOverrides: shellOverrides,
       );
       return;
     });
@@ -264,7 +298,20 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
                 parentContext: parentContext,
                 child: ViewScope(
                   viewId: id,
-                  child: Builder(builder: (context) => entry.value.widgetBuilder(context)),
+                  child: Builder(
+                    builder: (context) {
+                      final content = entry.value.widgetBuilder(context);
+                      if (id == _viewsManagerImpl.mainRealViewId) {
+                        return MainAppShellCapture(registry: _appShellRegistry, child: content);
+                      }
+
+                      return SharedEntryApp(
+                        registry: _appShellRegistry,
+                        viewShellOverrides: entry.value.viewShellOverrides,
+                        child: content,
+                      );
+                    },
+                  ),
                 ),
               ),
             ),
@@ -277,212 +324,17 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   }
 }
 
-class _MappedValueNotifier<S, T> extends ValueNotifier<T> {
-  _MappedValueNotifier({required ValueNotifier<S> source, required T Function(S value) transform})
-    : _source = source,
-      _transform = transform,
-      super(transform(source.value)) {
-    _source.addListener(_sync);
-  }
-
-  final ValueNotifier<S> _source;
-  final T Function(S value) _transform;
-
-  void _sync() => value = _transform(_source.value);
-
-  @override
-  void dispose() {
-    _source.removeListener(_sync);
-    super.dispose();
-  }
-}
-
-/// Coordinates [CloseMode.softCascade] by waiting for each secondary window to finish closing.
-///
-/// Each view ID gets a [Completer] completed with `true` when the window closes
-/// or `false` when the user cancels via [ViewsManager.cancelCascadeClose].
-class _CascadeCloseService {
-  _CascadeCloseService();
-
-  // viewId -> completer: true = closed, false = cancelled (preventClose).
-  final Map<int, Completer<bool>> _closeCompleters = {};
-
-  void clear() => _closeCompleters.clear();
-
-  /// Completes the cascade for [id] with `false` and clears pending completers.
-  void abort(int id) {
-    final completer = _closeCompleters[id];
-    if (completer == null || completer.isCompleted) return;
-
-    completer.complete(false);
-
-    // Clear remaining completers so their future completion (e.g. user later
-    // closes those windows independently) does not re-trigger the cascade.
-    _closeCompleters.remove(id);
-    for (final c in _closeCompleters.values) {
-      if (!c.isCompleted) c.complete(false);
-    }
-    clear();
-  }
-
-  /// Registers [id] as the next window in a cascade close sequence.
-  void attachWindow(int id) => _closeCompleters.putIfAbsent(id, () => Completer<bool>());
-
-  /// Signals that [id] finished its soft-close cycle successfully.
-  void completeWindow(int id) => _closeCompleters[id]?.complete(true);
-
-  /// Waits until [id] closes or the cascade is aborted; then removes its completer.
-  Future<bool> waitWindow(int id) async {
-    final res = await _closeCompleters[id]?.future ?? true;
-    detachWindow(id);
-
-    return res;
-  }
-
-  void detachWindow(int id) => _closeCompleters.remove(id);
-}
-
 // ---------------------------------------------------------------------------
-// _ModalStateService
+// ViewsManager impl
 // ---------------------------------------------------------------------------
-
-/// Tracks how many **modal** dialogs are currently blocking each parent window.
-///
-/// Every time a modal dialog is opened, [registerDialog] increments the parent's
-/// counter.  When the dialog closes, [unregisterDialog] decrements it.  The
-/// [ValueNotifier] for each parent is injected into the widget tree via
-/// [DialogScope] so that [DialogModalLayer] can react to state changes.
-class _ModalStateService {
-  final Map<int, ValueNotifier<List<DialogInfo>>> _notifiers = {};
-
-  /// Returns (creating if necessary) the notifier for [realViewId].
-  ValueNotifier<List<DialogInfo>> getNotifier(int realViewId) {
-    return _notifiers.putIfAbsent(realViewId, () => ValueNotifier([]));
-  }
-
-  /// Increments the modal count for [parentRealId].
-  void registerDialog(int parentRealId, {required int dialogId, required bool isModal}) {
-    final notifier = getNotifier(parentRealId);
-    // Must assign a new list instance — mutating in place and reassigning the
-    // same reference does not trigger ValueNotifier listeners.
-    notifier.value = [...notifier.value, (id: dialogId, isModal: isModal)];
-  }
-
-  /// Decrements the modal count for [parentRealId]. No-ops if already zero.
-  void unregisterDialog(int parentRealId, {required int realDialogId}) {
-    final notifier = _notifiers[parentRealId];
-    if (notifier == null) return;
-    notifier.value = [...notifier.value.where((e) => e.id != realDialogId)];
-  }
-
-  /// Disposes the notifier for [realViewId] when the window is removed.
-  void disposeView(int realViewId) {
-    _notifiers.remove(realViewId)?.dispose();
-  }
-}
-
-/// [WindowCommunicator] backed by in-memory broadcast [StreamController]s.
-/// Uses shifted ids cause has public API to add listeners by id
-class _WindowCommunicatorImpl implements WindowCommunicator {
-  _WindowCommunicatorImpl();
-
-  // Per-view streams, keyed by viewId.
-  final Map<int, StreamController<dynamic>> _viewControllers = {};
-
-  final Map<int, Map<int, StreamController<dynamic>>> _linkedViewControllers = {};
-
-  // Single broadcast stream shared across all views.
-  final StreamController<dynamic> _broadcastController = StreamController<dynamic>.broadcast();
-
-  // -------------------------------------------------------------------------
-  // Point-to-point
-  // -------------------------------------------------------------------------
-
-  @override
-  Stream<dynamic> onDirect(BuildContext context, {int? viewId}) {
-    final currentViewId = MultiViewDesktop.getIdByContext(context);
-    int listenableId = viewId ?? currentViewId;
-    int? parentId = viewId == null || viewId == currentViewId ? null : currentViewId;
-
-    final stream = _getStreamById(listenableId, parentId: parentId);
-    return stream;
-  }
-
-  Stream<dynamic> _getStreamById(int viewId, {int? parentId}) {
-    if (parentId != null) {
-      _linkedViewControllers
-          .putIfAbsent(parentId, () => {})
-          .putIfAbsent(viewId, () => StreamController<dynamic>.broadcast());
-
-      return _linkedViewControllers[parentId]![viewId]!.stream;
-    }
-
-    _viewControllers.putIfAbsent(viewId, () => StreamController<dynamic>.broadcast());
-    return _viewControllers[viewId]!.stream;
-  }
-
-  @override
-  void send(int targetViewId, dynamic message) {
-    _viewControllers[targetViewId]?.add(message);
-
-    for (final children in _linkedViewControllers.values) {
-      for (final entry in children.entries) {
-        if (entry.key == targetViewId) {
-          entry.value.add(message);
-        }
-      }
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Broadcast
-  // -------------------------------------------------------------------------
-
-  @override
-  Stream<dynamic> get onBroadcast => _broadcastController.stream;
-
-  @override
-  void broadcast(dynamic message) {
-    _broadcastController.add(message);
-  }
-
-  // -------------------------------------------------------------------------
-  // Internal cleanup
-  // -------------------------------------------------------------------------
-
-  /// Closes and removes the per-view stream and children for [viewId].
-  ///
-  /// Called automatically by the library when a view is removed from the
-  /// [ViewCollection].  Do not call this manually.
-  @internal
-  Future<void> disposeViewByShiftedId(int viewId) async {
-    _viewControllers.remove(viewId)?.close();
-    await _disposeLinkedViewByShiftedId(viewId);
-  }
-
-  Future<void> _disposeLinkedViewByShiftedId(int parentViewId) async {
-    for (final entry in _linkedViewControllers[parentViewId]?.entries ?? <MapEntry<int, StreamController<dynamic>>>[]) {
-      await entry.value.close();
-    }
-    _linkedViewControllers.remove(parentViewId);
-  }
-
-  @override
-  Future<void> dispose() async {
-    for (final view in _viewControllers.keys) {
-      await disposeViewByShiftedId(view);
-    }
-    _viewControllers.clear();
-    _linkedViewControllers.clear();
-  }
-}
 
 /// Default [ViewsManager]: native channel, window registry, listeners, and close modes.
 class _ViewsManagerImpl implements ViewsManager {
-  final _CascadeCloseService cascadeCloseService;
-  final _WindowCommunicatorImpl communicator;
-  final _ModalStateService _modalStateService = _ModalStateService();
+  final CascadeCloseService cascadeCloseService;
+  final WindowCommunicatorImpl communicator;
   final MultiAppConfig config;
+
+  final ModalStateService _modalStateService = ModalStateService();
 
   /// Active strategy when the main window's close button is pressed.
   late CloseMode closeMode;
@@ -500,19 +352,13 @@ class _ViewsManagerImpl implements ViewsManager {
   ValueNotifier<List<DialogInfo>> getDialogModalPublicIdsFromRealParentIdNotifier(int realViewId) =>
       _dialogModalPublicNotifiers.putIfAbsent(
         realViewId,
-        () => _MappedValueNotifier(
+        () => MappedValueNotifier(
           source: _modalStateService.getNotifier(realViewId),
           transform: (dialogs) => [for (final d in dialogs) (id: _realToShifted(d.id), isModal: d.isModal)],
         ),
       );
 
   final Map<int, dynamic> _dialogsResults = {};
-
-  void _notifyObservers(void Function(WindowObserver) action) {
-    for (final observer in _observers) {
-      action(observer);
-    }
-  }
 
   /// Pushes lifecycle quit policy to the native embedder.
   Future<void> applyNativeLifecyclePolicy() async {
@@ -521,40 +367,6 @@ class _ViewsManagerImpl implements ViewsManager {
     } else if (Platform.isLinux) {
       await _nativeChannel.setTerminateAfterLastWindowClosed(true);
     }
-  }
-
-  WindowOptions _compareGlobalAndNewOpts({WindowOptions? preferred, required WindowOptions global}) {
-    if (preferred == null) return global;
-    return WindowOptions(
-      size: preferred.size ?? global.size,
-      minimumSize: preferred.minimumSize ?? global.minimumSize,
-      maximumSize: preferred.maximumSize ?? global.maximumSize,
-      alignment: preferred.alignment ?? global.alignment,
-      backgroundColor: preferred.backgroundColor ?? global.backgroundColor,
-      hideAppFromTaskbar: preferred.hideAppFromTaskbar ?? global.hideAppFromTaskbar,
-      titleBarStyle: preferred.titleBarStyle ?? global.titleBarStyle,
-      windowButtonVisibility: preferred.windowButtonVisibility ?? global.windowButtonVisibility,
-      title: preferred.title ?? global.title,
-      fullScreen: preferred.fullScreen ?? global.fullScreen,
-      alwaysOnTop: preferred.alwaysOnTop ?? global.alwaysOnTop,
-    );
-  }
-
-  DialogOptions _compareDialogGlobalAndNewOpts({DialogOptions? preferred, required DialogOptions global}) {
-    if (preferred == null) return global;
-    return DialogOptions(
-      size: preferred.size ?? global.size,
-      minimumSize: preferred.minimumSize ?? global.minimumSize,
-      maximumSize: preferred.maximumSize ?? global.maximumSize,
-      isResizable: preferred.isResizable ?? global.isResizable,
-      backgroundColor: preferred.backgroundColor ?? global.backgroundColor,
-      titleBarStyle: preferred.titleBarStyle ?? global.titleBarStyle,
-      modal: preferred.modal ?? global.modal,
-      windowButtonVisibility: preferred.windowButtonVisibility ?? global.windowButtonVisibility,
-      title: preferred.title ?? global.title,
-      alwaysOnTop: preferred.alwaysOnTop ?? global.alwaysOnTop,
-      showOnInit: preferred.showOnInit ?? global.showOnInit,
-    );
   }
 
   // token -> widget, entries waiting for the native "viewCreated" event.
@@ -578,21 +390,23 @@ class _ViewsManagerImpl implements ViewsManager {
   final Map<int, ObserverList<WindowListenerCallbacks>> _listeners = {};
 
   /// Anchor window: receives app-level close policy ([CloseMode]) from the native close button.
-  int? _anchorId;
+  int? _realAnchorId;
 
-  int? get anchorId => _anchorId;
+  int? get realAnchorId => _realAnchorId;
 
   /// Back-compat alias used by native channel app-wide calls.
-  int? get mainId => _anchorId;
+  int? get mainId => _realAnchorId;
 
   /// View id for app-wide native calls (dock badge, taskbar, etc.).
   int? get _lifecycleViewId {
-    if (_anchorId != null && _windows.containsKey(_anchorId)) return _anchorId;
+    if (_realAnchorId != null && _windows.containsKey(_realAnchorId)) return _realAnchorId;
     if (_windows.isEmpty) return null;
     return _windows.keys.reduce((a, b) => a < b ? a : b);
   }
 
   int _initRealId = _initPlatformId;
+
+  int get mainRealViewId => _initRealId;
   bool _isInitFirstSecondaryView = false;
 
   final Map<int, _WindowEntry> _windows = {};
@@ -663,27 +477,17 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   Future<void> _applyOptionsToInitialAnchor() async {
-    if (anchorId == null) return;
-    await applyOptions(anchorId!, opts: config.globalOptions);
-    unawaited(_nativeChannel.show(anchorId!));
+    if (realAnchorId == null) return;
+    await applyOptions(realAnchorId!, opts: config.globalOptions);
+    unawaited(_nativeChannel.show(realAnchorId!));
   }
 
   void _updateHotRestartShiftBySecondary(int viewId) {
-    // debugPrint(
-    //   'try to set hotRestartShift: $_hotRestartShift'
-    //   'allShiftedWindowIds: $allRealWindowIds'
-    //   'allShiftedWindowIds.first: ${allShiftedWindowIds.firstOrNull}'
-    //   'viewId: $viewId'
-    //   '_isInitFirstSecondaryView: $_isInitFirstSecondaryView'
-    //   '',
-    // );
-    // if next window id on start is higher 2 then set shift
     if (viewId == 2) {
       _isInitFirstSecondaryView = true;
     }
     if (allShiftedWindowIds.length == 1 && allShiftedWindowIds.first == 1 && viewId > 2 && !_isInitFirstSecondaryView) {
       _hotRestartShift = viewId - allShiftedWindowIds.first - 1;
-      // debugPrint('hotRestartShift: $_hotRestartShift');
 
       _isInitFirstSecondaryView = true;
     }
@@ -694,17 +498,26 @@ class _ViewsManagerImpl implements ViewsManager {
     Widget Function(BuildContext) widgetBuilder, {
     required BuildContext? parentContext,
     int? parentId,
+    ViewShellOverrides? shellOverrides,
   }) {
     if (parentId != null && !_windows.containsKey(parentId)) {
       throw ArgumentError.value(parentId, 'Parent error', 'Parent window is not registered');
     }
     _updateHotRestartShiftBySecondary(viewId);
 
-    _addWindow(viewId, _WindowEntry(widgetBuilder: widgetBuilder, parentContext: parentContext, parentId: parentId));
+    _addWindow(
+      viewId,
+      _WindowEntry(
+        widgetBuilder: widgetBuilder,
+        parentContext: parentContext,
+        parentId: parentId,
+        initialShellOverrides: shellOverrides,
+      ),
+    );
     _notifyObservers(
       (o) => o.onWindowOpened(_realToShifted(viewId), parentViewId: parentId != null ? _realToShifted(parentId) : null),
     );
-    if (_anchorId == null) {
+    if (_realAnchorId == null) {
       _setAnchor(viewId);
     }
   }
@@ -716,6 +529,7 @@ class _ViewsManagerImpl implements ViewsManager {
     required int parentId,
     required bool isModal,
     required Completer<T?> closeCompleter,
+    ViewShellOverrides? shellOverrides,
   }) {
     if (!_windows.containsKey(parentId)) {
       throw ArgumentError.value(parentId, 'Parent error', 'Parent window is not registered');
@@ -727,6 +541,7 @@ class _ViewsManagerImpl implements ViewsManager {
       _DialogEntry<T>(
         widgetBuilder: widgetBuilder,
         parentContext: parentContext,
+        initialShellOverrides: shellOverrides,
         parentId: parentId,
         isModal: isModal,
         closeCompleter: closeCompleter,
@@ -736,10 +551,16 @@ class _ViewsManagerImpl implements ViewsManager {
     _notifyObservers((o) => o.onDialogOpened(_realToShifted(viewId), parentViewId: _realToShifted(parentId)));
   }
 
+  void _notifyObservers(void Function(WindowObserver) action) {
+    for (final observer in _observers) {
+      action(observer);
+    }
+  }
+
   Future<void> _setAnchor(int? viewId, {bool force = false}) async {
     if (!config.generalParams.enableDynamicAnchor && !force) return;
-    final previousShifted = _anchorId != null ? _realToShifted(_anchorId!) : null;
-    _anchorId = viewId;
+    final previousShifted = _realAnchorId != null ? _realToShifted(_realAnchorId!) : null;
+    _realAnchorId = viewId;
     final newShifted = viewId != null ? _realToShifted(viewId) : null;
     if (previousShifted != newShifted) {
       _notifyObservers((o) => o.onAnchorChanged(previousShifted, newShifted));
@@ -750,10 +571,10 @@ class _ViewsManagerImpl implements ViewsManager {
 
   /// When the anchor [FlutterView] disappears, pick another root window.
   void reconcileAnchor(PlatformDispatcher dispatcher) {
-    final anchor = _anchorId;
+    final anchor = _realAnchorId;
     if (anchor == null) return;
     if (dispatcher.view(id: anchor) != null) return;
-    _setAnchor(_anchorId);
+    _setAnchor(_realAnchorId);
     _promoteAnchor();
   }
 
@@ -859,7 +680,7 @@ class _ViewsManagerImpl implements ViewsManager {
     final isModalDialog = isDialog && (_dialogs[viewId]?.isModal ?? false);
     await _removeAllDialogsByParent(viewId);
 
-    await disposeView(viewId);
+    await _disposeView(viewId);
 
     await _nativeChannel.setConfirmClose(viewId, isConfirm: true);
     if (isModalDialog) {
@@ -874,7 +695,7 @@ class _ViewsManagerImpl implements ViewsManager {
   Future<void> _handlePreConfirmClose(int viewId) async {
     final nextAnchorCandidates = _anchorCandidates(excludingViewId: viewId)..sort();
     // debugPrint('nextAnchorCandidates: $nextAnchorCandidates');
-    if (viewId == _anchorId && nextAnchorCandidates.isNotEmpty && !config.generalParams.enableDynamicAnchor) {
+    if (viewId == _realAnchorId && nextAnchorCandidates.isNotEmpty && !config.generalParams.enableDynamicAnchor) {
       for (final candidate in nextAnchorCandidates.reversed) {
         cascadeCloseService.abort(candidate);
         cascadeCloseService.attachWindow(candidate);
@@ -1031,7 +852,7 @@ class _ViewsManagerImpl implements ViewsManager {
     for (final dialogId in allDialogs.reversed) {
       await _nativeChannel.destroyModalDialog(dialogId);
 
-      await disposeView(dialogId);
+      await _disposeView(dialogId);
     }
     return true;
   }
@@ -1043,7 +864,7 @@ class _ViewsManagerImpl implements ViewsManager {
   bool _isLastMacosRootView(int id) =>
       ((_anchorCandidates(excludingViewId: id).isEmpty) &&
       config.macosParams.saveLastWindowToReopen &&
-      _anchorId == id);
+      _realAnchorId == id);
 
   Future<void> _removeViewsCascade(int rootId, {bool reverse = true}) async {
     if (!reverse) await _preConfirmCloseCallable(rootId);
@@ -1083,13 +904,6 @@ class _ViewsManagerImpl implements ViewsManager {
       if (!closed) return;
     }
     await _preConfirmCloseCallable(rootId, isForce: true);
-  }
-
-  /// Closes every registered window (all roots and their subtrees).
-  Future<void> _closeEntireApp(CloseMode mode) async {
-    for (final root in _rootWindowIds()) {
-      await _closeSubtreeByMode(root, mode);
-    }
   }
 
   Future<void> removeOrphanViewsForceAfterRestart(List<int> ids) async {
@@ -1186,7 +1000,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   void _removeWindow(int viewId) {
-    _windows.remove(viewId);
+    _windows.remove(viewId)?.disposeEntryResources();
     _windowsNotifier.value = _windows.entries.map((e) => _realToShifted(e.key)).toList()..sort();
   }
 
@@ -1194,15 +1008,34 @@ class _ViewsManagerImpl implements ViewsManager {
     final dialog = _dialogs[dialogId];
     if (dialog == null) return;
     dialog.completeResult(_dialogsResults.remove(dialogId));
+    dialog.disposeEntryResources();
     _dialogs.remove(dialogId);
     _dialogsNotifier.value = _dialogs.entries.map((e) => _realToShifted(e.key)).toList()..sort();
   }
 
-  Future<void> disposeView(int viewId) async {
+  _ViewEntry? _viewEntryFor(int viewId) => _windows[viewId] ?? _dialogs[viewId];
+
+  @override
+  void patchViewShell(int viewId, ViewShellOverrides overrides) {
+    final entry = _viewEntryFor(viewId);
+    if (entry == null) return;
+    final notifier = entry.viewShellOverrides;
+    notifier.value = ViewShellOverrides.merge(notifier.value, overrides);
+  }
+
+  @override
+  void setViewShellOverrides(int viewId, ViewShellOverrides? overrides) {
+    _viewEntryFor(viewId)?.viewShellOverrides.value = overrides;
+  }
+
+  @override
+  ViewShellOverrides? getViewShellOverrides(int viewId) =>
+      _viewEntryFor(viewId)?.viewShellOverrides.value;
+
+  Future<void> _disposeView(int viewId) async {
     final entry = [..._windows.entries, ..._dialogs.entries].where((e) => e.key == viewId).firstOrNull;
     final shiftedViewId = _realToShifted(viewId);
     final isDialog = entry?.value is _DialogEntry;
-    // debugPrint('disposeView: ${entry?.value.runtimeType}, isDialog: $isDialog');
 
     if (isDialog) {
       _notifyObservers((o) => o.onDialogClose(shiftedViewId));
@@ -1216,8 +1049,9 @@ class _ViewsManagerImpl implements ViewsManager {
     // Clean up the modal notifier for this view (it may have been a parent itself).
     _modalStateService.disposeView(viewId);
     _dialogModalPublicNotifiers.remove(viewId)?.dispose();
-    final wasAnchor = viewId == _anchorId;
-    if (wasAnchor) {
+
+    final wasAnchor = viewId == _realAnchorId;
+    if (wasAnchor && !isDialog) {
       _setAnchor(null);
     }
     _listeners.remove(viewId);
@@ -1227,7 +1061,7 @@ class _ViewsManagerImpl implements ViewsManager {
       _removeWindow(viewId);
     }
     communicator.disposeViewByShiftedId(shiftedViewId);
-    if (wasAnchor) {
+    if (wasAnchor && !isDialog) {
       _promoteAnchor();
     }
   }
@@ -1258,12 +1092,6 @@ class _ViewsManagerImpl implements ViewsManager {
     final dialogId = await _createDialog(opts: comparedOpts, parentId: parentRealId, onCreated: onCreated);
 
     _modalStateService.registerDialog(parentRealId, dialogId: dialogId, isModal: comparedOpts.modal ?? false);
-
-    if (Platform.isWindows) {
-      // await hideAppFromTaskbar(true, viewId: dialogId);
-    } else if (Platform.isMacOS) {
-      // await hideFromCollection(dialogId, true);
-    }
 
     return dialogId;
   }
@@ -1315,6 +1143,40 @@ class _ViewsManagerImpl implements ViewsManager {
     await onCreated(newViewId);
 
     return newViewId;
+  }
+
+  WindowOptions _compareGlobalAndNewOpts({WindowOptions? preferred, required WindowOptions global}) {
+    if (preferred == null) return global;
+    return WindowOptions(
+      size: preferred.size ?? global.size,
+      minimumSize: preferred.minimumSize ?? global.minimumSize,
+      maximumSize: preferred.maximumSize ?? global.maximumSize,
+      alignment: preferred.alignment ?? global.alignment,
+      backgroundColor: preferred.backgroundColor ?? global.backgroundColor,
+      hideAppFromTaskbar: preferred.hideAppFromTaskbar ?? global.hideAppFromTaskbar,
+      titleBarStyle: preferred.titleBarStyle ?? global.titleBarStyle,
+      windowButtonVisibility: preferred.windowButtonVisibility ?? global.windowButtonVisibility,
+      title: preferred.title ?? global.title,
+      fullScreen: preferred.fullScreen ?? global.fullScreen,
+      alwaysOnTop: preferred.alwaysOnTop ?? global.alwaysOnTop,
+    );
+  }
+
+  DialogOptions _compareDialogGlobalAndNewOpts({DialogOptions? preferred, required DialogOptions global}) {
+    if (preferred == null) return global;
+    return DialogOptions(
+      size: preferred.size ?? global.size,
+      minimumSize: preferred.minimumSize ?? global.minimumSize,
+      maximumSize: preferred.maximumSize ?? global.maximumSize,
+      isResizable: preferred.isResizable ?? global.isResizable,
+      backgroundColor: preferred.backgroundColor ?? global.backgroundColor,
+      titleBarStyle: preferred.titleBarStyle ?? global.titleBarStyle,
+      modal: preferred.modal ?? global.modal,
+      windowButtonVisibility: preferred.windowButtonVisibility ?? global.windowButtonVisibility,
+      title: preferred.title ?? global.title,
+      alwaysOnTop: preferred.alwaysOnTop ?? global.alwaysOnTop,
+      showOnInit: preferred.showOnInit ?? global.showOnInit,
+    );
   }
 
   /// Creates a dialog window with dialog-specific native behavior per platform.
@@ -1393,7 +1255,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  Future<bool> setAnchorId(int viewId) async {
+  Future<bool> setPublicAnchorId(int viewId) async {
     if (config.generalParams.enableDynamicAnchor) return false;
 
     final realView = _shiftedToReal(viewId);
@@ -1406,10 +1268,10 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  int? getAnchorId() {
-    if (_anchorId == null) return null;
+  int? getPublicAnchorId() {
+    if (_realAnchorId == null) return null;
 
-    return _realToShifted(_anchorId!);
+    return _realToShifted(_realAnchorId!);
   }
 
   @override
@@ -1442,7 +1304,7 @@ class _ViewsManagerImpl implements ViewsManager {
         () async => await _nativeChannel.destroyModalDialog(viewId),
         dialogSupports: true,
       );
-      await disposeView(viewId);
+      await _disposeView(viewId);
     } else {
       await _viewExistChecker(viewId, () async => await _nativeChannel.softCloseWindow(viewId));
     }
@@ -1954,6 +1816,13 @@ class _ViewsManagerImpl implements ViewsManager {
   Future<void> closeApp({CloseMode? closeMode}) async {
     final mode = closeMode ?? config.generalParams.closeMode;
     await _closeEntireApp(mode);
+  }
+
+  /// Closes every registered window (all roots and their subtrees).
+  Future<void> _closeEntireApp(CloseMode mode) async {
+    for (final root in _rootWindowIds()) {
+      await _closeSubtreeByMode(root, mode);
+    }
   }
 
   Future<T?> _viewExistChecker<T>(int viewId, Future<T> Function() func, {bool dialogSupports = false}) async {

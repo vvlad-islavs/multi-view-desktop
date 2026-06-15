@@ -9,9 +9,8 @@ class AlertViewDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      child: Padding(
+    return Scaffold(
+      body: Padding(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 18),
         child: Center(
           child: Column(

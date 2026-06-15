@@ -69,10 +69,10 @@ abstract class ViewsManager {
   Future<void> setAsFrameless(int viewId);
 
   /// Sets anchor id. Only for views without parents (root view). Returns [true] if id was set successfully
-  Future<bool> setAnchorId(int viewId);
+  Future<bool> setPublicAnchorId(int viewId);
 
   /// Returns current anchor id
-  int? getAnchorId();
+  int? getPublicAnchorId();
 
   Future<void> setBackgroundColor(int viewId, Color color);
 
@@ -198,4 +198,13 @@ abstract class ViewsManager {
   void addListener(int viewId, WindowListenerCallbacks listener);
 
   void removeListener(int viewId, WindowListenerCallbacks listener);
+
+  /// Merges [overrides] into the entry shell for [viewId] (appearance and navigation).
+  void patchViewShell(int viewId, ViewShellOverrides overrides);
+
+  /// Replaces the entry shell overrides for [viewId], or clears them when null.
+  void setViewShellOverrides(int viewId, ViewShellOverrides? overrides);
+
+  /// Returns the current entry shell overrides for [viewId], if any.
+  ViewShellOverrides? getViewShellOverrides(int viewId);
 }

@@ -14,6 +14,7 @@ class ThemeConfig extends ChangeNotifier {
   void setThemeMode(ThemeMode mode) {
     if (_themeMode == mode) return;
     _themeMode = mode;
+    MultiViewDesktop.appShell.patch(AppShellPatch(themeMode: mode));
     notifyListeners();
 
     // Broadcast so every window can update its native brightness.

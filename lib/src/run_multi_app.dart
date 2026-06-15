@@ -6,6 +6,7 @@ import 'title_bar_style.dart';
 import 'view_root.dart' show createMultiViewRoot;
 import 'window_observer.dart';
 import 'window_options.dart';
+import 'app_shell/view_shell_overrides.dart';
 
 /// The entry point for a multiview_desktop application.
 ///
@@ -191,6 +192,7 @@ class DialogOptions {
     this.backgroundColor,
     this.alwaysOnTop,
     this.showOnInit,
+    this.shellOverrides,
   });
 
   /// Initial content size in logical pixels.
@@ -226,7 +228,11 @@ class DialogOptions {
   /// Whether the window stays above other application windows.
   final bool? alwaysOnTop;
 
+  /// `true` by default
   final bool? showOnInit;
+
+  /// Per-view entry shell overrides. See [WindowOptions.shellOverrides].
+  final ViewShellOverrides? shellOverrides;
 }
 
 // ---------------------------------------------------------------------------
