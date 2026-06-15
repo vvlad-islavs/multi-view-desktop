@@ -382,6 +382,11 @@ namespace multi_view_desktop {
             result->Success();
             return;
         }
+        if (method == "createModalDialog") {
+            impl.CreateModalDialogWindow(args);
+            result->Success();
+            return;
+        }
         if (method == "setTerminateAfterLastWindowClosed") {
             MultiViewDesktop::terminate_after_last_window_closed_ =
                     MultiViewDesktop::BoolFromMap(args, "terminateAfterLastWindowClosed", true);
@@ -449,6 +454,11 @@ namespace multi_view_desktop {
 
         if (method == "closeWindow") {
             window->Close();
+            result->Success();
+        } else if (method == "destroyWindow") {
+            auto &impl = MultiViewDesktop::Instance();
+            impl.DestroyEntry(view_id);
+          
             result->Success();
         } else if (method == "isPreventClose") {
             result->Success(flutter::EncodableValue(window->IsPreventClose()));

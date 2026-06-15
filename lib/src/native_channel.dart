@@ -116,14 +116,13 @@ class NativeChannel {
     });
   }
 
-  /// Asks macOS to create a **modal dialog** sheet attached to [parentId].
+  /// Creates a dialog window attached to [parentId].
   ///
-  /// On macOS the dialog is presented via `NSWindow.beginSheet(_:)`: it slides
-  /// down from the parent's title bar, dims the parent, and blocks all user
-  /// input to it until the sheet is dismissed.
-  ///
-  /// On other platforms this falls back to a regular window creation; use the
-  /// [DialogModalLayer] widget for the visual blocking effect instead.
+  /// On macOS a modal dialog is presented via `NSWindow.beginSheet(_:)`.
+  /// On Windows a modal dialog uses `GW_OWNER` and disables the parent HWND
+  /// until the dialog is destroyed. Modeless dialogs are regular top-level
+  /// windows with dialog frame styling; [parentId] is used for positioning
+  /// only on Windows.
   ///
   /// Completion is signaled via `viewCreated` just like [createWindowRequest].
   Future<void> createModalDialogRequest({

@@ -967,14 +967,14 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   Future<void> _applyDialogOptions(int viewId, DialogOptions opts) async {
-    if (opts.size != null) {
-      await _nativeChannel.setSize(viewId, size: opts.size!);
+    // if (opts.size != null) {
+    //   await _nativeChannel.setSize(viewId, size: opts.size!);
+    // }
+    if (opts.backgroundColor != null) {
+      await _nativeChannel.setBackgroundColor(viewId, color: opts.backgroundColor!);
     }
     if (opts.showOnInit == true || opts.showOnInit == null) {
       await _nativeChannel.show(viewId);
-    }
-    if (opts.backgroundColor != null) {
-      await _nativeChannel.setBackgroundColor(viewId, color: opts.backgroundColor!);
     }
     if (opts.minimumSize != null) {
       await _nativeChannel.setMinSize(viewId, size: opts.minimumSize!);
@@ -1198,15 +1198,17 @@ class _ViewsManagerImpl implements ViewsManager {
   /// Creates a dialog window with dialog-specific native behavior per platform.
   ///
   /// Platform matrix:
-  /// - **macOS + modal**: `createModalDialogRequest` → `NSWindow.beginSheet` —
-  ///   sheet slides down from parent's title bar, parent dimmed & blocked natively.
-  ///   Positioning is handled by the OS; centering is skipped.
-  /// - **macOS + modeless**: regular window positioned over parent, hidden from
-  ///   Mission Control via `hideFromCollection`.
-  /// - **Windows**: regular window positioned over parent, hidden from the
-  ///   per-window taskbar tab. Modal blocking via [DialogModalLayer] scrim.
-  /// - **Linux**: regular window positioned over parent. No per-window taskbar
-  ///   hiding available. Modal blocking via [DialogModalLayer] scrim.
+  /// - **macOS + modal**: `createModalDialogRequest` with `NSWindow.beginSheet`.
+  ///   Positioning is handled by the OS.
+  /// - **macOS + modeless**: window positioned over the parent; can be hidden
+  ///   from Mission Control via `hideFromCollection`.
+  /// - **Windows + modal**: `GW_OWNER` plus `EnableWindow` on the parent chain.
+  ///   Shown immediately; parent input is blocked natively.
+  /// - **Windows + modeless**: dialog frame styling, no GW_OWNER; visibility
+  ///   follows [DialogOptions.showOnInit]. Taskbar visibility uses the same
+  ///   API as regular windows (`hideAppFromTaskbar` per view).
+  /// - **Linux**: regular window positioned over the parent. Modal blocking
+  ///   via [DialogModalLayer] scrim until native support is added.
   Future<int> _createDialog({
     required DialogOptions opts,
     required int parentId,

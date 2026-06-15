@@ -226,6 +226,131 @@ namespace multi_view_desktop {
         return hwnd;
     }
 
+    HWND MultiViewDesktop::CreateDialogHostWindow(const std::wstring &title,
+                                                  int client_width,
+                                                  int client_height,
+                                                  bool is_modal,
+                                                  bool show_close_button,
+                                                  HWND owner_hwnd) {
+        RegisterMultiViewHostWindowClass();
+        DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_THICKFRAME;
+        // WS_SYSMENU is required for the title-bar close button on Windows.
+        // Modal dialogs omit it; modeless dialogs include it when enabled.
+        if (!is_modal && show_close_button) {
+            style |= WS_SYSMENU;
+        }
+        const DWORD ex_style = WS_EX_DLGMODALFRAME;
+        RECT rect = {0, 0, client_width, client_height};
+        AdjustWindowRect(&rect, style, FALSE);
+        const int window_width = rect.right - rect.left;
+        const int window_height = rect.bottom - rect.top;
+        HWND owner = (is_modal && owner_hwnd != nullptr) ? owner_hwnd : nullptr;
+        HWND hwnd = CreateWindowEx(
+                ex_style, kMultiViewHostWindowClassName, title.c_str(), style,
+                CW_USEDEFAULT, CW_USEDEFAULT, window_width, window_height, owner,
+                nullptr, GetModuleHandle(nullptr), nullptr);
+        if (hwnd && is_modal) {
+            HMENU system_menu = GetSystemMenu(hwnd, FALSE);
+            if (system_menu) {
+                EnableMenuItem(system_menu, SC_CLOSE, MF_BYCOMMAND | MF_GRAYED);
+            }
+        }
+        return hwnd;
+    }
+
+    void MultiViewDesktop::CenterDialogOnOwner(HWND dialog_hwnd, HWND owner_hwnd) {
+        if (!dialog_hwnd || !owner_hwnd) {
+            return;
+        }
+        RECT owner_frame{};
+        DwmGetWindowAttribute(owner_hwnd, DWMWA_EXTENDED_FRAME_BOUNDS,
+                              &owner_frame, sizeof(owner_frame));
+        RECT dialog_rect{};
+        GetWindowRect(dialog_hwnd, &dialog_rect);
+        const int dialog_width = dialog_rect.right - dialog_rect.left;
+        const int dialog_height = dialog_rect.bottom - dialog_rect.top;
+        const int x =
+                owner_frame.left + (owner_frame.right - owner_frame.left - dialog_width) / 2;
+        const int y =
+                owner_frame.top + (owner_frame.bottom - owner_frame.top - dialog_height) / 2;
+        SetWindowPos(dialog_hwnd, nullptr, x, y, 0, 0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER);
+    }
+
+    namespace {
+
+        struct OwnedModalEnumData {
+            HWND owner_hwnd;
+            std::vector<HWND> *owned_hwnds;
+        };
+
+        BOOL CALLBACK CollectOwnedModalWindows(HWND hwnd, LPARAM lparam) {
+            auto *data = reinterpret_cast<OwnedModalEnumData *>(lparam);
+            if (GetWindow(hwnd, GW_OWNER) != data->owner_hwnd) {
+                return TRUE;
+            }
+            if (multi_view_desktop::MultiViewDesktop::Instance().FindByHwnd(hwnd) ==
+                nullptr) {
+                return TRUE;
+            }
+            data->owned_hwnds->push_back(hwnd);
+            return TRUE;
+        }
+
+        std::vector<HWND> GetOwnedModalHwnds(HWND owner_hwnd) {
+            std::vector<HWND> owned;
+            OwnedModalEnumData data{owner_hwnd, &owned};
+            EnumWindows(CollectOwnedModalWindows, reinterpret_cast<LPARAM>(&data));
+            return owned;
+        }
+
+        void DisableOwnedWindowTree(HWND hwnd) {
+            EnableWindow(hwnd, FALSE);
+            for (HWND owned : GetOwnedModalHwnds(hwnd)) {
+                DisableOwnedWindowTree(owned);
+            }
+        }
+
+        int64_t ViewIdForHostHwnd(HWND hwnd) {
+            MultiViewDesktop *entry =
+                    MultiViewDesktop::Instance().FindByHwnd(hwnd);
+            return entry != nullptr ? entry->view_id : -1;
+        }
+
+    }  // namespace
+
+    void MultiViewDesktop::UpdateModalStateLayer(HWND owner_hwnd) {
+        if (!owner_hwnd || !IsWindow(owner_hwnd)) {
+            return;
+        }
+
+        const std::vector<HWND> owned = GetOwnedModalHwnds(owner_hwnd);
+        if (owned.empty()) {
+            EnableWindow(owner_hwnd, TRUE);
+            return;
+        }
+
+        EnableWindow(owner_hwnd, FALSE);
+
+        HWND latest_child = owned.front();
+        int64_t latest_view_id = ViewIdForHostHwnd(latest_child);
+        for (HWND child : owned) {
+            const int64_t child_view_id = ViewIdForHostHwnd(child);
+            if (child_view_id > latest_view_id) {
+                latest_view_id = child_view_id;
+                latest_child = child;
+            }
+        }
+
+        for (HWND child : owned) {
+            if (child == latest_child) {
+                UpdateModalStateLayer(child);
+            } else {
+                DisableOwnedWindowTree(child);
+            }
+        }
+    }
+
     LRESULT CALLBACK
     MultiViewDesktop::HostWndProc(HWND
     hwnd,
@@ -332,6 +457,8 @@ void MultiViewDesktop::DestroyEntry(int64_t target_view_id) {
     if (it == windows_.end()) {
         return;
     }
+    const int64_t modal_owner_id =
+            it->second->is_modal_ ? it->second->modal_owner_view_id_ : -1;
     HWND host_window = it->second->native_window;
     if (it->second->controller) {
         FlutterDesktopViewControllerDestroy(it->second->controller);
@@ -343,6 +470,12 @@ void MultiViewDesktop::DestroyEntry(int64_t target_view_id) {
             main_host_window_ = nullptr;
         }
         DestroyWindow(host_window);
+    }
+    if (modal_owner_id >= 0) {
+        MultiViewDesktop *owner = FindByViewId(modal_owner_id);
+        if (owner != nullptr && owner->native_window != nullptr) {
+            UpdateModalStateLayer(owner->native_window);
+        }
     }
 }
 
@@ -511,6 +644,137 @@ void MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &args) 
     }
 }
 
+void MultiViewDesktop::CreateModalDialogWindow(
+        const flutter::EncodableMap &args) {
+    if (!engine_) {
+        return;
+    }
+
+    const int token = static_cast<int>(Int64FromMap(args, "token"));
+    const int64_t parent_id = Int64FromMap(args, "parentId");
+    const bool is_modal = BoolFromMap(args, "modal", false);
+    const double width = DoubleFromMap(args, "width", 400);
+    const double height = DoubleFromMap(args, "height", 300);
+    const std::string title = StringFromMap(args, "title");
+    const std::string title_bar_style = StringFromMap(args, "titleBarStyle", "normal");
+    const bool window_button_visibility =
+            BoolFromMap(args, "windowButtonVisibility", true);
+
+    MultiViewDesktop *parent = FindByViewId(parent_id);
+    if (is_modal && parent == nullptr) {
+        return;
+    }
+
+    const double scale = DefaultMonitorScaleFactor();
+    const int client_width = static_cast<int>(width * scale);
+    const int client_height = static_cast<int>(height * scale);
+
+    std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+    const std::wstring wide_title = converter.from_bytes(title);
+
+    HWND parent_hwnd = parent != nullptr ? parent->native_window : nullptr;
+    const bool show_close_button = !is_modal && window_button_visibility;
+    HWND host_hwnd = CreateDialogHostWindow(
+            wide_title, client_width, client_height, is_modal, show_close_button,
+            parent_hwnd);
+    if (!host_hwnd) {
+        return;
+    }
+
+    FlutterDesktopViewControllerProperties properties = {
+            client_width,
+            client_height,
+    };
+    FlutterDesktopViewControllerRef view_controller =
+            FlutterDesktopEngineCreateViewController(engine_, &properties);
+    if (!view_controller) {
+        DestroyWindow(host_hwnd);
+        return;
+    }
+
+    const int64_t flutter_view_id =
+            static_cast<int64_t>(FlutterDesktopViewControllerGetViewId(view_controller));
+    FlutterDesktopViewRef view = FlutterDesktopViewControllerGetView(view_controller);
+    HWND flutter_hwnd = FlutterDesktopViewGetHWND(view);
+    SetParent(flutter_hwnd, host_hwnd);
+
+    RegisterWindow(host_hwnd, flutter_view_id, view_controller);
+    auto *window = FindByViewId(flutter_view_id);
+    if (window) {
+        window->pixel_ratio_ = scale;
+        window->is_dialog_ = true;
+        window->is_modal_ = is_modal;
+        window->modal_owner_view_id_ = is_modal ? parent_id : -1;
+    }
+    ResizeFlutterContent(window);
+    if (window) {
+        window->title_bar_style_ = title_bar_style;
+        window->window_button_visibility_ = window_button_visibility;
+        flutter::EncodableMap title_args = {
+                {flutter::EncodableValue("title"), flutter::EncodableValue(title)}};
+        window->SetTitle(title_args);
+        if (title_bar_style == "hidden") {
+            window->SetTitleBarStyle({
+                    {flutter::EncodableValue("titleBarStyle"),
+                            flutter::EncodableValue(title_bar_style)},
+                    {flutter::EncodableValue("windowButtonVisibility"),
+                            flutter::EncodableValue(window_button_visibility)},
+                    {flutter::EncodableValue("maximizeVisibility"),
+                            flutter::EncodableValue(false)},
+                    {flutter::EncodableValue("minimizeVisibility"),
+                            flutter::EncodableValue(false)},
+            });
+        } else {
+            window->SetTitleBarStyle({
+                    {flutter::EncodableValue("titleBarStyle"),
+                            flutter::EncodableValue(title_bar_style)},
+                    {flutter::EncodableValue("windowButtonVisibility"),
+                            flutter::EncodableValue(window_button_visibility)},
+                    {flutter::EncodableValue("maximizeVisibility"),
+                            flutter::EncodableValue(false)},
+                    {flutter::EncodableValue("minimizeVisibility"),
+                            flutter::EncodableValue(false)},
+            });
+        }
+    }
+
+    if (is_modal && parent_hwnd != nullptr) {
+        CenterDialogOnOwner(host_hwnd, parent_hwnd);
+    } else {
+        const auto *position = std::get_if<flutter::EncodableMap>(
+                ValueOrNull(args, "position"));
+        if (position != nullptr && window) {
+            flutter::EncodableMap pos_args = *position;
+            window->SetPosition(pos_args);
+        } else if (parent_hwnd != nullptr) {
+            CenterDialogOnOwner(host_hwnd, parent_hwnd);
+        } else if (window) {
+            window->Center();
+        }
+    }
+
+    if (is_modal) {
+        ShowWindow(host_hwnd, SW_SHOW);
+        SetForegroundWindow(host_hwnd);
+        if (parent_hwnd != nullptr) {
+            UpdateModalStateLayer(parent_hwnd);
+        }
+        FlutterDesktopViewControllerForceRedraw(view_controller);
+    }
+
+    if (channel_) {
+        channel_->InvokeMethod(
+                "onEvent",
+                std::make_unique<flutter::EncodableValue>(flutter::EncodableMap{
+                        {flutter::EncodableValue("eventName"),
+                                flutter::EncodableValue("viewCreated")},
+                        {flutter::EncodableValue("viewId"),
+                                flutter::EncodableValue(flutter_view_id)},
+                        {flutter::EncodableValue("token"), flutter::EncodableValue(token)},
+                }));
+    }
+}
+
 HWND MultiViewDesktop::GetMainWindow() {
     return native_window;
 }
@@ -654,6 +918,9 @@ bool MultiViewDesktop::IsMaximized() {
 }
 
 void MultiViewDesktop::Maximize(const flutter::EncodableMap &args) {
+    if (is_dialog_) {
+        return;
+    }
     bool vertically =
             std::get<bool>(args.at(flutter::EncodableValue("vertically")));
 
@@ -692,6 +959,9 @@ bool MultiViewDesktop::IsMinimized() {
 }
 
 void MultiViewDesktop::Minimize() {
+    if (is_dialog_) {
+        return;
+    }
     if (IsFullScreen()) {  // Like chromium, we don't want to minimize fullscreen
         // windows
         return;
@@ -749,6 +1019,9 @@ bool MultiViewDesktop::IsFullScreen() {
 }
 
 void MultiViewDesktop::SetFullScreen(const flutter::EncodableMap &args) {
+    if (is_dialog_) {
+        return;
+    }
     bool isFullScreen =
             std::get<bool>(args.at(flutter::EncodableValue("isFullScreen")));
 

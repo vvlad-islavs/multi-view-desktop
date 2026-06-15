@@ -103,10 +103,7 @@ class _LocalizedPreviewPage extends StatelessWidget {
             const SizedBox(height: 12),
             Text(l10n.openLocalizedWindowSub),
             const SizedBox(height: 24),
-            FilledButton(
-              onPressed: () => _toggleLocale(context),
-              child: Text(l10n.localeToggleLabel),
-            ),
+            FilledButton(onPressed: () => _toggleLocale(context), child: Text(l10n.localeToggleLabel)),
           ],
         ),
       ),

@@ -63,13 +63,23 @@ class MultiViewDesktop {
   void DestroyEntry(int64_t view_id);
 
   void CreateSecondaryWindow(const flutter::EncodableMap& args);
+  void CreateModalDialogWindow(const flutter::EncodableMap& args);
 
   void EmitEvent(const std::string& event_name, int64_t view_id);
+
+  static void UpdateModalStateLayer(HWND owner_hwnd);
 
   static void ResizeFlutterContent(MultiViewDesktop* window);
   static HWND CreateHostTopLevelWindow(const std::wstring& title,
                                        int client_width,
                                        int client_height);
+  static HWND CreateDialogHostWindow(const std::wstring& title,
+                                     int client_width,
+                                     int client_height,
+                                     bool is_modal,
+                                     bool show_close_button,
+                                     HWND owner_hwnd);
+  static void CenterDialogOnOwner(HWND dialog_hwnd, HWND owner_hwnd);
   static LRESULT CALLBACK HostWndProc(HWND hwnd,
                                       UINT message,
                                       WPARAM wparam,
@@ -90,6 +100,9 @@ class MultiViewDesktop {
   double pixel_ratio_ = 1;
   bool is_resizable_ = true;
   bool is_skip_taskbar_ = false;
+  bool is_dialog_ = false;
+  bool is_modal_ = false;
+  int64_t modal_owner_view_id_ = -1;
   std::string title_bar_style_ = "normal";
   bool window_button_visibility_ = true;
   double opacity_ = 1;
