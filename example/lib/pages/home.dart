@@ -25,7 +25,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with WindowListener {
   final GlobalKey _dialogKey = GlobalKey();
-  final GlobalKey _modelessDialogKey = GlobalKey();
+  // final GlobalKey _modelessDialogKey = GlobalKey();
 
   // Window state mirrors
   bool _isFullScreen = false;
@@ -421,13 +421,13 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     subtitle: 'Open a new child window',
                     onTap: () async {
                       // if (_modellessDialogKey.currentContext?.mounted ?? false) return;
-                      void doOnBuilt(int id) async {
-                        final dialogView = MultiViewDesktop.fromId(id);
-                        await dialogView.setDialogAlignment(Alignment.topLeft);
-                        final bounds = await dialogView.getBounds();
-                        await dialogView.setPosition(Offset(bounds.left, bounds.top + 38));
-                        await dialogView.show();
-                      }
+                      // void doOnBuilt(int id) async {
+                      //   final dialogView = MultiViewDesktop.fromId(id);
+                      //   await dialogView.setDialogAlignment(Alignment.topLeft);
+                      //   final bounds = await dialogView.getBounds();
+                      //   await dialogView.setPosition(Offset(bounds.left, bounds.top + 38));
+                      //   await dialogView.show();
+                      // }
 
                       await openDialog(
                         (ctx, viewId) {

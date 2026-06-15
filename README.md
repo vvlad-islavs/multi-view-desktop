@@ -19,8 +19,11 @@ Unlike libraries that spawn a new Flutter engine per window, multiview_desktop u
   - [macOS](#macos-setup)
 - [Usage](#usage)
   - [Entry point](#entry-point)
+  - [Entry shell (AppShell)](#entry-shell-appshell)
   - [Open a window](#open-a-window)
+  - [Open a dialog](#open-a-dialog)
   - [Window options](#window-options)
+  - [Dialog options](#dialog-options)
   - [Window events](#window-events)
   - [Communication between windows](#communication-between-windows)
   - [Confirm before closing](#confirm-before-closing)
@@ -31,10 +34,12 @@ Unlike libraries that spawn a new Flutter engine per window, multiview_desktop u
   - [Application config](#application-config)
 - [API](#api)
   - [MultiViewDesktop](#multiviewdesktop-1)
+  - [AppShell](#appshell)
   - [WindowListener](#windowlistener-1)
   - [WindowObserver](#windowobserver-1)
   - [WindowCommunicator](#windowcommunicator-1)
   - [WindowOptions](#windowoptions-1)
+  - [DialogOptions](#dialogoptions-1)
   - [MultiAppConfig](#multiappconfig-1)
   - [CloseMode](#closemode-1)
   - [Widgets](#widgets-1)
@@ -416,18 +421,27 @@ void Win32Window::CenterOnScreen() {
 
 ### Entry point
 
-Replace `runApp` with `runMultiApp`. The `home` widget is rendered in the main OS window:
+Replace `runApp` with `runMultiApp`. The `home` builder is rendered in the main OS window:
 
 ```dart
 import 'package:flutter/material.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 
 void main() {
-  runMultiApp(home: const MyApp());
+  runMultiApp(
+    home: (context, id) => MaterialApp(
+      theme: lightTheme,
+      darkTheme: darkTheme,
+      themeMode: themeMode,
+      home: const HomePage(),
+    ),
+  );
 }
 ```
 
 `runMultiApp` calls `WidgetsFlutterBinding.ensureInitialized` internally, so you do not need to call it yourself.
+
+The main window should include a root entry widget (`MaterialApp`, `CupertinoApp`, or `WidgetsApp`). The library reads app-wide fields from it (theme, locale, shortcuts, and similar) and reuses them for secondary windows and dialogs. See [Entry shell (AppShell)](#entry-shell-appshell).
 
 #### globalScope
 
@@ -436,7 +450,7 @@ void main() {
 ```dart
 void main() {
   runMultiApp(
-    home: const MyApp(),
+    home: (context, id) => const MyApp(),
     globalScope: (child) => MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthService()),
@@ -457,7 +471,7 @@ Optional: pass a `MultiAppConfig` to tune startup behavior:
 ```dart
 void main() {
   runMultiApp(
-    home: const MyApp(),
+    home: (context, id) => const MyApp(),
     config: MultiAppConfig(
       generalParams: MultiPlatformParams(
         closeMode: CloseMode.cascade,
@@ -474,12 +488,95 @@ void main() {
         titleBarStyle: TitleBarStyle.normal,
         title: 'My App',
       ),
+      globalDialogOptions: DialogOptions(modal: false),
+      observers: [AppWindowObserver()],
     ),
   );
 }
 ```
 
 `globalWindowOptions` are merged into every new window. Per-window options passed to `openWindow` take priority.
+
+`globalDialogOptions` are merged into every `openDialog` call. See [Open a dialog](#open-a-dialog).
+
+---
+
+### Entry shell (AppShell)
+
+Each OS window is a separate Flutter `View` with its own widget subtree. `Theme`, `Locale`, and other `InheritedWidget` values from the main `MaterialApp` are **not** visible in secondary windows or dialogs.
+
+The library solves this with a shared entry shell:
+
+1. **Main window.** Your `home` builder returns a full entry widget (`MaterialApp`, `CupertinoApp`, or `WidgetsApp`) with navigation.
+2. **Capture.** While the main window is open, `MainAppShellCapture` scans that entry widget after every frame and copies app-wide fields into an internal registry (`MultiViewDesktop.appShell`).
+3. **Secondary and dialog views.** Content from `openWindow` / `openDialog` is wrapped in `SharedEntryApp`, which builds a matching entry shell around your page widget. Navigation stays per-view; appearance is inherited from the registry plus optional overrides.
+
+#### What goes where
+
+| Layer | Scope | Examples |
+|---|---|---|
+| Global registry (`MultiViewDesktop.appShell`) | All secondary windows and dialogs | `theme`, `darkTheme`, `themeMode`, `locale`, `localizationsDelegates` |
+| `ViewShellOverrides` on one view | That window or dialog only | Different locale, different router, per-view theme override |
+| Main `MaterialApp` in `home` | Main window only | Full navigation, your own state management |
+
+Do **not** wrap secondary content in a second full `MaterialApp`. Pass page widgets to `openWindow` and customize the shell through `WindowOptions.shellOverrides` or `MultiViewDesktop.patchViewShell`.
+
+#### Updating theme and locale across windows
+
+`MultiViewDesktop.appShell.patch` and `.apply` rebuild secondary and dialog shells. They do **not** rebuild the main window automatically.
+
+The main window does not listen to `appShell` on purpose: calling `patch` from the main `build` method would create a feedback loop (patch triggers registry update, registry triggers rebuild, rebuild calls patch again).
+
+Keep the main window in sync manually:
+
+```dart
+void setThemeMode(ThemeMode mode) {
+  _themeMode = mode;
+  MultiViewDesktop.appShell.patch(AppShellPatch(themeMode: mode));
+  notifyListeners(); // rebuild main MaterialApp from the same notifier
+}
+```
+
+You can read `MultiViewDesktop.appShell.snapshot` in a `ListenableBuilder`, but do not call `patch` from that builder.
+
+#### Per-view customization (`ViewShellOverrides`)
+
+At open time:
+
+```dart
+openWindow(
+  (_, __) => PreviewPage(),
+  options: WindowOptions(
+    shellOverrides: ViewShellOverrides(
+      appearance: AppShellPatch(
+        locale: const Locale('de'),
+        themeMode: ThemeMode.dark,
+      ),
+    ),
+  ),
+);
+```
+
+At runtime (this view only):
+
+```dart
+MultiViewDesktop.of(context).patchViewShell(
+  ViewShellOverrides.appearance(AppShellPatch(locale: const Locale('en'))),
+);
+```
+
+Dedicated router on one secondary window:
+
+```dart
+openWindow(
+  (_, __) => const SizedBox.shrink(),
+  options: WindowOptions(
+    shellOverrides: ViewShellOverrides(routerConfig: settingsRouter),
+  ),
+);
+```
+
+Native window chrome brightness (title bar on macOS) follows the effective `themeMode` (global plus per-view override). The library calls `setBrightness` when a secondary view or dialog is created and when the shell changes.
 
 ---
 
@@ -489,11 +586,11 @@ Call `openWindow` from anywhere; you do not need a `BuildContext`:
 
 ```dart
 // Open a window showing SettingsPage.
-await openWindow(const SettingsPage());
+await openWindow((_, __) => const SettingsPage());
 
 // Open a window with custom options.
 await openWindow(
-  const DashboardPage(),
+  (_, __) => const DashboardPage(),
   options: WindowOptions(
     size: const Size(1024, 768),
     title: 'Dashboard',
@@ -509,7 +606,7 @@ If you need the new window to know which window opened it, pass `parentContext`:
 
 ```dart
 await openWindow(
-  const DetailsPage(),
+  (_, __) => const DetailsPage(),
   parentContext: context,
 );
 ```
@@ -526,23 +623,175 @@ if (parentContext != null && parentContext.mounted) {
 
 ---
 
+### Open a dialog
+
+`openDialog` is supported on Linux, macOS, and Windows. Unlike `openWindow`, it **requires** `parentContext` from a registered **window**. A dialog cannot open another dialog: the parent must be in the windows registry, not in the dialogs registry.
+
+Wrap the main window content in `DialogModalLayer` when you use modal dialogs so the parent shows a Flutter scrim:
+
+```dart
+runMultiApp(
+  home: (context, id) => DialogModalLayer(
+    child: MaterialApp(home: HomePage()),
+  ),
+);
+```
+
+```dart
+final result = await openDialog<String>(
+  (context, id) => const SettingsDialog(),
+  parentContext: context,
+  options: DialogOptions(title: 'Settings', modal: true),
+);
+
+// Inside the dialog:
+await MultiViewDesktop.of(context).closeDialog('saved');
+```
+
+Dialogs close automatically when their parent window closes, regardless of `CloseMode`. Full-screen mode is not available. Minimize and maximize are disabled on the native title bar.
+
+#### Modeless dialog (`modal: false`)
+
+A reduced window tied to a parent:
+
+- No full-screen, minimize, or maximize
+- Does **not** block the parent at the OS level
+- Can be positioned relative to the parent or on screen (platform-dependent)
+
+#### Modal dialog (`modal: true`)
+
+Same window restrictions as modeless, plus the parent is blocked natively while the dialog is open. Add `DialogModalLayer` on the parent for a visual dimming overlay; the scrim alone does not block OS input.
+
+On **macOS only**, a modal dialog is shown as a sheet fixed to the parent window: it stays centered on the parent and cannot be moved outside it. On **Windows and Linux**, a modal dialog still blocks the parent, but the user can drag it anywhere on screen, including outside the parent bounds.
+
+#### Platform differences
+
+| Behavior | macOS | Windows | Linux |
+|---|---|---|---|
+| Modeless positioning | Centered over parent at open; can be moved freely after | Centered inside parent bounds at open; can move outside parent | Can move anywhere on screen |
+| Modal positioning | Sheet on parent; fixed inside parent, not positioned from Dart | Centered inside parent at open; can move outside parent | Can move anywhere on screen |
+| Modal fixed inside parent | yes | no | no |
+| Modal blocks parent input | yes (sheet) | yes (owner window) | yes (transient + input lock) |
+| Modeless blocks parent | no | no | no |
+
+See [Dialog options](#dialog-options) for `DialogOptions` fields and [Window observers](#window-observers) for dialog lifecycle callbacks.
+
+Watch open dialogs:
+
+```dart
+ValueListenableBuilder<List<int>>(
+  valueListenable: MultiViewDesktop.allDialogIdsNotifier,
+  builder: (context, ids, _) {
+    return Text('Open dialogs: ${ids.length}');
+  },
+)
+```
+
+---
+
 ### Window options
 
-`WindowOptions` describes the initial state applied when a window is created. All fields are optional; omitted fields fall back to `globalWindowOptions` from `MultiAppConfig` or built-in defaults.
+`WindowOptions` is passed to `openWindow` or set once as `globalWindowOptions` in `MultiAppConfig`. Fields you omit fall back to global defaults, then to built-in defaults.
+
+Per-call options override `globalWindowOptions`. Dialogs use a separate type, [DialogOptions](#dialog-options), with its own global defaults (`globalDialogOptions`).
+
+#### Shared appearance fields
+
+These fields exist on both `WindowOptions` and `DialogOptions` with the same meaning:
 
 | Field | Type | Description |
 |---|---|---|
-| `size` | `Size?` | Initial content size in logical pixels. Default: 800x600. |
+| `size` | `Size?` | Initial content size in logical pixels. |
 | `minimumSize` | `Size?` | Minimum size the user can resize to. |
 | `maximumSize` | `Size?` | Maximum size the user can resize to. |
-| `alignment` | `Alignment?` | Where to place the window on the display (default: `Alignment.center`). |
 | `backgroundColor` | `Color?` | Native background color behind Flutter content. |
 | `titleBarStyle` | `TitleBarStyle?` | `normal` or `hidden`. |
-| `windowButtonVisibility` | `bool?` | Show or hide traffic-light / caption buttons when the bar is hidden. |
+| `windowButtonVisibility` | `bool?` | Show or hide traffic-light / caption buttons when the bar is hidden. On dialogs, minimize and maximize stay disabled regardless of this flag. |
 | `title` | `String?` | Native window title. |
-| `fullScreen` | `bool?` | Start in full-screen mode. |
-| `alwaysOnTop` | `bool?` | Float above other windows. |
-| `hideAppFromTaskbar` | `bool?` | Hide the entire application from the dock / taskbar. |
+| `alwaysOnTop` | `bool?` | Keep the view above other application windows. |
+| `shellOverrides` | `ViewShellOverrides?` | Per-view entry shell (theme, locale, router). See [Entry shell (AppShell)](#entry-shell-appshell). |
+
+Built-in default content size for **windows** when `size` is omitted: 800x600.
+
+#### Window-only fields
+
+| Field | Type | Description |
+|---|---|---|
+| `alignment` | `Alignment?` | Where to place the window on the display (default: `Alignment.center`). Not used for dialogs. |
+| `fullScreen` | `bool?` | Start in full-screen mode. Not available for dialogs. |
+| `hideAppFromTaskbar` | `bool?` | Hide the entire application from the dock / taskbar. App-wide; not used for dialogs. |
+
+Example:
+
+```dart
+openWindow(
+  (_, __) => const SettingsPage(),
+  options: WindowOptions(
+    size: const Size(900, 640),
+    title: 'Settings',
+    alignment: Alignment.center,
+    shellOverrides: ViewShellOverrides(
+      appearance: AppShellPatch(locale: const Locale('de')),
+    ),
+  ),
+);
+```
+
+---
+
+### Dialog options
+
+`DialogOptions` is passed to `openDialog` or set once as `globalDialogOptions` in `MultiAppConfig`. Merge rules are the same as for windows: per-call options override global defaults.
+
+Reuse [shared appearance fields](#shared-appearance-fields) for `size`, `title`, `titleBarStyle`, `backgroundColor`, `shellOverrides`, and the rest. Built-in default content size for **dialogs** when `size` is omitted: 400x300.
+
+#### Dialog-only fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `modal` | `bool?` | `false` | When true, blocks the parent at the OS level while the dialog is open. See [Open a dialog](#open-a-dialog) for platform behavior. |
+| `isResizable` | `bool?` | platform | Whether the user can resize the dialog by dragging edges. |
+| `showOnInit` | `bool?` | `true` | Show the dialog immediately after creation. Set to `false` to create it hidden and call `show()` later. |
+
+#### Restrictions (not configurable)
+
+Dialogs always differ from regular windows:
+
+- Require `parentContext` from a **window** (not from another dialog).
+- Close when the parent window closes, regardless of `CloseMode`.
+- No full-screen, minimize, or maximize (native title bar exposes close only).
+- Hidden from the taskbar and Mission Control on creation.
+- Initial placement is relative to the parent; see the platform table in [Open a dialog](#open-a-dialog).
+
+There is no `alignment`, `fullScreen`, or `hideAppFromTaskbar` on `DialogOptions`.
+
+Example with global defaults and a one-off override:
+
+```dart
+runMultiApp(
+  home: (context, id) => DialogModalLayer(child: MyApp()),
+  config: MultiAppConfig(
+    globalDialogOptions: DialogOptions(
+      modal: true,
+      size: const Size(520, 400),
+      isResizable: true,
+    ),
+  ),
+);
+
+// Later, in a window:
+await openDialog<void>(
+  (_, __) => const ConfirmDialog(),
+  parentContext: context,
+  options: DialogOptions(
+    title: 'Confirm',
+    modal: false, // overrides global modal: true for this call only
+    shellOverrides: ViewShellOverrides(
+      appearance: AppShellPatch(themeMode: ThemeMode.dark),
+    ),
+  ),
+);
+```
 
 ---
 
@@ -849,22 +1098,24 @@ All eight edges and corners are available: `top`, `bottom`, `left`, `right`, `to
 
 ### Watching the window list
 
-`MultiViewDesktop.allViewsIds` returns a snapshot list of all secondary view IDs currently open. `allViewsIdsNotifier` is a `ValueNotifier` updated every time a window opens or closes:
+`MultiViewDesktop.allWindowViewIds` returns a snapshot of all secondary window IDs currently open. `allWindowIdsNotifier` is a `ValueNotifier` updated every time a window opens or closes:
 
 ```dart
 ValueListenableBuilder<List<int>>(
-  valueListenable: MultiViewDesktop.allViewsIdsNotifier,
+  valueListenable: MultiViewDesktop.allWindowIdsNotifier,
   builder: (context, ids, _) {
     return Text('Open secondary windows: ${ids.length}');
   },
 )
 ```
 
+For dialogs, use `allDialogViewsIds` and `allDialogIdsNotifier`. See [Open a dialog](#open-a-dialog).
+
 ---
 
 ### Window observers
 
-`WindowObserver` lets you monitor window lifecycle events from one central place, without adding a `WindowListener` mixin to every widget. The design mirrors `NavigatorObserver` in Flutter: extend the class, override only the methods you need, and register the instance in `MultiAppConfig`.
+`WindowObserver` lets you monitor window and dialog lifecycle from one central place, without adding a `WindowListener` mixin to every widget. The design mirrors `NavigatorObserver` in Flutter: extend the class, override only the methods you need, and register instances in `MultiAppConfig.observers`.
 
 ```dart
 class AppWindowObserver extends WindowObserver {
@@ -879,14 +1130,28 @@ class AppWindowObserver extends WindowObserver {
   }
 
   @override
+  void onDialogOpened(int dialogId, {required int parentViewId}) {
+    print('dialog $dialogId opened (parent window: $parentViewId)');
+  }
+
+  @override
+  void onDialogClose(int dialogId) {
+    print('dialog $dialogId closed');
+  }
+
+  @override
   void onAnchorChanged(int? previousViewId, int? newViewId) {
-    print('anchor changed: $previousViewId -> $newViewId');
+    print('anchor changed: $previousViewId to $newViewId');
   }
 
   @override
   void onWindowEvent(int viewId, String eventName) {
-    // Receives every native event: focus, blur, maximize, resize, move, close, etc.
-    // Useful for analytics or structured logging across all windows.
+    print('window $viewId event: $eventName');
+  }
+
+  @override
+  void onDialogEvent(int dialogId, String eventName) {
+    print('dialog $dialogId event: $eventName');
   }
 }
 
@@ -900,12 +1165,49 @@ void main() {
 }
 ```
 
-Multiple observers can be registered at once. All view IDs passed to the callbacks are the same public IDs as those returned by `MultiViewDesktop.getIdByContext` and `MultiViewDesktop.allViewsIds`.
+Multiple observers can be registered at once. All view IDs are public IDs, the same as `MultiViewDesktop.getIdByContext`, `allWindowViewIds`, and `allDialogViewsIds`.
+
+#### Window callbacks
+
+| Callback | When it fires |
+|---|---|
+| `onWindowOpened` | After `openWindow` completes and the widget tree for the new view is registered. `parentViewId` is set when `parentContext` was passed to `openWindow`, otherwise `null`. |
+| `onWindowClosed` | After the window is destroyed and its widget tree is disposed. |
+| `onWindowEvent` | For every native event on a **window** (not a dialog). Fires before matching `WindowListener` callbacks in that view. |
+| `onAnchorChanged` | When the anchor window changes (automatic promotion or manual `setAnchorId`). |
+
+#### Dialog callbacks
+
+Dialog views are not windows in the registry: they use separate observer methods. If you only override window callbacks, dialog open/close and native events on dialogs are silent.
+
+| Callback | When it fires |
+|---|---|
+| `onDialogOpened` | After `openDialog` completes and the dialog widget tree is registered. `parentViewId` is always the window that called `openDialog`. |
+| `onDialogClose` | After the dialog is destroyed (`closeDialog`, native close button, or parent window closed). Does **not** fire for regular windows; use `onWindowClosed` for those. |
+| `onDialogEvent` | For every native event on a **dialog**. Fires before `WindowListener` in the dialog view (dialogs still use `WindowListener` mixin methods such as `onWindowFocus`, not separate dialog-named methods). |
+
+`onDialogEvent` uses the same `eventName` strings as `onWindowEvent`, but dialogs never emit minimize or full-screen events:
+
+| `eventName` | Dialog | Window |
+|---|---|---|
+| `focus`, `blur` | yes | yes |
+| `resize`, `resized` | yes | yes |
+| `move`, `moved` | yes | yes |
+| `close` | yes | yes |
+| `maximize`, `unmaximize` | no | yes |
+| `minimize`, `restore` | no | yes |
+| `enter-full-screen`, `leave-full-screen` | no | yes |
+
+When the parent window closes, child dialogs close first; expect `onDialogClose` for each dialog, then `onWindowClosed` for the parent.
+
+#### Observer vs listener
 
 `WindowObserver` and `WindowListener` serve different purposes:
 
-- `WindowListener` is a mixin on `State` that reacts to events in a single widget's window, typically to update UI.
-- `WindowObserver` is a global sink registered once, covering all windows. Use it for logging, analytics, or infrastructure concerns that span the entire application.
+- `WindowListener` is a mixin on `State` in **one** view. Use it to update UI in that window or dialog.
+- `WindowObserver` is registered once in `MultiAppConfig` and receives callbacks for **all** windows and dialogs. Use it for logging, analytics, or app-wide infrastructure.
+
+Observers are passive: they cannot cancel close or block events.
 
 ---
 
@@ -915,7 +1217,7 @@ Multiple observers can be registered at once. All view IDs passed to the callbac
 
 ```dart
 runMultiApp(
-  home: const MyApp(),
+  home: (context, id) => const MyApp(),
   config: MultiAppConfig(
     generalParams: MultiPlatformParams(
       closeMode: CloseMode.cascade,
@@ -929,6 +1231,7 @@ runMultiApp(
       size: const Size(1280, 720),
       title: 'My App',
     ),
+    globalDialogOptions: DialogOptions(modal: false, size: Size(480, 360)),
     observers: [AppWindowObserver()],
   ),
 );
@@ -939,6 +1242,12 @@ runMultiApp(
 `saveLastWindowToReopen` (macOS): when the user closes all windows and the app stays in the dock, re-opening from the dock icon restores the last window.
 
 `closeAppAfterLastWindowClosed` (macOS): when `false` (the default), the process stays alive after the last window closes. The app icon remains in the dock. When `true`, the process terminates as soon as the last window closes.
+
+`globalWindowOptions`: default [WindowOptions](#window-options) merged into every `openWindow` call.
+
+`globalDialogOptions`: default [DialogOptions](#dialog-options) merged into every `openDialog` call.
+
+`observers`: list of [WindowObserver](#window-observers) instances; receives window and dialog lifecycle callbacks. See [Window observers](#window-observers) for dialog-specific methods (`onDialogOpened`, `onDialogClose`, `onDialogEvent`).
 
 ---
 
@@ -972,13 +1281,25 @@ MultiViewDesktop.addListenerForView(viewId, listener);
 
 Returns the shifted view ID of the window that owns `context`.
 
-##### allViewsIds -> List\<int\>
+##### appShell -> AppShellController
 
-Snapshot of all secondary view IDs currently registered.
+Shared entry shell for secondary and dialog views. Update through `patch` or `apply`. See [AppShell](#appshell).
 
-##### allViewsIdsNotifier -> ValueNotifier\<List\<int\>\>
+##### allWindowViewIds -> List\<int\>
 
-Live-updating notifier. Fires whenever a window opens or closes. Use with `ValueListenableBuilder`.
+Snapshot of public view IDs for all secondary windows currently open.
+
+##### allWindowIdsNotifier -> ValueNotifier\<List\<int\>\>
+
+Live-updating notifier. Fires whenever a window opens or closes.
+
+##### allDialogViewsIds -> List\<int\>
+
+Snapshot of public view IDs for all dialogs currently open.
+
+##### allDialogIdsNotifier -> ValueNotifier\<List\<int\>\>
+
+Live-updating notifier. Fires whenever a dialog opens or closes.
 
 #### Identity (instance)
 
@@ -991,6 +1312,10 @@ The shifted (public) view ID for this instance.
 ##### openWindow(Widget child, {WindowOptions? options, BuildContext? parentContext}) -> Future\<int\>
 
 Opens a new OS window showing `child`. Returns the view ID. Available as a top-level function; can be called without `BuildContext`.
+
+##### openDialog\<T\>(Widget child, {required BuildContext parentContext, DialogOptions? options}) -> Future\<T?\>
+
+Opens a dialog tied to `parentContext`. Completes when the dialog is closed via `closeDialog`. Parent must be a window, not another dialog. See [Open a dialog](#open-a-dialog).
 
 ##### closeApp({CloseMode? closeMode}) -> Future\<void\>
 
@@ -1017,6 +1342,10 @@ Returns the current anchor view ID, or `null` if none is set.
 ##### closeWindow() -> Future\<void\>
 
 Soft-closes this window. If `setPreventClose` is `true`, emits `onWindowClose` instead of destroying the window.
+
+##### closeDialog([dynamic result]) -> Future\<void\>
+
+Closes this dialog and completes the `openDialog` future on the caller side with `result`. No effect on regular windows.
 
 ##### isPreventClose() -> Future\<bool\>
 
@@ -1298,6 +1627,69 @@ Sets the dock icon badge text for this window (macOS). Pass `null` to clear the 
 
 Sets the taskbar / dock progress indicator from `0.0` to `1.0`. App-wide on Windows. macOS shows progress in the dock.
 
+#### Entry shell (instance)
+
+##### patchViewShell(ViewShellOverrides overrides) -> void
+
+Merges `overrides` into this view's shell configuration. Appearance fields override the global `appShell` snapshot for this view only. Navigation fields apply only here. See [AppShell](#appshell).
+
+##### viewShellOverrides -> ViewShellOverrides?
+
+Current per-view overrides, if any.
+
+---
+
+### AppShell
+
+Shared entry shell for secondary windows and dialogs. Access through `MultiViewDesktop.appShell`.
+
+Secondary content is wrapped in `SharedEntryApp`, which merges the global registry with per-view `ViewShellOverrides` and builds `MaterialApp`, `CupertinoApp`, or `WidgetsApp` without duplicating navigation from the main window.
+
+While the main window is open, app-wide fields are copied from its entry widget each frame. You can also call `patch` or `apply` from any window, including after the main window was closed.
+
+The main window is **not** updated by `appShell` automatically (see [Entry shell (AppShell)](#entry-shell-appshell)).
+
+##### snapshot -> AppShellSnapshot?
+
+Latest app-wide shell settings used for secondary and dialog views.
+
+##### listenable -> Listenable
+
+Fires when `snapshot` changes. Safe for `ListenableBuilder` on the main window if you only read, never `patch` inside the builder.
+
+##### patch(AppShellPatch patch) -> void
+
+Merges partial updates into the registry. Rebuilds all secondary and dialog shells.
+
+##### apply(AppShellSnapshot snapshot) -> void
+
+Replaces the entire registry snapshot.
+
+##### applyFromMaterialApp(MaterialApp app) -> void
+
+Copies app-wide fields from a `MaterialApp` into the registry.
+
+##### applyFromCupertinoApp(CupertinoApp app) -> void
+
+Copies app-wide fields from a `CupertinoApp` into the registry.
+
+##### applyFromWidgetsApp(WidgetsApp app) -> void
+
+Copies app-wide fields from a `WidgetsApp` into the registry.
+
+#### AppShellPatch
+
+Partial update for the global registry or for `ViewShellOverrides.appearance`. Fields include `theme`, `darkTheme`, `themeMode`, `locale`, `localizationsDelegates`, `supportedLocales`, `shortcuts`, and similar. Navigation fields belong in `ViewShellOverrides`, not here.
+
+#### ViewShellOverrides
+
+Per-view shell configuration on `WindowOptions.shellOverrides` or `DialogOptions.shellOverrides`.
+
+- `appearance` (`AppShellPatch?`): overrides theme, locale, and other app-wide fields for this view only.
+- Navigation: `home`, `routes`, `routerConfig`, `navigatorKey`, and related fields. Each view has its own navigator or router stack.
+
+Factory: `ViewShellOverrides.appearance(AppShellPatch(...))` for appearance-only overrides.
+
 ---
 
 ### WindowListener
@@ -1368,25 +1760,39 @@ The view ID that this listener is currently registered for.
 
 ### WindowObserver
 
-Global observer for window lifecycle events across the entire application. Extend this class and override the callbacks you need. Register instances via `MultiAppConfig.observers`.
+Global observer for window and dialog lifecycle. Extend this class and override the callbacks you need. Register instances via `MultiAppConfig.observers`.
 
-All view ID parameters are public (shifted) IDs, matching `MultiViewDesktop.getIdByContext` and `MultiViewDesktop.allViewsIds`.
+Usage guide with callback tables and event names: [Window observers](#window-observers).
+
+All view ID parameters are public (shifted) IDs.
 
 ##### onWindowOpened(int viewId, {int? parentViewId}) -> void
 
-Called after a new OS window has been opened and its widget tree registered. `parentViewId` is the ID of the window that called `openWindow`, or `null` if no parent context was passed.
+Called after a new OS window has been opened and its widget tree registered.
 
 ##### onWindowClosed(int viewId) -> void
 
 Called after an OS window has been closed and its widget tree disposed.
 
+##### onDialogOpened(int dialogId, {required int parentViewId}) -> void
+
+Called after a dialog has been opened. `parentViewId` is the window that called `openDialog`.
+
+##### onDialogClose(int dialogId) -> void
+
+Called after a dialog has been closed and its widget tree disposed. Not called for regular windows.
+
 ##### onAnchorChanged(int? previousViewId, int? newViewId) -> void
 
-Called when the anchor window changes. The anchor is the root window that receives app-level close events. Both arguments are `null` when no anchor exists (e.g. during shutdown).
+Called when the anchor window changes.
 
 ##### onWindowEvent(int viewId, String eventName) -> void
 
-Called for every native event delivered to the window. `eventName` values: `focus`, `blur`, `maximize`, `unmaximize`, `minimize`, `restore`, `resize`, `resized`, `move`, `moved`, `enter-full-screen`, `leave-full-screen`, `close`. Fires before individual `WindowListener` callbacks in the widget tree.
+Called for every native event on a window. See [Window observers](#window-observers) for `eventName` values.
+
+##### onDialogEvent(int dialogId, String eventName) -> void
+
+Called for every native event on a dialog. Same names as windows except minimize and full-screen events are never sent.
 
 ---
 
@@ -1418,19 +1824,21 @@ A broadcast `Stream` that receives every message sent via `broadcast`. Subscribe
 
 Initial configuration for a window. Passed to `openWindow` or set as `globalWindowOptions` in `MultiAppConfig`.
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `size` | `Size?` | 800x600 | Content size in logical pixels. |
-| `minimumSize` | `Size?` | none | Minimum resizable size. |
-| `maximumSize` | `Size?` | none | Maximum resizable size. |
-| `alignment` | `Alignment?` | `Alignment.center` | Placement on the display. |
-| `backgroundColor` | `Color?` | platform | Native background color. |
-| `titleBarStyle` | `TitleBarStyle?` | `normal` | `normal` or `hidden`. |
-| `windowButtonVisibility` | `bool?` | `true` | Show caption buttons when bar is hidden. |
-| `title` | `String?` | none | Native window title. |
-| `fullScreen` | `bool?` | `false` | Start in full-screen mode. |
-| `alwaysOnTop` | `bool?` | `false` | Float above other windows. |
-| `hideAppFromTaskbar` | `bool?` | `false` | Hide app from dock / taskbar. |
+Full field reference: [Window options](#window-options) (shared appearance fields plus window-only fields).
+
+Built-in default `size`: 800x600.
+
+---
+
+### DialogOptions
+
+Initial configuration for a dialog. Passed to `openDialog` or set as `globalDialogOptions` in `MultiAppConfig`.
+
+Full field reference: [Dialog options](#dialog-options) (shared appearance fields plus dialog-only fields).
+
+Built-in default `size`: 400x300. Default `modal`: `false`. Default `showOnInit`: `true`.
+
+Dialogs cannot use full-screen mode. Modal dialogs block the parent on all platforms; only macOS keeps them fixed inside the parent window. See [Open a dialog](#open-a-dialog).
 
 ---
 
@@ -1458,9 +1866,13 @@ macOS-specific parameters.
 
 Default `WindowOptions` merged into every new window. Per-window options override these.
 
+##### globalDialogOptions -> DialogOptions
+
+Default `DialogOptions` merged into every `openDialog` call. Per-dialog options override these.
+
 ##### observers -> List\<WindowObserver\>
 
-List of observers notified on window lifecycle events. See [WindowObserver](#windowobserver-1).
+List of observers notified on window and dialog lifecycle events. See [Window observers](#window-observers).
 
 ---
 
@@ -1540,6 +1952,16 @@ DragToResizeArea(
 | `topRight` | Top-right corner |
 | `bottomLeft` | Bottom-left corner |
 | `bottomRight` | Bottom-right corner |
+
+#### DialogModalLayer
+
+Optional overlay on a **parent window** that dims content while modal dialogs are open. Place it above the main content (often wrapping `MaterialApp` in `home`):
+
+```dart
+DialogModalLayer(child: MaterialApp(home: HomePage()))
+```
+
+Listens to modal dialog state for this window and fades a scrim in and out. Native modal dialogs also block parent input at the OS level; the scrim is visual only.
 
 <!-- README_DOC_GEN -->
 

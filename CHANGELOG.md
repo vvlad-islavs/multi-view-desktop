@@ -1,3 +1,10 @@
+## 1.1.0
+
+- View builder got context & id.  
+- [Check README] Added observers to runMultiApp->config
+- [Check README] Added native openDialog
+- [Check README] Updated EntryApp requirements, now needs only in home builder.
+
 ## 1.0.2
 
 - Linux min/max size fix. Repository link fix.
