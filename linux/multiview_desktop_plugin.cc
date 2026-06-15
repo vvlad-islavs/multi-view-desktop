@@ -177,7 +177,14 @@ static gboolean on_delete(GtkWidget*, GdkEvent*, gpointer data) {
   }
 
   emit_event("close", view_id);
+  const bool was_modal = wm->is_modal;
+  const int64_t owner_id = wm->modal_owner_view_id;
   MvdLinuxWindow::Unregister(view_id);
+  if (was_modal && owner_id >= 0) {
+    MvdLinuxWindow::UpdateModalStateLayer(owner_id);
+    MvdLinuxWindow::FocusModalTarget(
+        MvdLinuxWindow::GetActiveModalFocusTarget(owner_id));
+  }
   maybe_quit_application_if_last_window();
   return FALSE;
 }
@@ -200,6 +207,9 @@ static gboolean on_configure(GtkWidget*, GdkEventConfigure*, gpointer data) {
   auto wm = MvdLinuxWindow::Find(view_id);
   if (wm) {
     wm->RefreshShadowCache();
+    if (wm->is_modal) {
+      wm->ClampToParentBounds();
+    }
   }
   return FALSE;
 }
@@ -253,11 +263,17 @@ static void connect_window_signals(GtkWindow* window, int64_t view_id) {
                    G_CALLBACK(on_window_state), id_data);
 }
 
-static void register_window(GtkWindow* window, FlView* view, int64_t view_id) {
+static void register_window(GtkWindow* window, FlView* view, int64_t view_id,
+                            bool is_dialog = false, bool is_modal = false,
+                            int64_t dialog_parent_view_id = -1) {
   auto wm = std::make_shared<MvdLinuxWindow>();
   wm->view_id = view_id;
   wm->window = window;
   wm->view = view;
+  wm->is_dialog = is_dialog;
+  wm->is_modal = is_modal;
+  wm->dialog_parent_view_id = dialog_parent_view_id;
+  wm->modal_owner_view_id = is_modal ? dialog_parent_view_id : -1;
   {
     std::lock_guard<std::mutex> lock(MvdLinuxWindow::registry_mtx);
     MvdLinuxWindow::windows[view_id] = wm;
@@ -265,6 +281,108 @@ static void register_window(GtkWindow* window, FlView* view, int64_t view_id) {
   // FlView quits the app on delete-event; multiview_desktop handles close itself.
   mvd_linux_detach_flutter_quit_on_window_close(window, view);
   connect_window_signals(window, view_id);
+}
+
+struct DialogCreateParams {
+  int64_t token = 0;
+  int64_t parent_id = 0;
+  int width = 400;
+  int height = 300;
+  bool is_modal = false;
+  bool has_position = false;
+  int pos_x = 0;
+  int pos_y = 0;
+  bool window_button_visibility = true;
+  std::string title;
+  std::string title_bar_style;
+};
+
+static void dialog_first_frame_cb(gpointer /*user_data*/, FlView* view) {
+  const int64_t view_id = fl_view_get_id(view);
+  auto wm = MvdLinuxWindow::Find(view_id);
+  if (wm && wm->is_dialog && wm->dialog_parent_view_id >= 0) {
+    wm->CenterOnDialogParent();
+    if (wm->is_modal) {
+      wm->ClampToParentBounds();
+    }
+  }
+  GtkWidget* top = gtk_widget_get_toplevel(GTK_WIDGET(view));
+  gtk_widget_show(top);
+  gtk_widget_grab_focus(GTK_WIDGET(view));
+}
+
+static void create_modal_dialog_impl(const DialogCreateParams& params) {
+  auto parent_wm = MvdLinuxWindow::Find(params.parent_id);
+  if (!parent_wm || !parent_wm->window || !parent_wm->view) {
+    return;
+  }
+
+  GApplication* app = g_application_get_default();
+  if (!app) {
+    return;
+  }
+
+  FlEngine* engine = fl_view_get_engine(parent_wm->view);
+  if (!engine) {
+    return;
+  }
+
+  const char* title =
+      params.title.empty() ? "Flutter" : params.title.c_str();
+
+  GtkWindow* window =
+      GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(app)));
+  MvdLinuxWindow::DecorateToplevel(window, title);
+  gtk_window_set_default_size(window, params.width, params.height);
+  gtk_window_set_type_hint(window, GDK_WINDOW_TYPE_HINT_DIALOG);
+
+  if (params.is_modal) {
+    gtk_window_set_transient_for(window, parent_wm->window);
+    // gtk_window_set_modal blocks the entire application on GTK3. Parent-only
+    // blocking is handled via UpdateModalStateLayer (see Windows GW_OWNER path).
+    gtk_window_set_modal(window, FALSE);
+  } else {
+    gtk_window_set_modal(window, FALSE);
+  }
+
+  FlView* view = fl_view_new_for_engine(engine);
+  GdkRGBA background_color;
+  gdk_rgba_parse(&background_color, "#000000");
+  fl_view_set_background_color(view, &background_color);
+  gtk_widget_show(GTK_WIDGET(view));
+  gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
+
+  g_signal_connect_swapped(view, "first-frame", G_CALLBACK(dialog_first_frame_cb),
+                           nullptr);
+
+  gtk_widget_realize(GTK_WIDGET(view));
+
+  const int64_t view_id = fl_view_get_id(view);
+  register_window(window, view, view_id, true, params.is_modal,
+                  params.parent_id);
+
+  auto wm = MvdLinuxWindow::Find(view_id);
+  if (wm && !params.title_bar_style.empty()) {
+    wm->SetTitleBarStyle(params.title_bar_style.c_str(),
+                         params.window_button_visibility);
+  }
+
+  if (wm && wm->dialog_parent_view_id >= 0) {
+    wm->CenterOnDialogParent();
+    if (wm->is_modal) {
+      wm->ClampToParentBounds();
+    }
+  }
+
+  if (params.is_modal) {
+    gtk_widget_show(GTK_WIDGET(window));
+    gtk_widget_show(GTK_WIDGET(view));
+    gtk_window_present(window);
+    gtk_widget_grab_focus(GTK_WIDGET(view));
+    MvdLinuxWindow::UpdateModalStateLayer(params.parent_id);
+  }
+
+  emit_view_created(view_id, params.token);
 }
 
 static FlValue* display_to_map(GdkMonitor* monitor, int index) {
@@ -360,6 +478,10 @@ static void handle_view_method(FlMethodCall* method_call,
 
   if (g_strcmp0(method, "closeWindow") == 0) {
     wm->Close();
+    response = ok_null();
+  } else if (g_strcmp0(method, "destroyWindow") == 0) {
+    wm->Destroy();
+    // maybe_quit_application_if_last_window();
     response = ok_null();
   } else if (g_strcmp0(method, "isPreventClose") == 0) {
     response = ok_bool(wm->is_prevent_close);
@@ -578,6 +700,39 @@ static void method_cb(FlMethodChannel*, FlMethodCall* method_call, gpointer) {
         std::lock_guard<std::mutex> lk(g_pending_mtx);
         g_pending_create[pending.token] = std::move(pending);
       }
+      response = ok_null();
+    }
+  } else if (g_strcmp0(method, "createModalDialog") == 0) {
+    const int64_t parent_id = int64_from_map(args, "parentId");
+    const bool is_modal = bool_from_map(args, "modal", false);
+    if (MvdLinuxWindow::Find(parent_id) == nullptr) {
+      response = err("NO_PARENT", "No parent window for viewId");
+    } else {
+      auto* params = new DialogCreateParams();
+      params->token = int64_from_map(args, "token");
+      params->parent_id = parent_id;
+      params->width = static_cast<int>(double_from_map(args, "width", 400));
+      params->height = static_cast<int>(double_from_map(args, "height", 300));
+      params->is_modal = is_modal;
+      params->title = string_from_map(args, "title");
+      params->title_bar_style = string_from_map(args, "titleBarStyle");
+      params->window_button_visibility =
+          bool_from_map(args, "windowButtonVisibility", true);
+      FlValue* pos = fl_value_lookup_string(args, "position");
+      if (pos && fl_value_get_type(pos) == FL_VALUE_TYPE_MAP) {
+        params->has_position = true;
+        params->pos_x = static_cast<int>(double_from_map(pos, "x", 0));
+        params->pos_y = static_cast<int>(double_from_map(pos, "y", 0));
+      }
+      g_main_context_invoke(
+          nullptr,
+          [](gpointer data) -> gboolean {
+            std::unique_ptr<DialogCreateParams> params(
+                static_cast<DialogCreateParams*>(data));
+            create_modal_dialog_impl(*params);
+            return G_SOURCE_REMOVE;
+          },
+          params);
       response = ok_null();
     }
   } else if (g_strcmp0(method, "setTerminateAfterLastWindowClosed") == 0) {

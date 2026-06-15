@@ -3,11 +3,9 @@ import 'package:flutter/widgets.dart';
 import '../multi_view_desktop.dart';
 import '../resize_edge.dart';
 
-/// A widget that triggers a native window resize when the user presses and
-/// drags on its area.
+/// Starts a native window resize when the user drags this area.
 ///
-/// Place instances at each edge / corner of the window content area when
-/// using a frameless window:
+/// Used on edges and corners of frameless windows:
 ///
 /// ```dart
 /// DragToResizeArea(
@@ -26,8 +24,6 @@ class DragToResizeArea extends StatelessWidget {
   final ResizeEdge resizeEdge;
   final Widget child;
 
-  /// When non-null, [child] is only interactive for resizing when this value
-  /// is `true`.
   final bool? enableResizeEdge;
 
   @override

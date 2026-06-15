@@ -6,6 +6,7 @@
 #endif
 
 #include <cstring>
+#include <vector>
 
 std::mutex MvdLinuxWindow::registry_mtx;
 std::map<int64_t, std::shared_ptr<MvdLinuxWindow>> MvdLinuxWindow::windows;
@@ -102,6 +103,241 @@ void MvdLinuxWindow::Close() {
       vid);
 }
 
+void MvdLinuxWindow::Destroy() {
+  if (!window) {
+    return;
+  }
+  const bool was_modal = is_modal;
+  const int64_t owner_id = modal_owner_view_id;
+  GtkWindow* w = window;
+  window = nullptr;
+  view = nullptr;
+  Unregister(view_id);
+  gtk_widget_destroy(GTK_WIDGET(w));
+  if (was_modal && owner_id >= 0) {
+    UpdateModalStateLayer(owner_id);
+    FocusModalTarget(GetActiveModalFocusTarget(owner_id));
+  }
+}
+
+namespace {
+
+std::vector<int64_t> GetOwnedModalViewIds(int64_t owner_view_id) {
+  std::vector<int64_t> owned;
+  std::lock_guard<std::mutex> lock(MvdLinuxWindow::registry_mtx);
+  for (const auto& entry : MvdLinuxWindow::windows) {
+    const auto& wm = entry.second;
+    if (wm->is_modal && wm->modal_owner_view_id == owner_view_id) {
+      owned.push_back(entry.first);
+    }
+  }
+  return owned;
+}
+
+void SetWindowInputEnabled(GtkWindow* window, bool enabled) {
+  if (!window) {
+    return;
+  }
+  gtk_widget_set_sensitive(GTK_WIDGET(window), enabled ? TRUE : FALSE);
+}
+
+void DisableModalSubtree(int64_t view_id) {
+  auto wm = MvdLinuxWindow::Find(view_id);
+  if (!wm || !wm->window) {
+    return;
+  }
+  SetWindowInputEnabled(wm->window, false);
+  for (int64_t child_id : GetOwnedModalViewIds(view_id)) {
+    DisableModalSubtree(child_id);
+  }
+}
+
+}  // namespace
+
+void MvdLinuxWindow::UpdateModalStateLayer(int64_t owner_view_id) {
+  auto owner = Find(owner_view_id);
+  if (!owner || !owner->window) {
+    return;
+  }
+
+  const std::vector<int64_t> owned = GetOwnedModalViewIds(owner_view_id);
+  if (owned.empty()) {
+    SetWindowInputEnabled(owner->window, true);
+    return;
+  }
+
+  SetWindowInputEnabled(owner->window, false);
+
+  int64_t latest_view_id = owned.front();
+  for (int64_t child_id : owned) {
+    if (child_id > latest_view_id) {
+      latest_view_id = child_id;
+    }
+  }
+
+  for (int64_t child_id : owned) {
+    auto child = Find(child_id);
+    if (!child || !child->window) {
+      continue;
+    }
+    if (child_id == latest_view_id) {
+      UpdateModalStateLayer(child_id);
+      SetWindowInputEnabled(child->window, true);
+    } else {
+      DisableModalSubtree(child_id);
+    }
+  }
+}
+
+int64_t MvdLinuxWindow::GetActiveModalFocusTarget(int64_t owner_view_id) {
+  auto owner = Find(owner_view_id);
+  if (!owner || !owner->window) {
+    return -1;
+  }
+
+  const std::vector<int64_t> owned = GetOwnedModalViewIds(owner_view_id);
+  if (owned.empty()) {
+    return owner_view_id;
+  }
+
+  int64_t latest_view_id = owned.front();
+  for (int64_t child_id : owned) {
+    if (child_id > latest_view_id) {
+      latest_view_id = child_id;
+    }
+  }
+  return GetActiveModalFocusTarget(latest_view_id);
+}
+
+void MvdLinuxWindow::FocusModalTarget(int64_t view_id) {
+  if (view_id < 0) {
+    return;
+  }
+  auto wm = Find(view_id);
+  if (wm) {
+    wm->Focus();
+  }
+}
+
+void MvdLinuxWindow::DecorateToplevel(GtkWindow* window, const char* title) {
+  if (!window) {
+    return;
+  }
+  const char* resolved_title = (title && title[0]) ? title : "Flutter";
+  gboolean use_header_bar = TRUE;
+#ifdef GDK_WINDOWING_X11
+  GdkScreen* screen = gtk_window_get_screen(window);
+  if (GDK_IS_X11_SCREEN(screen)) {
+    const gchar* wm_name = gdk_x11_screen_get_window_manager_name(screen);
+    if (g_strcmp0(wm_name, "GNOME Shell") != 0) {
+      use_header_bar = FALSE;
+    }
+  }
+#endif
+  if (use_header_bar) {
+    GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
+    gtk_widget_show(GTK_WIDGET(header_bar));
+    gtk_header_bar_set_title(header_bar, resolved_title);
+    gtk_header_bar_set_show_close_button(header_bar, TRUE);
+    gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
+  } else {
+    gtk_window_set_title(window, resolved_title);
+  }
+}
+
+void MvdLinuxWindow::CenterOnParent(GtkWindow* dialog, GtkWindow* parent,
+                                    int width, int height) {
+  if (!dialog || !parent) {
+    return;
+  }
+  gint px = 0;
+  gint py = 0;
+  gint pw = 0;
+  gint ph = 0;
+  gtk_window_get_position(parent, &px, &py);
+  gtk_window_get_size(parent, &pw, &ph);
+
+  gint dw = width;
+  gint dh = height;
+  if (gtk_widget_get_realized(GTK_WIDGET(dialog))) {
+    gtk_window_get_size(dialog, &dw, &dh);
+  }
+
+  gtk_window_move(dialog, px + (pw - dw) / 2, py + (ph - dh) / 2);
+}
+
+void MvdLinuxWindow::CenterOnDialogParent() {
+  if (dialog_parent_view_id < 0 || !window) {
+    return;
+  }
+  auto parent = Find(dialog_parent_view_id);
+  if (!parent || !parent->window) {
+    return;
+  }
+  gint dw = 0;
+  gint dh = 0;
+  gtk_window_get_size(window, &dw, &dh);
+  CenterOnParent(window, parent->window, dw, dh);
+}
+
+void MvdLinuxWindow::ClampToParentBounds() {
+  if (!is_modal || dialog_parent_view_id < 0 || !window || clamping_position) {
+    return;
+  }
+  auto parent = Find(dialog_parent_view_id);
+  if (!parent || !parent->window) {
+    return;
+  }
+
+  gint px = 0;
+  gint py = 0;
+  gint pw = 0;
+  gint ph = 0;
+  gtk_window_get_position(parent->window, &px, &py);
+  gtk_window_get_size(parent->window, &pw, &ph);
+
+  gint dx = 0;
+  gint dy = 0;
+  gint dw = 0;
+  gint dh = 0;
+  gtk_window_get_position(window, &dx, &dy);
+  gtk_window_get_size(window, &dw, &dh);
+
+  const gint min_x = px;
+  const gint min_y = py;
+  gint max_x = px + pw - dw;
+  gint max_y = py + ph - dh;
+  if (max_x < min_x) {
+    max_x = min_x;
+  }
+  if (max_y < min_y) {
+    max_y = min_y;
+  }
+
+  gint cx = dx;
+  gint cy = dy;
+  if (dx < min_x) {
+    cx = min_x;
+  }
+  if (dy < min_y) {
+    cy = min_y;
+  }
+  if (dx > max_x) {
+    cx = max_x;
+  }
+  if (dy > max_y) {
+    cy = max_y;
+  }
+
+  if (cx == dx && cy == dy) {
+    return;
+  }
+
+  clamping_position = true;
+  gtk_window_move(window, cx, cy);
+  clamping_position = false;
+}
+
 void MvdLinuxWindow::Focus() {
   if (window) {
     gtk_window_present(window);
@@ -115,6 +351,12 @@ bool MvdLinuxWindow::IsFocused() {
 void MvdLinuxWindow::Show() {
   if (!window) {
     return;
+  }
+  if (is_dialog && dialog_parent_view_id >= 0) {
+    CenterOnDialogParent();
+    if (is_modal) {
+      ClampToParentBounds();
+    }
   }
   gtk_widget_show(GTK_WIDGET(window));
   gtk_window_present(window);
@@ -267,11 +509,17 @@ void MvdLinuxWindow::SetSize(double width, double height) {
     return;
   }
   gtk_window_resize(window, static_cast<gint>(width), static_cast<gint>(height));
+  if (is_modal) {
+    ClampToParentBounds();
+  }
 }
 
 void MvdLinuxWindow::SetPosition(double x, double y) {
   if (window) {
     gtk_window_move(window, static_cast<gint>(x), static_cast<gint>(y));
+    if (is_modal) {
+      ClampToParentBounds();
+    }
   }
 }
 
@@ -284,7 +532,7 @@ void MvdLinuxWindow::Center() {
 void MvdLinuxWindow::RefreshShadowCache() {
   // Only measure the CSD shadow in the normal (non-maximized, non-fullscreen)
   // state. In maximized/fullscreen GTK suppresses the shadow, so the delta
-  // would be 0 — which would wrongly overwrite a valid cached value.
+  // would be 0, which would wrongly overwrite a valid cached value.
   if (!window || gtk_window_is_maximized(window) || is_fullscreen) {
     return;
   }
@@ -378,35 +626,76 @@ bool MvdLinuxWindow::IsResizable() {
   return is_resizable;
 }
 
+namespace {
+
+void GetWindowContentSize(GtkWindow* window, gint* width, gint* height) {
+  if (!window || !width || !height) {
+    return;
+  }
+  gtk_window_get_size(window, width, height);
+  if (*width > 0 && *height > 0) {
+    return;
+  }
+  gtk_window_get_default_size(window, width, height);
+}
+
+}  // namespace
+
 void MvdLinuxWindow::SetResizable(bool v) {
   is_resizable = v;
   if (!window) {
     return;
   }
+
   if (!v) {
-    gint w = 0, h = 0;
-    gtk_window_get_size(window, &w, &h);
+    gint w = 0;
+    gint h = 0;
+    GetWindowContentSize(window, &w, &h);
     if (w <= 0 || h <= 0) {
-      gtk_window_set_resizable(window, false);
+      gtk_window_set_resizable(window, FALSE);
       return;
     }
 
-    // set_resizable(false) resets the window to gtk_window_get_remembered_size(),
-    // which falls back to gtk_window_set_default_size() from my_application.cc.
+    if (!size_locked_by_non_resizable) {
+      geometry_before_resize_lock = geometry;
+      hints_before_resize_lock = hints;
+      has_geometry_before_resize_lock = true;
+    }
+
+    size_locked_by_non_resizable = true;
     gtk_window_set_default_size(window, w, h);
-
-    GdkGeometry fixed{};
-    fixed.min_width  = fixed.max_width  = w;
-    fixed.min_height = fixed.max_height = h;
-    gtk_window_set_geometry_hints(window, nullptr, &fixed,
-        static_cast<GdkWindowHints>(GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
-
-    gtk_window_resize(window, w, h);
-    gtk_window_set_resizable(window, false);
-  } else {
-    gtk_window_set_resizable(window, true);
+    geometry.min_width = w;
+    geometry.min_height = h;
+    geometry.max_width = w;
+    geometry.max_height = h;
+    hints = static_cast<GdkWindowHints>(GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE);
     ReapplyGeometryHints();
+    gtk_window_resize(window, w, h);
+    gtk_window_set_resizable(window, FALSE);
+    return;
   }
+
+  gtk_window_set_resizable(window, TRUE);
+  if (size_locked_by_non_resizable) {
+    size_locked_by_non_resizable = false;
+    if (has_geometry_before_resize_lock) {
+      geometry = geometry_before_resize_lock;
+      hints = hints_before_resize_lock;
+      has_geometry_before_resize_lock = false;
+    } else {
+      geometry.min_width = -1;
+      geometry.min_height = -1;
+      geometry.max_width = G_MAXINT;
+      geometry.max_height = G_MAXINT;
+      hints = static_cast<GdkWindowHints>(0);
+    }
+  }
+
+  // Clear fixed-size hints left by SetResizable(false); ReapplyGeometryHints
+  // restores any min/max the caller configured via SetMinimumSize/MaximumSize.
+  gtk_window_set_geometry_hints(window, nullptr, nullptr,
+                                static_cast<GdkWindowHints>(0));
+  ReapplyGeometryHints();
 }
 
 bool MvdLinuxWindow::IsMinimizable() {
@@ -585,8 +874,8 @@ void MvdLinuxWindow::SetTitleBarStyle(const gchar* style, bool wbv) {
   // After GTK's layout pass (auto-grows/shrinks the window by hb_h and shifts
   // the content position), restore the original size AND compensate the Y
   // position so visible content stays at the same screen coordinates:
-  //   HIDE: content shifts UP inside surface → move surface DOWN by hb_h.
-  //   SHOW: inverse — move surface UP by hb_h.
+  //   HIDE: content shifts UP inside surface, move surface DOWN by hb_h.
+  //   SHOW: inverse, move surface UP by hb_h.
   // if (!gtk_window_is_maximized(window) && !is_fullscreen && orig_w > 0 && orig_h > 0) {
     // struct Args { MvdLinuxWindow* self; gint w, h, hb_h; bool hidden; };
     // auto* args = new Args{this, orig_w, orig_h, hb_h, hidden};

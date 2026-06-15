@@ -2,10 +2,9 @@ import 'package:flutter/widgets.dart';
 
 import '../multi_view_desktop.dart';
 
-/// A widget that makes its child area draggable to move the current window.
+/// Makes its child area draggable to move the current window.
 ///
-/// Wrap a custom title bar (or any region) with this widget so the user can
-/// drag the window by that area:
+/// Typically used on a custom title bar or another drag handle:
 ///
 /// ```dart
 /// DragToMoveArea(

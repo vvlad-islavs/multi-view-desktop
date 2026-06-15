@@ -13,6 +13,7 @@ abstract final class ShellDemoActions {
       (_, id) => const SizedBox.shrink(),
       parentContext: context,
       options: WindowOptions(
+        minimumSize: const Size(720, 520),
         size: const Size(720, 520),
         title: 'GoRouter window',
         shellOverrides: ViewShellOverrides(
@@ -35,6 +36,7 @@ abstract final class ShellDemoActions {
       (_, id) => const SizedBox.shrink(),
       parentContext: context,
       options: DialogOptions(
+        minimumSize: const Size(300, 200),
         size: const Size(520, 420),
         title: 'AutoRoute dialog',
         modal: false,
@@ -56,6 +58,7 @@ abstract final class ShellDemoActions {
       (_, id) => const _LocalizedPreviewPage(),
       parentContext: context,
       options: WindowOptions(
+        minimumSize: const Size(640, 400),
         size: const Size(640, 400),
         title: 'Localized window',
         shellOverrides: ViewShellOverrides(

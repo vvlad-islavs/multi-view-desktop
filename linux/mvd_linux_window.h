@@ -29,9 +29,18 @@ class MvdLinuxWindow {
   bool is_resizable = true;
   bool is_fullscreen = false;
   bool is_skip_taskbar = false;
+  bool size_locked_by_non_resizable = false;
+  GdkGeometry geometry_before_resize_lock{};
+  GdkWindowHints hints_before_resize_lock = static_cast<GdkWindowHints>(0);
+  bool has_geometry_before_resize_lock = false;
   bool window_button_visibility = true;
   bool is_ignore_mouse_events = false;
   bool is_forward_mouse_events = false;
+  bool is_dialog = false;
+  bool is_modal = false;
+  int64_t dialog_parent_view_id = -1;
+  int64_t modal_owner_view_id = -1;
+  bool clamping_position = false;
   double opacity = 1.0;
 
   GdkGeometry geometry{};
@@ -52,6 +61,8 @@ class MvdLinuxWindow {
 
   void SetAsFrameless();
   void Close();
+  /// Force destroy, skips soft-close.
+  void Destroy();
   void Focus();
   bool IsFocused();
   void Show();
@@ -109,6 +120,15 @@ class MvdLinuxWindow {
 
   static std::shared_ptr<MvdLinuxWindow> Find(int64_t view_id);
   static void Unregister(int64_t view_id);
+  static void DecorateToplevel(GtkWindow* window, const char* title);
+  static void CenterOnParent(GtkWindow* dialog, GtkWindow* parent, int width,
+                             int height);
+  void CenterOnDialogParent();
+  void ClampToParentBounds();
+  /// Parent-only modal input block (like Windows EnableWindow).
+  static void UpdateModalStateLayer(int64_t owner_view_id);
+  static int64_t GetActiveModalFocusTarget(int64_t owner_view_id);
+  static void FocusModalTarget(int64_t view_id);
   static GdkWindow* GetGdkWindow(GtkWindow* w);
   static GtkWidget* HeaderBarOf(GtkWindow* w);
   static FlValue* MakeBounds(GtkWindow* w);

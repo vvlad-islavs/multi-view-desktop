@@ -5,12 +5,6 @@ import 'package:flutter/material.dart';
 
 import '../screen_retriever/screen_retriever.dart';
 
-/// Calculates the window position (top-left, in Flutter logical coordinates)
-/// required to place a window of [windowSize] at the given [alignment] on
-/// the display that currently contains the mouse cursor.
-///
-/// Falls back to the primary display when the cursor cannot be located on
-/// any known display.
 @internal
 Future<Offset> calcWindowPosition(Size windowSize, Alignment alignment) async {
   final screenRetriever = ScreenRetriever.instance;

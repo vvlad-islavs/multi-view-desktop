@@ -30,7 +30,7 @@ class AppDelegate: FlutterAppDelegate {
 //        ))
 //        menu.addItem(.separator())
 //        menu.addItem(NSMenuItem(
-//            title: "Sync from Dart…",
+//            title: "Sync from Dart...",
 //            action: #selector (openNewWindow),
 //            keyEquivalent: ""
 //        ))

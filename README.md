@@ -96,7 +96,7 @@ Edit `linux/runner/my_application.cc`.
  static void my_application_activate(GApplication* application) {
 ```
 
-3. In `my_application_activate`, call `multiview_desktop_linux_runner_install` before creating any window, call `multiview_desktop_linux_runner_prepare_dart_project` right after `fl_dart_project_new`, and call `multiview_desktop_linux_runner_register_primary` after `fl_register_plugins`. Connect `first_frame_cb` to the view's `first-frame` signal and do **not** call `gtk_widget_show` on the window itself — the callback shows the top-level widget once rendering starts.
+3. In `my_application_activate`, call `multiview_desktop_linux_runner_install` before creating any window, call `multiview_desktop_linux_runner_prepare_dart_project` right after `fl_dart_project_new`, and call `multiview_desktop_linux_runner_register_primary` after `fl_register_plugins`. Connect `first_frame_cb` to the view's `first-frame` signal and do **not** call `gtk_widget_show` on the window itself; the callback shows the top-level widget once rendering starts.
 
 ```diff
  static void my_application_activate(GApplication* application) {

@@ -212,7 +212,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
       options: DialogOptions(
         size: const Size(340, 220),
         title: 'Prevent close dialog',
-        modal: true,
+        modal: false,
         isResizable: false,
         alwaysOnTop: false,
         showOnInit: true,
@@ -454,7 +454,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                         (ctx, viewId) {
                           return const HomePage();
                         },
-                        options: DialogOptions(size: const Size(450, 300), title: ' ', isResizable: false, modal: true),
+                        options: DialogOptions(size: const Size(450, 300), title: ' ', isResizable: false, modal: true,windowButtonVisibility: false),
                         parentContext: context,
                       );
                     },

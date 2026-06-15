@@ -1,25 +1,24 @@
-/// Single-engine multi-window library for Flutter desktop.
+/// Multi-window support for Flutter desktop.
 ///
 /// All OS windows share one Flutter engine and one Dart isolate.
 ///
-/// **Entry point**: replace [runApp] with [runMultiApp]:
+/// Entry point: [runMultiApp] instead of [runApp]:
 /// ```dart
-/// void main() => runMultiApp(const MyApp());
+/// void main() {
+///   runMultiApp(home: (context, id) => MyApp());
+/// }
 /// ```
 ///
-/// **Open another window**: from anywhere, without [BuildContext]:
+/// Open another window from anywhere:
 /// ```dart
-/// openWindow(const SettingsPage(), options: WindowOptions(title: 'Settings'));
+/// openWindow((context, id) => const SettingsPage(), options: WindowOptions(title: 'Settings'));
 /// ```
 ///
-/// **Control the current window**: obtain an instance from [BuildContext] or a view ID:
+/// Control the current window via [MultiViewDesktop.of] or [MultiViewDesktop.fromId]:
 /// ```dart
 /// final win = MultiViewDesktop.of(context);
-/// await win.closeWindow();
+/// await win.setTitle('Settings');
 /// await win.setTitleBarStyle(TitleBarStyle.hidden);
-///
-/// // Or by shifted view ID:
-/// await MultiViewDesktop.fromId(viewId).setTitle('Settings');
 /// ```
 ///
 /// See also [WindowListener], [WindowCommunicator], and [WindowOptions].

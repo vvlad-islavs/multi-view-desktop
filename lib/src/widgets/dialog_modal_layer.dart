@@ -1,31 +1,18 @@
 import 'package:flutter/widgets.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 
-/// Provides a [ValueNotifier<int>] counting the number of active modal dialogs
-/// blocking the current window.
-///
-/// Injected automatically by the library for every OS window. Users do not
-/// construct this directly; read it via [DialogScope.of] or simply use
-/// [DialogModalLayer].
-
 typedef DialogInfo = ({int id, bool isModal});
 
 class DialogScope extends InheritedWidget {
   const DialogScope({super.key, required this.notifier, required super.child});
 
-  /// Notifier whose value is the number of dialogs currently is children dialogs of
-  /// this window. `[]` means the window has no children dialogs.
+  /// List of child dialogs currently open over this window.
   final ValueNotifier<List<DialogInfo>> notifier;
 
-  /// Returns the notifier from the nearest [DialogScope], or `null` if
-  /// none is present (e.g. window was not created via [runMultiApp]).
   static ValueNotifier<List<DialogInfo>>? maybeOf(BuildContext context) {
     return context.dependOnInheritedWidgetOfExactType<DialogScope>()?.notifier;
   }
 
-  /// Returns the notifier from the nearest [DialogScope].
-  ///
-  /// Throws in debug mode if [runMultiApp] was not used as the entry point.
   static ValueNotifier<List<DialogInfo>> of(BuildContext context) {
     final scope = maybeOf(context);
     assert(
@@ -40,11 +27,9 @@ class DialogScope extends InheritedWidget {
   bool updateShouldNotify(DialogScope oldWidget) => notifier != oldWidget.notifier;
 }
 
-/// Wraps a window's content and shows a translucent scrim whenever a **modal**
-/// dialog is open over it.
+/// Semi-transparent overlay over a parent window while a modal dialog is open.
 ///
-/// Place this widget directly inside the window's root builder so it covers
-/// the entire window surface:
+/// Usually placed at the root of each window that can host modal dialogs:
 ///
 /// ```dart
 /// runMultiApp(
@@ -54,15 +39,9 @@ class DialogScope extends InheritedWidget {
 /// );
 /// ```
 ///
-/// When [openDialog] is called with `modal: true`, the notifier value
-/// increments and the scrim fades in, preventing interaction with the content
-/// beneath. When all modal dialogs are closed, the scrim fades out.
-///
-/// The barrier is purely visual and does not block mouse/keyboard events at
-/// the OS level (since each window is a separate OS view). For true input
-/// blocking, combine with [MultiViewDesktop.setIgnoreMouseEvents] or use
-/// [openDialog]'s built-in behavior which automatically disables interaction
-/// on the parent window on supported platforms.
+/// When [openDialog] is called with `modal: true`, the scrim fades in over the
+/// parent content. Native modal dialogs also block input on the parent at the
+/// OS level on supported platforms; this widget adds the visual dimming only.
 class DialogModalLayer extends StatelessWidget {
   const DialogModalLayer({
     super.key,
@@ -74,12 +53,13 @@ class DialogModalLayer extends StatelessWidget {
 
   final Widget child;
 
+  /// When true, a scrim is also shown for non-modal (modeless) child dialogs.
   final bool showBarrierForNotModalDialog;
 
-  /// Color of the modal scrim overlay. Defaults to a semi-transparent black.
+  /// Scrim color. Defaults to semi-transparent black.
   final Color barrierColor;
 
-  /// Duration of the fade animation when the scrim appears or disappears.
+  /// Fade duration when the scrim appears or disappears.
   final Duration animationDuration;
 
   @override

@@ -8,20 +8,21 @@ import 'window_observer.dart';
 import 'window_options.dart';
 import 'app_shell/view_shell_overrides.dart';
 
-/// The entry point for a multiview_desktop application.
+/// Entry point for a multiview_desktop application.
 ///
-/// Replaces [runApp].  Internally calls [runWidget] with a [ViewCollection]
-/// root that automatically manages all OS windows in a single Flutter engine
-/// and a single Dart isolate.
+/// Replaces [runApp]. Internally uses [runWidget] with a [ViewCollection] root
+/// that manages every OS window in a single Flutter engine and isolate.
 ///
 /// ```dart
 /// void main() {
-///   runMultiApp(const MyApp());
+///   runMultiApp(
+///     home: (context, id) => MyHomeScreen(),
+///   );
 /// }
 /// ```
 ///
-/// [home] is rendered in the initial (main) OS window.  Additional windows
-/// are opened via [openWindow].
+/// [home] is shown in the first (main) OS window. Additional windows are opened
+/// with [openWindow].
 void runMultiApp({
   required Widget Function(BuildContext globalScopeContext, int publicId) home,
   Widget Function(Widget child)? globalScope,
@@ -33,19 +34,15 @@ void runMultiApp({
 
 /// Application-wide settings passed to [runMultiApp].
 class MultiAppConfig {
-  /// Strategy used when closes the main window (see [CloseMode]).
   final MultiPlatformParams generalParams;
   final MacosPlatformParams macosParams;
 
-  /// Default [WindowOptions] merged into every new window (per-window options override).
+  /// Default options merged into every new window.
   final WindowOptions globalOptions;
 
   final DialogOptions globalDialogOptions;
 
-  /// List of observers notified on window lifecycle events.
-  ///
-  /// Observers receive callbacks when windows are opened, closed, or when the
-  /// anchor changes. See [WindowObserver] for the full list of events.
+  /// Notified when windows are opened, closed, or when the anchor changes.
   ///
   /// ```dart
   /// config: MultiAppConfig(
@@ -62,12 +59,6 @@ class MultiAppConfig {
     this.observers = const [],
   });
 
-  /// Creates configuration for [runMultiApp].
-  ///
-  /// - [generalParams] cross-platform params
-  /// - [macosParams] macos specific params
-  /// - [globalWindowOptions] are applied to the main window at startup and merged into [openWindow].
-  /// - [observers] are notified on window lifecycle events (see [WindowObserver]).
   factory MultiAppConfig({
     MultiPlatformParams? generalParams,
     MacosPlatformParams? macosParams,
@@ -89,7 +80,6 @@ class MultiAppConfig {
 }
 
 class MultiPlatformParams {
-  ///
   final bool enableDynamicAnchor;
   final CloseMode closeMode;
 
@@ -119,40 +109,31 @@ class MacosPlatformParams {
 
 /// How closing the main window affects other open windows.
 enum CloseMode {
-  /// Close only main window through the normal soft-close cycle
-  /// (prevent-close -> confirm-close -> destroy).
+  /// Only the main window goes through the normal soft-close cycle
+  /// (prevent-close, confirm-close, destroy).
   none,
 
-  /// Soft-close secondary windows one by one (newest first), then the main window.
-  /// Each window runs the full close cycle; use [MultiViewDesktop.cancelCascadeClose]
-  /// to abort from a confirmation dialog.
+  /// Secondary windows are soft-closed one by one (newest first), then the main
+  /// window. A cascade in progress can be aborted with [MultiViewDesktop.cancelCascadeClose].
   softCascade,
 
-  /// Force-close all secondary windows immediately, then soft-close the main window.
+  /// All secondary windows are force-closed immediately, then the main window
+  /// is soft-closed.
   forceSecondary,
 
-  /// Force-close all windows without running the soft-close cycle.
+  /// Every window is force-closed without the soft-close cycle.
   destroy,
 
-  /// Only for macOS. On other platforms will be used `CloseMode.cascade`.
-  ///
-  /// macOS: hide last window (main) instead of closing (app stays in the dock), `CMD+Q` to destroy by default.
-  /// Soft-close secondary windows one by one (newest first).
-  ///
-  /// Automatically sets `applicationShouldTerminateAfterLastWindowClosed` to `false`
-  /// on the native side. Requires forwarding that call in `AppDelegate`.
+  /// macOS only: the last root window is hidden instead of destroyed so the app
+  /// stays in the dock. Requires the corresponding hook in AppDelegate.
   // macos,
 }
 
-/// Opens a new OS window showing [child].
-///
-/// This is a convenience shorthand for [MultiViewDesktop.addWindow].
-/// Can be called from any part of the application, including callbacks
-/// and timers with no [BuildContext].
+/// Opens a new OS window. Convenience wrapper around [MultiViewDesktop.addWindow].
 ///
 /// ```dart
 /// ElevatedButton(
-///   onPressed: () => openWindow((context, viewId)=> const SettingsPage()),
+///   onPressed: () => openWindow((context, viewId) => const SettingsPage()),
 ///   child: const Text('Open settings'),
 /// )
 /// ```
@@ -162,23 +143,12 @@ Future<int> openWindow(
   BuildContext? parentContext,
 }) => MultiViewDesktop.addWindow(childBuilder, options: options, parent: parentContext);
 
-// ---------------------------------------------------------------------------
-// DialogOptions
-// ---------------------------------------------------------------------------
-
-/// Configuration for a dialog window opened via [openDialog].
+/// Options for a dialog opened with [openDialog].
 ///
-/// Dialogs differ from regular windows in the following ways:
-/// - They always require a parent ([openDialog] requires `parentContext`).
-/// - They are automatically closed when the parent closes, regardless of
-///   [CloseMode] (even `CloseMode.none`).
-/// - They cannot enter full-screen mode.
-/// - They are hidden from the taskbar / Mission Control on creation.
-/// - They are centered over the parent window at creation time.
-///
-/// Set [modal] to `true` to dim the parent window while the dialog is open.
-/// The parent window must wrap its content with [DialogModalLayer] for the
-/// visual scrim to appear.
+/// Dialogs always belong to a parent window. They are centered over the parent
+/// at creation, hidden from the taskbar, and closed automatically when the
+/// parent closes (regardless of [CloseMode]). Full-screen mode is not available
+/// for dialogs.
 class DialogOptions {
   const DialogOptions({
     this.size,
@@ -198,59 +168,52 @@ class DialogOptions {
   /// Initial content size in logical pixels.
   final Size? size;
 
-  /// Minimum resizable size enforced by the OS window.
+  /// Minimum size enforced by the native window.
   final Size? minimumSize;
 
-  /// Maximum resizable size enforced by the OS window.
+  /// Maximum size enforced by the native window.
   final Size? maximumSize;
 
   final bool? isResizable;
 
-  /// Native window title string.
+  /// Native window title.
   final String? title;
 
-  /// When `true`, the parent window will be dimmed while this dialog is open.
-  ///
-  /// The parent must wrap its content with [DialogModalLayer] for the scrim to
-  /// appear.  This does **not** block OS-level input on the parent window—the
-  /// scrim is a pure Flutter overlay.
+  /// When true, the parent window is blocked at the OS level while the dialog
+  /// is open (macOS sheet, Windows owner chain, Linux transient + input lock).
+  /// A visual scrim in the parent additionally requires [DialogModalLayer] in
+  /// the parent widget tree; the scrim alone does not block OS input.
   final bool? modal;
 
-  /// Initial title-bar style; use [TitleBarStyle.hidden] for frameless chrome.
+  /// Title bar appearance. [TitleBarStyle.hidden] removes native chrome.
   final TitleBarStyle? titleBarStyle;
 
-  /// Whether traffic-light / caption buttons are visible when the bar is hidden.
+  /// Visibility of caption buttons when the title bar is hidden.
   final bool? windowButtonVisibility;
 
-  /// Native window background color shown behind Flutter content.
+  /// Background color behind the Flutter view.
   final Color? backgroundColor;
 
   /// Whether the window stays above other application windows.
   final bool? alwaysOnTop;
 
-  /// `true` by default
+  /// Whether the window is shown right after creation. Defaults to true.
   final bool? showOnInit;
 
-  /// Per-view entry shell overrides. See [WindowOptions.shellOverrides].
+  /// Per-view shell overrides. See [WindowOptions.shellOverrides].
   final ViewShellOverrides? shellOverrides;
 }
 
-// ---------------------------------------------------------------------------
-// openDialog
-// ---------------------------------------------------------------------------
-
-/// Opens a dialog window always associated with [parentContext].
+/// Opens a dialog window tied to [parentContext].
 ///
-/// Unlike [openWindow], dialogs:
-/// - **Always require** a parent ([parentContext] is mandatory).
-/// - Are automatically closed when the parent closes, regardless of
-///   [CloseMode] (even `CloseMode.none`).
-/// - Cannot enter full-screen mode.
-/// - Are hidden from the taskbar / Mission Control.
-/// - Are centered over the parent window at creation time.
+/// The returned future completes when the dialog is closed via [closeDialog]
+/// (or [MvdContext.closeDialog]). The optional result is passed through from
+/// that close call.
 ///
-/// Set [options.modal] to `true` to dim the parent window while the dialog is
-/// open.  The parent must wrap its content with [DialogModalLayer]:
+/// Unlike [openWindow], a parent [BuildContext] is required. Dialogs cannot
+/// enter full-screen mode. With [DialogOptions.modal] set to true, the parent
+/// is blocked at the OS level on supported platforms; [DialogModalLayer] in the
+/// parent adds a visual scrim in Flutter.
 ///
 /// ```dart
 /// runMultiApp(
@@ -258,7 +221,6 @@ class DialogOptions {
 /// );
 /// ```
 ///
-/// Usage:
 /// ```dart
 /// OutlinedButton(
 ///   onPressed: () => openDialog(

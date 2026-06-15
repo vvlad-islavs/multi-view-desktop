@@ -30,7 +30,6 @@ abstract class _ViewEntry {
   final Widget Function(BuildContext) widgetBuilder;
   final BuildContext? parentContext;
 
-  /// Per-view shell overrides (appearance and navigation) for this [View].
   final ValueNotifier<ViewShellOverrides?> viewShellOverrides;
 
   void disposeEntryResources() => viewShellOverrides.dispose();
@@ -90,7 +89,6 @@ _MultiViewRootState get globalRootState {
 
 int get _initPlatformId => !Platform.isMacOS ? 0 : 1;
 
-/// Creates the root multi-view widget.  Used by [runMultiApp] only.
 Future<Widget> createMultiViewRoot(
   Widget Function(BuildContext, int) home,
   Widget Function(Widget)? scope,
@@ -227,7 +225,6 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     setState(() {});
   }
 
-  /// Registers [child] as the widget tree for a newly created [viewId].
   void addWindowView(
     int viewId,
     Widget Function(BuildContext) childBuilder, {
@@ -634,7 +631,6 @@ class _ViewsManagerImpl implements ViewsManager {
   List<int> _directDialogChildIds(int parentId) =>
       _dialogs.entries.where((e) => e.value.parentId == parentId).map((e) => e.key).toList();
 
-  /// All descendants of [rootId], deepest first (safe for closing).
   List<int> _descendantIdsDeepestFirst(int rootId) {
     final result = <int>[];
     void walk(int id) {
@@ -653,6 +649,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
   Future<dynamic> _onStaticCall(MethodCall call) async {
     if (call.method != 'onEvent') return null;
+
 
     final String eventName = call.arguments['eventName'] as String;
 
@@ -678,6 +675,7 @@ class _ViewsManagerImpl implements ViewsManager {
       }
     } else {
       final int? viewId = call.arguments['viewId'] as int?;
+
       if (viewId != null) {
         _dispatchViewEvent(viewId, eventName);
       }
@@ -797,7 +795,7 @@ class _ViewsManagerImpl implements ViewsManager {
     if (_windows.keys.contains(viewId)) {
       _notifyObservers((o) => o.onWindowEvent(_realToShifted(viewId), eventName));
     }
-    if (_dialogsResults.keys.contains(viewId)) {
+    if (_dialogs.keys.contains(viewId)) {
       _notifyObservers((o) => o.onDialogEvent(_realToShifted(viewId), eventName));
     }
     final list = _listeners[viewId];
@@ -1197,20 +1195,11 @@ class _ViewsManagerImpl implements ViewsManager {
     );
   }
 
-  /// Creates a dialog window with dialog-specific native behavior per platform.
+  /// Creates a native dialog and waits for the `viewCreated` event.
   ///
-  /// Platform matrix:
-  /// - **macOS + modal**: `createModalDialogRequest` with `NSWindow.beginSheet`.
-  ///   Positioning is handled by the OS.
-  /// - **macOS + modeless**: window positioned over the parent; can be hidden
-  ///   from Mission Control via `hideFromCollection`.
-  /// - **Windows + modal**: `GW_OWNER` plus `EnableWindow` on the parent chain.
-  ///   Shown immediately; parent input is blocked natively.
-  /// - **Windows + modeless**: dialog frame styling, no GW_OWNER; visibility
-  ///   follows [DialogOptions.showOnInit]. Taskbar visibility uses the same
-  ///   API as regular windows (`hideAppFromTaskbar` per view).
-  /// - **Linux**: regular window positioned over the parent. Modal blocking
-  ///   via [DialogModalLayer] scrim until native support is added.
+  /// Modal dialogs block the parent at the OS level (macOS sheet, Windows owner
+  /// chain, Linux transient + input lock). Modeless dialogs are positioned over
+  /// the parent and do not block it natively.
   Future<int> _createDialog({
     required DialogOptions opts,
     required int parentId,

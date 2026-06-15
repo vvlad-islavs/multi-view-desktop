@@ -48,16 +48,10 @@ class AppShellController {
   /// Latest snapshot applied to secondary and dialog entry shells.
   AppShellSnapshot? get snapshot => _registry.snapshot;
 
-  /// Notifies listeners when [snapshot] changes.
-  ///
-  /// Use with [ListenableBuilder] on the main window if it should follow
-  /// programmatic shell updates from other windows.
   Listenable get listenable => _registry;
 
-  /// Replaces [snapshot] entirely.
   void apply(AppShellSnapshot snapshot) => _registry.replace(snapshot);
 
-  /// Merges [patch] into [snapshot].
   void patch(AppShellPatch patch) => _registry.patch(patch);
 
   /// Replaces [snapshot] with app-wide fields copied from [app].

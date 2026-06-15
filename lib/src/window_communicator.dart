@@ -53,11 +53,6 @@ abstract class WindowCommunicator {
   /// If no one is listening the message is silently dropped
   void send(int viewId, dynamic message);
 
-  /// Delivers [message] to every active [onBroadcast] subscriber in every
-  /// view simultaneously.
-  ///
-  /// Use this for global application events such as theme changes, logout
-  /// signals, or refresh requests that should affect all open windows at once.
   void broadcast(dynamic message);
 
   Future<void> dispose();

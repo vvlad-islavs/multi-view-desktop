@@ -653,7 +653,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             result(nil)
 
         case "destroyWindow":
-            // Synchronous forced destruction — bypasses windowShouldClose entirely.
+            // Synchronous forced destruction; bypasses windowShouldClose entirely.
             // Modal sheets must endSheet before close so the parent is unblocked.
             closeSheetWindow(window, viewId: viewId)
             result(nil)

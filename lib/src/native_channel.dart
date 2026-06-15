@@ -74,27 +74,22 @@ const String kMethodSetTerminateAfterLastWindowClosed = 'setTerminateAfterLastWi
 const String kMethodSetAnchorViewId = 'setAnchorViewId';
 const String kMethodCheckExist = 'checkExistViewId';
 
-/// Thin wrapper around the `multiview_desktop` [MethodChannel].
-///
-/// Every per-window call includes `viewId` in the argument map.
+/// MethodChannel wrapper for the `multiview_desktop` plugin.
+/// Per-window calls include `viewId` in the arguments.
 class NativeChannel {
   static const MethodChannel _staticChannel = MethodChannel('multiview_desktop');
 
-  /// View ID of the anchor window (dock / app-level close policy); updated dynamically.
-
-  /// Builds an argument map that always includes the [viewId] so the native
-  /// side can route the call to the right OS window.
   static Map<String, dynamic> _args(int viewId, [Map<String, dynamic>? extra]) {
     final map = <String, dynamic>{'viewId': viewId};
     if (extra != null) map.addAll(extra);
     return map;
   }
 
-  /// Registers the handler for native -> Dart events (`onEvent`, etc.).
+  /// Native -> Dart events (`onEvent`, etc.).
   void setMethodCallHandler(Future<dynamic> Function(MethodCall) handler) =>
       _staticChannel.setMethodCallHandler(handler);
 
-  /// Asks the native side to create a new window; completion is signaled via `viewCreated`.
+  /// Creates a window; finished when native sends `viewCreated`.
   Future<void> createWindowRequest({
     required int token,
     required String title,
@@ -116,15 +111,11 @@ class NativeChannel {
     });
   }
 
-  /// Creates a dialog window attached to [parentId].
+  /// Creates a dialog attached to [parentId].
   ///
-  /// On macOS a modal dialog is presented via `NSWindow.beginSheet(_:)`.
-  /// On Windows a modal dialog uses `GW_OWNER` and disables the parent HWND
-  /// until the dialog is destroyed. Modeless dialogs are regular top-level
-  /// windows with dialog frame styling; [parentId] is used for positioning
-  /// only on Windows.
-  ///
-  /// Completion is signaled via `viewCreated` just like [createWindowRequest].
+  /// Modal behavior is platform-specific (macOS sheet, Windows owner chain,
+  /// Linux transient window with parent input lock). The native side sends
+  /// `viewCreated` when the dialog is ready, same as [createWindowRequest].
   Future<void> createModalDialogRequest({
     required int token,
     required String title,
@@ -152,7 +143,6 @@ class NativeChannel {
     return await _staticChannel.invokeMethod<bool>(kMethodCheckExist, _args(viewId));
   }
 
-  /// Updates which window receives anchor close handling on the native side.
   Future<void> setAnchorViewId(int viewId) async {
     await _staticChannel.invokeMethod<void>(kMethodSetAnchorViewId, _args(viewId));
   }
@@ -281,25 +271,20 @@ class NativeChannel {
     );
   }
 
-  /// Requests close through the soft-close state machine (prevent / confirm).
+  /// Soft-close (prevent / confirm flow).
   Future<void> softCloseWindow(int viewId) async {
     await _staticChannel.invokeMethod<void>(kMethodCloseWindow, _args(viewId));
   }
 
-  /// Clears prevent-close and confirm flags, then calls [softCloseWindow].
+  /// Clears close flags, then [softCloseWindow].
   Future<void> forceCloseView(int viewId) async {
     // await setPreConfirmClose(viewId, true);
     await setPreventClose(viewId, isPreventClose: false);
     await softCloseWindow(viewId);
   }
 
-  /// Destroys a window synchronously, bypassing the soft-close state machine.
-  ///
-  /// For macOS sheet (modal dialog) windows, `endSheet` is called first so the
-  /// parent window is unblocked *before* the sheet is destroyed.  This is
-  /// necessary in force-close code paths where we cannot wait for the async
-  /// `confirm-close` → `_onConfirmClose` round-trip to complete before issuing
-  /// `performClose` on the parent.
+  /// Force-destroys the window, skipping the soft-close cycle.
+  /// On macOS, modal sheets call `endSheet` before the window is destroyed.
   Future<void> destroyModalDialog(int viewId) async {
     await _staticChannel.invokeMethod<void>(kMethodDestroyWindow, _args(viewId));
   }
@@ -308,12 +293,10 @@ class NativeChannel {
     await _staticChannel.invokeMethod<void>(kMethodFocus, _args(viewId));
   }
 
-  /// Marks whether the main window has passed the pre-close cascade phase.
   Future<void> setPreConfirmClose(int viewId, bool isPreConfirm) async {
     return _staticChannel.invokeMethod<void>(kMethodPreConfirmClose, _args(viewId, {'preConfirmClose': isPreConfirm}));
   }
 
-  /// Sets the native flag allowing [softCloseWindow] to destroy the window.
   Future<void> setConfirmClose(int viewId, {required bool isConfirm}) async =>
       await _staticChannel.invokeMethod<void>(kMethodConfirmClose, _args(viewId, {'confirmClose': isConfirm}));
 
@@ -444,13 +427,13 @@ class NativeChannel {
     return await _staticChannel.invokeMethod<bool>(kMethodIsAlwaysOnTop, _args(viewId)) ?? false;
   }
 
-  /// App-wide: macOS activation policy; Windows: all windows hidden from taskbar.
+  /// macOS: activation policy. Windows: all windows taskbar-hidden.
   Future<bool> isHideAppFromTaskbar() async {
     final res = await _staticChannel.invokeMethod(kMethodIsHideAppFromTaskbar);
     return res ?? false;
   }
 
-  /// Windows/Linux: taskbar visibility for a single window ([viewId]).
+  /// Per-window taskbar visibility (Windows/Linux).
   Future<bool> isHideAppTabFromTaskbar(int viewId) async {
     final res = await _staticChannel.invokeMethod<bool>(kMethodIsHideAppTabFromTaskbar, _args(viewId));
     return res ?? false;
@@ -520,22 +503,15 @@ class NativeChannel {
     await _staticChannel.invokeMethod<void>(kMethodPopUpWindowMenu, _args(viewId));
   }
 
-  /// Syncs `NSApplicationDelegate.applicationShouldTerminateAfterLastWindowClosed`.
-  ///
-  /// Set to `false` for [CloseMode.macos] (hide windows, stay in the dock).
+  /// macOS quit-after-last-window policy.
   Future<void> setTerminateAfterLastWindowClosed(bool terminate) async {
     await _staticChannel.invokeMethod<void>(kMethodSetTerminateAfterLastWindowClosed, {
       'terminateAfterLastWindowClosed': terminate,
     });
   }
 
-  /// Resets all programmatic window state to defaults after a hot restart.
-  ///
-  /// Called when the OS window survived the restart ([checkWindowExist] returned
-  /// true). Resets behavioral flags that Dart tracks internally (preventClose,
-  /// close state machine, resizability, interactivity, etc.) so they do not
-  /// carry over from the previous Dart session. Visual properties such as
-  /// title, size, and position are intentionally left unchanged.
+  /// Resets close flags and related state after hot restart when the OS window
+  /// survived. Title, size, and position are left unchanged.
   Future<void> resetWindowToDefaults(int viewId) async {
     await Future.wait([
       setPreventClose(viewId, isPreventClose: false),
