@@ -386,7 +386,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
               // ----------------------------------------------------------------
               // Shell demo
               // ----------------------------------------------------------------
-              _section(ExampleLocalizations.of(context).shellDemoSection, shellDemoTiles(context)),
+              if (!windowInfo.isDialog)
+                _section(ExampleLocalizations.of(context).shellDemoSection, shellDemoTiles(context)),
               // ----------------------------------------------------------------
               // Window management
               // ----------------------------------------------------------------
@@ -464,16 +465,18 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   subtitle: 'Close this window',
                   onTap: () => MultiViewDesktop.of(context).closeWindow(),
                 ),
-                if (!Platform.isLinux && !windowInfo.isModal)
+                if (!Platform.isLinux && !windowInfo.isModal || Platform.isWindows)
                   _tile('center', onTap: () => MultiViewDesktop.of(context).center()),
-                if (!Platform.isLinux && !windowInfo.isModal) ...[
-                  _tile('setAlignment', subtitle: 'Tap a position on the grid below'),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: _AlignmentGrid(
-                      onSelected: (alignment) => MultiViewDesktop.of(context).setAlignment(alignment),
+                if (!Platform.isLinux && !windowInfo.isModal || Platform.isWindows) ...[
+                  if (!(windowInfo.isModal && Platform.isWindows)) ...[
+                    _tile('setAlignment', subtitle: 'Tap a position on the grid below'),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: _AlignmentGrid(
+                        onSelected: (alignment) => MultiViewDesktop.of(context).setAlignment(alignment),
+                      ),
                     ),
-                  ),
+                  ],
                   if (windowInfo.isDialog) ...[
                     _tile(
                       'setAlignment ${windowInfo.isDialog ? 'inside parent' : ''}',
@@ -513,34 +516,33 @@ class _HomePageState extends State<HomePage> with WindowListener {
               // ----------------------------------------------------------------
               // Title bar
               // ----------------------------------------------------------------
-              if (!windowInfo.isModal)
-                _section('TITLE BAR', [
-                  _switchTile('titleBarStyle hidden', _titleBarHidden, (v) async {
+              _section('TITLE BAR', [
+                _switchTile('titleBarStyle hidden', _titleBarHidden, (v) async {
+                  await MultiViewDesktop.of(context).setTitleBarStyle(
+                    v ? TitleBarStyle.hidden : TitleBarStyle.normal,
+                    closeVisibility: _titleBarButtonVisibility,
+                    minimizeVisibility: _titleBarButtonVisibility && !windowInfo.isDialog,
+                    maximizeVisibility: _titleBarButtonVisibility && !windowInfo.isDialog,
+                  );
+                }),
+                if (windowInfo.isModal)
+                  _switchTile('titleBarButtonVisibility', _titleBarButtonVisibility, (v) async {
                     await MultiViewDesktop.of(context).setTitleBarStyle(
-                      v ? TitleBarStyle.hidden : TitleBarStyle.normal,
-                      closeVisibility: _titleBarButtonVisibility,
-                      minimizeVisibility: _titleBarButtonVisibility && !windowInfo.isDialog,
-                      maximizeVisibility: _titleBarButtonVisibility && !windowInfo.isDialog,
+                      _titleBarHidden ? TitleBarStyle.hidden : TitleBarStyle.normal,
+                      closeVisibility: v,
+                      minimizeVisibility: v && !windowInfo.isDialog,
+                      maximizeVisibility: v && !windowInfo.isDialog,
                     );
                   }),
-                  if (Platform.isMacOS)
-                    _switchTile('titleBarButtonVisibility', _titleBarButtonVisibility, (v) async {
-                      await MultiViewDesktop.of(context).setTitleBarStyle(
-                        _titleBarHidden ? TitleBarStyle.hidden : TitleBarStyle.normal,
-                        closeVisibility: v,
-                        minimizeVisibility: v && !windowInfo.isDialog,
-                        maximizeVisibility: v && !windowInfo.isDialog,
-                      );
-                    }),
-                  _tile(
-                    'setAsFrameless',
-                    subtitle: 'Remove frame entirely',
-                    onTap: () async {
-                      await MultiViewDesktop.of(context).setAsFrameless();
-                      await _refreshState();
-                    },
-                  ),
-                ]),
+                _tile(
+                  'setAsFrameless',
+                  subtitle: 'Remove frame entirely',
+                  onTap: () async {
+                    await MultiViewDesktop.of(context).setAsFrameless();
+                    await _refreshState();
+                  },
+                ),
+              ]),
 
               // ----------------------------------------------------------------
               // Visibility states

@@ -967,9 +967,11 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   Future<void> _applyDialogOptions(int viewId, DialogOptions opts) async {
-    // if (opts.size != null) {
-    //   await _nativeChannel.setSize(viewId, size: opts.size!);
-    // }
+    if (!Platform.isWindows) {
+      if (opts.size != null) {
+        await _nativeChannel.setSize(viewId, size: opts.size!);
+      }
+    }
     if (opts.backgroundColor != null) {
       await _nativeChannel.setBackgroundColor(viewId, color: opts.backgroundColor!);
     }
@@ -1100,7 +1102,7 @@ class _ViewsManagerImpl implements ViewsManager {
       throw ArgumentError.value(parentRealId, 'Parent error', 'Parent window is not registered');
     }
     if (_createCompleters.values.any((e) => !e.isCompleted) || _createCompleters.isNotEmpty) {
-      throw ArgumentError('Create error',  '"Create" was called while another window is creating');
+      throw ArgumentError('Create error', '"Create" was called while another window is creating');
     }
 
     final comparedOpts = _compareDialogGlobalAndNewOpts(preferred: newOpts, global: config.globalDialogOptions);

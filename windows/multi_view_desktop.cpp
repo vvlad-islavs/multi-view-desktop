@@ -317,6 +317,72 @@ namespace multi_view_desktop {
             return entry != nullptr ? entry->view_id : -1;
         }
 
+        HWND GetActiveModalFocusTarget(HWND owner_hwnd) {
+            if (!owner_hwnd || !IsWindow(owner_hwnd)) {
+                return nullptr;
+            }
+            const std::vector<HWND> owned = GetOwnedModalHwnds(owner_hwnd);
+            if (owned.empty()) {
+                return owner_hwnd;
+            }
+
+            HWND latest_child = owned.front();
+            int64_t latest_view_id = ViewIdForHostHwnd(latest_child);
+            for (HWND child : owned) {
+                const int64_t child_view_id = ViewIdForHostHwnd(child);
+                if (child_view_id > latest_view_id) {
+                    latest_view_id = child_view_id;
+                    latest_child = child;
+                }
+            }
+            return GetActiveModalFocusTarget(latest_child);
+        }
+
+        void FocusHostWindow(HWND host_hwnd) {
+            if (!host_hwnd || !IsWindow(host_hwnd) || !IsWindowEnabled(host_hwnd)) {
+                return;
+            }
+            MultiViewDesktop *entry =
+                    MultiViewDesktop::Instance().FindByHwnd(host_hwnd);
+            if (entry == nullptr) {
+                return;
+            }
+
+            if (entry->IsMinimized()) {
+                entry->Restore();
+            }
+
+            HWND foreground = GetForegroundWindow();
+            DWORD foreground_thread =
+                    foreground ? GetWindowThreadProcessId(foreground, nullptr) : 0;
+            DWORD target_thread = GetWindowThreadProcessId(host_hwnd, nullptr);
+            const bool attach =
+                    foreground_thread != 0 && foreground_thread != target_thread;
+            if (attach) {
+                AttachThreadInput(foreground_thread, target_thread, TRUE);
+            }
+
+            AllowSetForegroundWindow(ASFW_ANY);
+            SetWindowPos(host_hwnd, HWND_TOP, 0, 0, 0, 0,
+                         SWP_NOSIZE | SWP_NOMOVE | SWP_SHOWWINDOW);
+            BringWindowToTop(host_hwnd);
+            SetForegroundWindow(host_hwnd);
+            SetActiveWindow(host_hwnd);
+
+            if (attach) {
+                AttachThreadInput(foreground_thread, target_thread, FALSE);
+            }
+
+            if (entry->controller != nullptr) {
+                FlutterDesktopViewRef view =
+                        FlutterDesktopViewControllerGetView(entry->controller);
+                HWND flutter_hwnd = FlutterDesktopViewGetHWND(view);
+                if (flutter_hwnd != nullptr) {
+                    SetFocus(flutter_hwnd);
+                }
+            }
+        }
+
     }  // namespace
 
     void MultiViewDesktop::UpdateModalStateLayer(HWND owner_hwnd) {
@@ -474,7 +540,9 @@ void MultiViewDesktop::DestroyEntry(int64_t target_view_id) {
     if (modal_owner_id >= 0) {
         MultiViewDesktop *owner = FindByViewId(modal_owner_id);
         if (owner != nullptr && owner->native_window != nullptr) {
-            UpdateModalStateLayer(owner->native_window);
+            const HWND owner_hwnd = owner->native_window;
+            UpdateModalStateLayer(owner_hwnd);
+            FocusHostWindow(GetActiveModalFocusTarget(owner_hwnd));
         }
     }
 }
