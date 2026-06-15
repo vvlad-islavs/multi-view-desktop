@@ -171,6 +171,24 @@ class AppShellSnapshot {
     );
   }
 
+  /// Resolves native window chrome brightness for this shell.
+  ///
+  /// [ThemeMode.system] follows [platformBrightness] when provided, otherwise
+  /// [PlatformDispatcher.platformBrightness].
+  Brightness resolveWindowBrightness([Brightness? platformBrightness]) {
+    final platform =
+        platformBrightness ?? WidgetsBinding.instance.platformDispatcher.platformBrightness;
+    return switch (kind) {
+      AppEntryKind.material => switch (themeMode) {
+        ThemeMode.dark => Brightness.dark,
+        ThemeMode.light => Brightness.light,
+        ThemeMode.system => platform,
+      },
+      AppEntryKind.cupertino => cupertinoTheme?.brightness ?? platform,
+      AppEntryKind.widgets => platform,
+    };
+  }
+
   /// Returns a copy with the given fields replaced.
   ///
   /// Fields that are not passed keep their current values.

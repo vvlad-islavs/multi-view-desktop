@@ -9,6 +9,8 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 
 import '../utils/theme_config.dart';
 import 'alert_view_dialog.dart';
+import 'shell_demo.dart';
+import '../l10n/example_localizations.dart';
 
 // ---------------------------------------------------------------------------
 // HomePage
@@ -88,7 +90,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
   }
 
   void _viewListener() {
-    debugPrint('allViews from notif: ${MultiViewDesktop.allWindowIdsNotifier.value}');
+    // debugPrint('allViews from notif: ${MultiViewDesktop.allWindowIdsNotifier.value}');
     sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
   }
 
@@ -210,7 +212,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
       options: DialogOptions(
         size: const Size(340, 220),
         title: 'Prevent close dialog',
-        modal: false,
+        modal: true,
         isResizable: false,
         alwaysOnTop: false,
         showOnInit: true,
@@ -331,7 +333,9 @@ class _HomePageState extends State<HomePage> with WindowListener {
                       trailing: Switch(
                         value: dark,
                         onChanged: (_) {
-                          MultiViewDesktop.appShell.patch(AppShellPatch(themeMode: dark ? ThemeMode.light : ThemeMode.dark));
+                          MultiViewDesktop.appShell.patch(
+                            AppShellPatch(themeMode: dark ? ThemeMode.light : ThemeMode.dark),
+                          );
                           themeConfig.setThemeMode(dark ? ThemeMode.light : ThemeMode.dark);
                         },
                       ),
@@ -379,6 +383,10 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     ),
                   ),
               ]),
+              // ----------------------------------------------------------------
+              // Shell demo
+              // ----------------------------------------------------------------
+              _section(ExampleLocalizations.of(context).shellDemoSection, shellDemoTiles(context)),
               // ----------------------------------------------------------------
               // Window management
               // ----------------------------------------------------------------
@@ -820,67 +828,6 @@ class _AlignmentGridState extends State<_AlignmentGrid> {
           );
         }).toList(),
       ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Secondary window root
-// ---------------------------------------------------------------------------
-
-/// The root widget shown in every secondary window.
-///
-/// Wraps [HomePage] in its own [MaterialApp] so it has an independent
-/// navigator and theme (but shares all Dart memory with the main window).
-class _SecondaryWindowRoot extends StatefulWidget {
-  const _SecondaryWindowRoot({super.key});
-
-  @override
-  State<_SecondaryWindowRoot> createState() => _SecondaryWindowRootState();
-}
-
-class _SecondaryWindowRootState extends State<_SecondaryWindowRoot> {
-  @override
-  void initState() {
-    super.initState();
-    themeConfig.addListener(_onThemeChanged);
-    // Also listen for broadcast theme changes to update native brightness.
-    MultiViewDesktop.communicator.onBroadcast.listen((msg) {
-      if (msg is! Map) return;
-      if (msg['type'] != 'themeMode') return;
-      if (!mounted) return;
-      final mode = ThemeMode.values.firstWhere((m) => m.name == msg['value'], orElse: () => ThemeMode.light);
-      MultiViewDesktop.of(context).setBrightness(mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
-    });
-
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => MultiViewDesktop.of(
-        context,
-      ).setBrightness(themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light),
-    );
-  }
-
-  @override
-  void dispose() {
-    themeConfig.removeListener(_onThemeChanged);
-    super.dispose();
-  }
-
-  void _onThemeChanged() {
-    if (mounted) setState(() {});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      themeMode: themeConfig.themeMode,
-      theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal), useMaterial3: true),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal, brightness: Brightness.dark),
-        useMaterial3: true,
-      ),
-      home: const HomePage(),
     );
   }
 }

@@ -15,6 +15,7 @@ class ThemeConfig extends ChangeNotifier {
     if (_themeMode == mode) return;
     _themeMode = mode;
     MultiViewDesktop.appShell.patch(AppShellPatch(themeMode: mode));
+    MultiViewDesktop.setGlobalBrightness(_themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light);
     notifyListeners();
 
     // Broadcast so every window can update its native brightness.
@@ -28,7 +29,9 @@ class SharedParams extends ChangeNotifier {
   int? _anchorId;
 
   bool get isHideAppFromTaskbar => _isHideAppFromTaskbar;
+
   CloseMode get closeMode => _closeMode;
+
   int? get anchorId => _anchorId;
 
   set isHideAppFromTaskbar(bool newValue) {

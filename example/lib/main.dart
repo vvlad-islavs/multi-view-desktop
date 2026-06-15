@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'pages/home.dart';
+import 'l10n/example_localizations.dart';
+import 'theme/app_themes.dart';
 import 'utils/theme_config.dart';
 
 void main() {
@@ -105,9 +107,7 @@ class _MainWindowRootState extends State<MainWindowRoot> {
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await MultiViewDesktop.of(
-        context,
-      ).setBrightness(themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light);
+      await MultiViewDesktop.setGlobalBrightness(themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light);
 
       sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
       sharedConfig.closeMode = MultiViewDesktop.getCloseMode();
@@ -130,13 +130,12 @@ class _MainWindowRootState extends State<MainWindowRoot> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       themeMode: themeConfig.themeMode,
-      theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple), useMaterial3: true),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple, brightness: Brightness.dark),
-        useMaterial3: true,
-      ),
+      theme: mainLightTheme(),
+      darkTheme: mainDarkTheme(),
+      locale: const Locale('en'),
+      localizationsDelegates: exampleLocalizationDelegates(),
+      supportedLocales: ExampleLocalizations.supportedLocales,
       home: const HomePage(),
-
     );
   }
 }

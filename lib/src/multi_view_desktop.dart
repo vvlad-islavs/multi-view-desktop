@@ -61,6 +61,8 @@ class MultiViewDesktop {
   /// Returns the public view ID of the window that owns [context].
   static int getIdByContext(BuildContext context) => _manager.realToShiftedId(_getRealId(context));
 
+  static Future<void> setGlobalBrightness(Brightness brightness) => _manager.setGlobalBrightness(brightness);
+
   /// Snapshot of public view IDs for all secondary windows currently open.
   static List<int> get allWindowViewIds => List.unmodifiable(globalRootState.allShiftedViewsId);
 

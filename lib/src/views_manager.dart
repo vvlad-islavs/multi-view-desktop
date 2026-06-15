@@ -61,9 +61,16 @@ abstract class ViewsManager {
 
   Future<void> setTitle(int viewId, String title);
 
-  Future<void> setTitleBarStyle(int viewId, TitleBarStyle style,{bool closeVisibility = true, bool maximizeVisibility = true, bool minimizeVisibility = true});
+  Future<void> setTitleBarStyle(
+    int viewId,
+    TitleBarStyle style, {
+    bool closeVisibility = true,
+    bool maximizeVisibility = true,
+    bool minimizeVisibility = true,
+  });
 
-  Future<({TitleBarStyle? style, bool? closeVisibility, bool? maximizeVisibility, bool? minimizeVisibility})> getTitleBarStyle(int viewId);
+  Future<({TitleBarStyle? style, bool? closeVisibility, bool? maximizeVisibility, bool? minimizeVisibility})>
+  getTitleBarStyle(int viewId);
 
   /// Removes native title bar and frame chrome.
   Future<void> setAsFrameless(int viewId);
@@ -77,6 +84,8 @@ abstract class ViewsManager {
   Future<void> setBackgroundColor(int viewId, Color color);
 
   Future<void> setBrightness(int viewId, Brightness brightness);
+
+  Future<void> setGlobalBrightness(Brightness brightness);
 
   Future<void> setOpacity(int viewId, double opacity);
 
