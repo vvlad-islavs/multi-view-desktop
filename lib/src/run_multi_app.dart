@@ -186,7 +186,6 @@ class DialogOptions {
     this.isResizable,
     this.title,
     this.modal,
-    this.blockParentCloseAndFocus,
     this.titleBarStyle,
     this.windowButtonVisibility,
     this.backgroundColor,
@@ -214,9 +213,6 @@ class DialogOptions {
   /// appear.  This does **not** block OS-level input on the parent window—the
   /// scrim is a pure Flutter overlay.
   final bool? modal;
-
-  /// When `true`, will be focused instead of close when parent close attempt
-  final bool? blockParentCloseAndFocus;
 
   /// Initial title-bar style; use [TitleBarStyle.hidden] for frameless chrome.
   final TitleBarStyle? titleBarStyle;

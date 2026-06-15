@@ -122,7 +122,6 @@ class MultiViewDesktop {
           parentContext: parentContext,
           parentId: parentRealId,
           isModalDialog: options?.modal ?? false,
-          focusOnClose: options?.blockParentCloseAndFocus ?? false,
           closeCompleter: completer,
         );
       },

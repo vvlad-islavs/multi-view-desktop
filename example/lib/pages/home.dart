@@ -179,9 +179,24 @@ class _HomePageState extends State<HomePage> with WindowListener {
     win.focus();
     // Show a confirmation dialog. can accept (remove preventClose and
     // close the window) or decline (explicitly cancel a pending cascade close).
-    if (_dialogKey.currentContext?.mounted ?? false) return;
+
+    if (_dialogKey.currentContext?.mounted ?? false) {
+      _dialogKey.currentContext?.viewController.focus();
+      return;
+    }
+
+    final allDialogs = DialogScope.of(context).value;
+    debugPrint('allDialog UI: $allDialogs');
+    if (allDialogs.isNotEmpty) {
+      for (final dialog in allDialogs) {
+        // if (dialog.isModal) {
+          await MultiViewDesktop.fromId(dialog.id).closeDialog();
+        // }
+      }
+    }
     final accept = await context.openDialog<bool?>(
       (ctx, id) {
+        ctx.viewController.focus();
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           home: AlertViewDialog(
@@ -201,12 +216,12 @@ class _HomePageState extends State<HomePage> with WindowListener {
         modal: false,
         isResizable: false,
         alwaysOnTop: false,
-        blockParentCloseAndFocus: true,
         showOnInit: true,
       ),
     );
 
     if (!mounted) return;
+    debugPrint('диалог завершен: $accept');
     if (accept == true) {
       await win.setPreventClose(false);
       await win.closeWindow();
@@ -412,7 +427,6 @@ class _HomePageState extends State<HomePage> with WindowListener {
                           modal: false,
                           isResizable: false,
                           alwaysOnTop: true,
-                          blockParentCloseAndFocus: false,
                           showOnInit: true,
                         ),
                         parentContext: context,
@@ -427,13 +441,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                         (ctx, viewId) {
                           return const _SecondaryWindowRoot();
                         },
-                        options: DialogOptions(
-                          size: const Size(450, 300),
-                          title: ' ',
-                          isResizable: false,
-                          modal: true,
-                          blockParentCloseAndFocus: false,
-                        ),
+                        options: DialogOptions(size: const Size(450, 300), title: ' ', isResizable: false, modal: true),
                         parentContext: context,
                       );
                     },

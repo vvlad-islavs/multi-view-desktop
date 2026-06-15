@@ -443,13 +443,14 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         result(nil)
     }
 
-    // MARK: - NSWindowDelegate
+    // MARK: - Soft close
 
-    /// Implements soft-close: main pre-confirm -> prevent-close -> confirm-close -> destroy.
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard let viewId = viewIdForWindow(sender) else {
-            return true
-        }
+    /// Emits the next soft-close event for [viewId].
+    ///
+    /// Returns `false` when an event was emitted and the window must stay open;
+    /// returns `true` when all soft-close flags are satisfied.
+    @discardableResult
+    private func advanceSoftClose(viewId: Int64) -> Bool {
         let state = windowStates[viewId] ?? WindowState()
 
         if !state.isPreConfirm {
@@ -467,14 +468,41 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             return false
         }
 
+        return true
+    }
 
-//        if let parentWindow = sheetParents[viewId] {
-//            sheetParents.removeValue(forKey: viewId)
-//            parentWindow.endSheet(sender)
-//            sender.close()
-//            return false
-//        }
+    /// Dismisses a modal sheet and destroys its window.
+    private func closeSheetWindow(_ sheet: NSWindow, viewId: Int64) {
+        if let parentWindow = sheetParents[viewId] {
+            sheetParents.removeValue(forKey: viewId)
+            parentWindow.endSheet(sheet)
+        }
+        sheet.close()
+    }
 
+    /// Requests soft close, working around AppKit ignoring [NSWindow.performClose]
+    /// while [NSWindow.attachedSheet] is non-nil.
+    private func requestSoftClose(viewId: Int64, window: NSWindow) {
+        if window.attachedSheet != nil {
+            _ = advanceSoftClose(viewId: viewId)
+            return
+        }
+        window.performClose(nil)
+    }
+
+    // MARK: - NSWindowDelegate
+
+    /// Implements soft-close: main pre-confirm -> prevent-close -> confirm-close -> destroy.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard let viewId = viewIdForWindow(sender) else {
+            return true
+        }
+
+        if !advanceSoftClose(viewId: viewId) {
+            return false
+        }
+
+     
         return true
     }
 
@@ -621,19 +649,13 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
 
         case "closeWindow":
-            window.performClose(nil)
+            requestSoftClose(viewId: viewId, window: window)
             result(nil)
 
         case "destroyWindow":
             // Synchronous forced destruction — bypasses windowShouldClose entirely.
-            // For sheet windows, endSheet is called first so the parent window is
-            // unblocked before the sheet is destroyed.  This guarantees that any
-            // subsequent performClose on the parent is not silently dropped by macOS.
-            if let parentWindow = sheetParents[viewId] {
-                sheetParents.removeValue(forKey: viewId)
-                parentWindow.endSheet(window)
-            }
-            window.close()
+            // Modal sheets must endSheet before close so the parent is unblocked.
+            closeSheetWindow(window, viewId: viewId)
             result(nil)
 
         case "isPreventClose":

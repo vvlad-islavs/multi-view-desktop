@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:multiview_desktop/multiview_desktop.dart';
 
 /// Provides a [ValueNotifier<int>] counting the number of active modal dialogs
 /// blocking the current window.
@@ -89,21 +90,33 @@ class DialogModalLayer extends StatelessWidget {
       valueListenable: notifier,
       builder: (context, modalList, _) {
         bool showBarrier = showBarrierForNotModalDialog && modalList.isNotEmpty;
-        if (modalList.any((e) => e.isModal)) {
+        final bool anyIsModal = modalList.any((e) => e.isModal);
+        if (anyIsModal) {
           showBarrier = true;
         }
-        return Stack(
-          children: [
-            child,
-            AnimatedOpacity(
-              opacity: showBarrier ? 1.0 : 0.0,
-              duration: animationDuration,
-              child: IgnorePointer(
-                ignoring: !showBarrier,
-                child: ColoredBox(color: barrierColor, child: const SizedBox.expand()),
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () async {
+            if (showBarrier && !anyIsModal) {
+              final dialogsList = modalList.map((e)=> e.id).toList()..sort();
+              for (final id in dialogsList){
+                await MultiViewDesktop.fromId(id).focus();
+              }
+            }
+          },
+          child: Stack(
+            children: [
+              child,
+              AnimatedOpacity(
+                opacity: showBarrier ? 1.0 : 0.0,
+                duration: animationDuration,
+                child: IgnorePointer(
+                  ignoring: !showBarrier,
+                  child: ColoredBox(color: barrierColor, child: const SizedBox.expand()),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );

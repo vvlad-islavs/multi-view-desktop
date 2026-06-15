@@ -31,7 +31,7 @@ void main() {
         windowButtonVisibility: true,
         title: 'Window 1',
       ),
-      globalDialogOptions: DialogOptions(modal: false, blockParentCloseAndFocus: false, windowButtonVisibility: true),
+      globalDialogOptions: DialogOptions(modal: false,  windowButtonVisibility: true),
       observers: [AppWindowObserver()],
     ),
   );
