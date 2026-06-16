@@ -1,3 +1,7 @@
+## 1.1.1
+
+- Hot restart windowOptions fix
+
 ## 1.1.0
 
 - View builder got context & id.  
