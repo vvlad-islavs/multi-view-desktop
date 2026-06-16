@@ -15,7 +15,14 @@ class ThemeConfig extends ChangeNotifier {
     if (_themeMode == mode) return;
     _themeMode = mode;
     MultiViewDesktop.appShell.patch(AppShellPatch(themeMode: mode));
-    MultiViewDesktop.setGlobalBrightness(_themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light);
+    // main view id always is 1
+    if (_themeMode.isSystem) {
+      MultiViewDesktop.fromId(1).setBrightness(WidgetsBinding.instance.platformDispatcher.platformBrightness);
+    } else {
+      MultiViewDesktop.fromId(1).setBrightness(_themeMode.isDark ? Brightness.dark : Brightness.light);
+    }
+    // force set brightness to all views.
+    // MultiViewDesktop.setGlobalBrightness(_themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light);
     notifyListeners();
 
     // Broadcast so every window can update its native brightness.

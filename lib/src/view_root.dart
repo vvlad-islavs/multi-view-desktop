@@ -650,7 +650,6 @@ class _ViewsManagerImpl implements ViewsManager {
   Future<dynamic> _onStaticCall(MethodCall call) async {
     if (call.method != 'onEvent') return null;
 
-
     final String eventName = call.arguments['eventName'] as String;
 
     if (eventName == 'viewCreated') {
@@ -1048,9 +1047,13 @@ class _ViewsManagerImpl implements ViewsManager {
     final isDialog = entry?.value is _DialogEntry;
 
     if (isDialog) {
-      _notifyObservers((o) => o.onDialogClose(shiftedViewId));
+      if (_dialogs.keys.contains(viewId)) {
+        _notifyObservers((o) => o.onDialogClose(shiftedViewId));
+      }
     } else {
-      _notifyObservers((o) => o.onWindowClosed(shiftedViewId));
+      if (_windows.keys.contains(viewId)) {
+        _notifyObservers((o) => o.onWindowClosed(shiftedViewId));
+      }
     }
     // If this dialog had a modal flag, unblock its parent window.
     if (isDialog) {

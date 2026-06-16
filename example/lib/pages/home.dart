@@ -332,12 +332,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                       subtitle: themeConfig.themeMode.name,
                       trailing: Switch(
                         value: dark,
-                        onChanged: (_) {
-                          MultiViewDesktop.appShell.patch(
-                            AppShellPatch(themeMode: dark ? ThemeMode.light : ThemeMode.dark),
-                          );
-                          themeConfig.setThemeMode(dark ? ThemeMode.light : ThemeMode.dark);
-                        },
+                        onChanged: (_) => themeConfig.setThemeMode(dark ? ThemeMode.light : ThemeMode.dark),
                       ),
                     );
                   },

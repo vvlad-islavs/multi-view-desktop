@@ -98,13 +98,13 @@ class _MainWindowRootState extends State<MainWindowRoot> {
     super.initState();
     themeConfig.addListener(_onThemeChanged);
 
-    MultiViewDesktop.communicator.onBroadcast.listen((msg) {
-      if (msg is! Map) return;
-      if (msg['type'] != 'themeMode') return;
-      if (!mounted) return;
-      final mode = ThemeMode.values.firstWhere((m) => m.name == msg['value'], orElse: () => ThemeMode.light);
-      MultiViewDesktop.of(context).setBrightness(mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
-    });
+    // MultiViewDesktop.communicator.onBroadcast.listen((msg) {
+    //   if (msg is! Map) return;
+    //   if (msg['type'] != 'themeMode') return;
+    //   if (!mounted) return;
+    //   final mode = ThemeMode.values.firstWhere((m) => m.name == msg['value'], orElse: () => ThemeMode.light);
+    //   MultiViewDesktop.of(context).setBrightness(mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
+    // });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await MultiViewDesktop.setGlobalBrightness(themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light);
