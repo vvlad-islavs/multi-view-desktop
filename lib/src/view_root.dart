@@ -98,7 +98,7 @@ Future<Widget> createMultiViewRoot(
 
   // Reset native behavioral flags before the widget tree is built
   if (_hasInitView) {
-    await _nativeChannel.resetWindowToDefaults(_initPlatformId);
+    await _nativeChannel.resetWindowToDefaults(_initPlatformId, config);
   }
 
   final mainRoot = _MultiViewRoot(homeBuilder: home, config: config);

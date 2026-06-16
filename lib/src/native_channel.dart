@@ -217,8 +217,7 @@ class NativeChannel {
     return await _staticChannel.invokeMethod<String>(kMethodGetTitle, _args(viewId)) ?? '';
   }
 
-  Future<void> setTitleBarStyle(
-    int viewId, {
+  Future<void> setTitleBarStyle(int viewId, {
     required TitleBarStyle style,
     required bool closeVisibility,
     required bool maximizeVisibility,
@@ -240,10 +239,10 @@ class NativeChannel {
     final mapResult = await _staticChannel.invokeMethod<Map<Object?, Object?>>(kMethodGetTitleBarStyle, _args(viewId));
 
     return (
-      style: _barStyleFromJson(mapResult?['style'] as String?),
-      closeVisibility: mapResult?['closeVisibility'] as bool?,
-      maximizeVisibility: mapResult?['maximizeVisibility'] as bool?,
-      minimizeVisibility: mapResult?['minimizeVisibility'] as bool?,
+    style: _barStyleFromJson(mapResult?['style'] as String?),
+    closeVisibility: mapResult?['closeVisibility'] as bool?,
+    maximizeVisibility: mapResult?['maximizeVisibility'] as bool?,
+    minimizeVisibility: mapResult?['minimizeVisibility'] as bool?,
     );
   }
 
@@ -300,8 +299,9 @@ class NativeChannel {
   Future<void> setConfirmClose(int viewId, {required bool isConfirm}) async =>
       await _staticChannel.invokeMethod<void>(kMethodConfirmClose, _args(viewId, {'confirmClose': isConfirm}));
 
-  Future<void> setPreventClose(int viewId, {required bool isPreventClose}) async => await _staticChannel
-      .invokeMethod<void>(kMethodSetPreventClose, _args(viewId, {'isPreventClose': isPreventClose}));
+  Future<void> setPreventClose(int viewId, {required bool isPreventClose}) async =>
+      await _staticChannel
+          .invokeMethod<void>(kMethodSetPreventClose, _args(viewId, {'isPreventClose': isPreventClose}));
 
   Future<bool> isPreventClose(int viewId) async {
     return await _staticChannel.invokeMethod<bool>(kMethodIsPreventClose, _args(viewId)) ?? false;
@@ -512,7 +512,7 @@ class NativeChannel {
 
   /// Resets close flags and related state after hot restart when the OS window
   /// survived. Title, size, and position are left unchanged.
-  Future<void> resetWindowToDefaults(int viewId) async {
+  Future<void> resetWindowToDefaults(int viewId, MultiAppConfig config) async {
     await Future.wait([
       setPreventClose(viewId, isPreventClose: false),
       setPreConfirmClose(viewId, false),
@@ -522,17 +522,18 @@ class NativeChannel {
       setMinimizable(viewId, true),
       setMaximizable(viewId, true),
       setClosable(viewId, true),
-      setAlwaysOnTop(viewId, isAlwaysOnTop: false),
+      setAlwaysOnTop(viewId, isAlwaysOnTop: config.globalOptions.alwaysOnTop ?? false),
       setOpacity(viewId, 1.0),
       setAspectRatio(viewId, 0),
       setIgnoreMouseEvents(viewId, false),
       setTitleBarStyle(
         viewId,
-        style: TitleBarStyle.normal,
-        closeVisibility: true,
-        minimizeVisibility: true,
-        maximizeVisibility: true,
+        style: config.globalOptions.titleBarStyle ?? TitleBarStyle.normal,
+        closeVisibility: config.globalOptions.windowButtonVisibility ?? false,
+        minimizeVisibility: config.globalOptions.windowButtonVisibility ?? false,
+        maximizeVisibility: config.globalOptions.windowButtonVisibility ?? false,
       ),
     ]);
   }
 }
+
