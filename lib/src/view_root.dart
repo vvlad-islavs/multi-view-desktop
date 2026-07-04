@@ -1151,7 +1151,7 @@ class _ViewsManagerImpl implements ViewsManager {
       throw Exception('Failed to create new window, tokenId: $token. Error: $e, stack: $st');
     }
 
-    final newViewId = await _createCompleters[token]!.future.timeout(Duration(seconds: 1), onTimeout: () => null);
+    final newViewId = await _createCompleters[token]!.future.timeout(Duration(seconds: 10), onTimeout: () => null);
     _createCompleters.remove(token);
 
     if (newViewId == null) {
@@ -1236,7 +1236,7 @@ class _ViewsManagerImpl implements ViewsManager {
       throw Exception('Failed to create dialog window, tokenId: $token. Error: $e, stack: $st');
     }
 
-    final newViewId = await _createCompleters[token]!.future.timeout(const Duration(seconds: 1), onTimeout: () => null);
+    final newViewId = await _createCompleters[token]!.future.timeout(const Duration(seconds: 10), onTimeout: () => null);
 
     if (opts.modal == true) {
       await Future.delayed(Duration(milliseconds: 20));
