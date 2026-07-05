@@ -1,3 +1,8 @@
+## 1.1.2
+
+- Up view create timeout to 10 sec
+- Fix: Orphan was sending data to observers
+
 ## 1.1.1
 
 - Hot restart windowOptions fix
