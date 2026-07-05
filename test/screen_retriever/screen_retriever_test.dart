@@ -1,8 +1,5 @@
-import 'dart:ui';
-
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multiview_desktop/src/screen_retriever/screen_listener.dart';
 import 'package:multiview_desktop/src/screen_retriever/screen_retriever.dart';
 
 void main() {

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:multiview_desktop/src/impl/window_communicator_impl.dart';
 
