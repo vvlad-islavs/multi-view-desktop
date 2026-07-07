@@ -1,6 +1,7 @@
 #include <multiview_desktop/multiview_desktop_plugin.h>
 
 #include "mvd_linux_internal.h"
+#include "mvd_linux_log.h"
 #include "mvd_linux_window.h"
 
 #include <flutter_linux/flutter_linux.h>
@@ -11,11 +12,7 @@
 #include <mutex>
 #include <string>
 
-// logging
-#define MVD_LOG(fmt, ...)                                          \
-  g_print("[MVD %.6f] [plugin] " fmt "\n",                        \
-          static_cast<double>(g_get_monotonic_time()) / 1e6,      \
-          ##__VA_ARGS__)
+#define MVD_LOG MVD_LOG_PLUGIN
 
 namespace {
 
@@ -344,13 +341,14 @@ static gboolean on_focus_out(GtkWidget*, GdkEvent*, gpointer data) {
   return FALSE;
 }
 
-static gboolean on_configure(GtkWidget*, GdkEventConfigure*, gpointer data) {
+static gboolean on_configure(GtkWidget*, GdkEvent* event, gpointer data) {
   const int64_t view_id = pointer_to_view_id(data);
-  emit_event("resize", view_id);
-  // Keep the shadow cache fresh so ReapplyGeometryHints always has a correct
-  // delta regardless of when it is called (including during maximized/fullscreen).
+  if (!event || event->type != GDK_CONFIGURE) {
+    return FALSE;
+  }
   auto wm = MvdLinuxWindow::Find(view_id);
   if (wm) {
+    wm->HandleConfigureEvent(&event->configure);
     wm->RefreshShadowCache();
     if (wm->is_modal) {
       wm->ClampToParentBounds();
@@ -363,37 +361,37 @@ static void on_map(GtkWidget*, gpointer data) {
   const int64_t view_id = pointer_to_view_id(data);
   auto wm = MvdLinuxWindow::Find(view_id);
   if (wm) {
+    wm->SeedConfigureBaseline();
     wm->ReapplyGeometryHints();
   }
 }
 
-// Re-apply geometry hints when the window leaves a maximized or fullscreen
-// state. While maximized/fullscreen the CSD shadow is hidden (shadow delta ==
-// 0), so any ReapplyGeometryHints call issued during that time used the cached
-// shadow. Now that the window is back in the normal state the CSD shadow is
-// restored and we must re-apply with the live (correct) measurement.
-static gboolean on_window_state(GtkWidget*, GdkEventWindowState* event,
-                                gpointer data) {
-  const GdkWindowState left = static_cast<GdkWindowState>(
-      event->changed_mask & ~event->new_window_state);
-  const bool left_max_or_fs =
-      (left & GDK_WINDOW_STATE_MAXIMIZED) ||
-      (left & GDK_WINDOW_STATE_FULLSCREEN);
+static void on_show(GtkWidget*, gpointer data) {
   const int64_t view_id = pointer_to_view_id(data);
   auto wm = MvdLinuxWindow::Find(view_id);
-  if (!wm) { return FALSE; }
-
-  // Keep our own is_fullscreen flag in sync with the actual GDK state so it
-  // stays correct even when fullscreen is exited by the WM (e.g. Escape key)
-  // rather than through SetFullScreen().
-  if (event->changed_mask & GDK_WINDOW_STATE_FULLSCREEN) {
-    wm->is_fullscreen =
-        (event->new_window_state & GDK_WINDOW_STATE_FULLSCREEN) != 0;
+  if (wm) {
+    wm->EmitShow();
   }
+}
 
-  if (left_max_or_fs) {
-    wm->ReapplyGeometryHints();
+static void on_hide(GtkWidget*, gpointer data) {
+  const int64_t view_id = pointer_to_view_id(data);
+  auto wm = MvdLinuxWindow::Find(view_id);
+  if (wm) {
+    wm->EmitHide();
   }
+}
+
+// Re-apply geometry hints when the window leaves a maximized or fullscreen
+// state (handled inside HandleWindowStateEvent).
+static gboolean on_window_state(GtkWidget*, GdkEventWindowState* event,
+                                gpointer data) {
+  const int64_t view_id = pointer_to_view_id(data);
+  auto wm = MvdLinuxWindow::Find(view_id);
+  if (!wm) {
+    return FALSE;
+  }
+  wm->HandleWindowStateEvent(event);
   return FALSE;
 }
 
@@ -406,11 +404,13 @@ static void connect_window_signals(GtkWindow* window, int64_t view_id) {
   g_signal_connect(window, "focus-out-event", G_CALLBACK(on_focus_out), id_data);
   g_signal_connect(window, "configure-event", G_CALLBACK(on_configure), id_data);
   g_signal_connect(window, "map", G_CALLBACK(on_map), id_data);
+  g_signal_connect(window, "show", G_CALLBACK(on_show), id_data);
+  g_signal_connect(window, "hide", G_CALLBACK(on_hide), id_data);
   g_signal_connect(window, "window-state-event",
                    G_CALLBACK(on_window_state), id_data);
   MVD_LOG("connect_window_signals  DONE  viewId=%" G_GINT64_FORMAT
           "  connected: delete-event focus-in-event focus-out-event"
-          " configure-event map window-state-event", view_id);
+          " configure-event map show hide window-state-event", view_id);
 }
 
 static void register_window(GtkWindow* window, FlView* view, int64_t view_id,
@@ -430,6 +430,7 @@ static void register_window(GtkWindow* window, FlView* view, int64_t view_id,
   wm->is_modal = is_modal;
   wm->dialog_parent_view_id = dialog_parent_view_id;
   wm->modal_owner_view_id = is_modal ? dialog_parent_view_id : -1;
+  wm->SetEventEmitter([view_id](const char* event) { emit_event(event, view_id); });
   {
     std::lock_guard<std::mutex> lock(MvdLinuxWindow::registry_mtx);
     MvdLinuxWindow::windows[view_id] = wm;

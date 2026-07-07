@@ -1,4 +1,5 @@
 #include "mvd_linux_window.h"
+#include "mvd_linux_log.h"
 #include <gtk/gtk.h>
 
 #ifdef GDK_WINDOWING_X11
@@ -8,18 +9,9 @@
 #include <cstring>
 #include <vector>
 
-// logging
-// All MVD log lines start with "[MVD <seconds.ms>]" so they can be easily
-// grep-filtered from Flutter's own output.
-// Usage:  GDK_BACKEND=x11 flutter run -d linux 2>&1 | grep '\[MVD'
-#define MVD_LOG(fmt, ...)                                          \
-  g_print("[MVD %.6f] [window] " fmt "\n",                        \
-          static_cast<double>(g_get_monotonic_time()) / 1e6,      \
-          ##__VA_ARGS__)
+#define MVD_LOG MVD_LOG_WINDOW
 
-// Helper: return X11 XID as a string (only meaningful on X11 sessions).
-// Returns "(no-gdk-win)" when the GdkWindow isn't realized yet, or the
-// decimal XID when running under X11.
+// Returns X11 XID as a string for debug logs (X11 sessions only).
 static std::string mvd_xid_str(GtkWindow* w) {
 #ifdef GDK_WINDOWING_X11
   if (!w) return "(null-gtk-window)";
@@ -75,6 +67,257 @@ MvdLinuxWindow::~MvdLinuxWindow() {
     g_free(title_bar_style);
   }
   MVD_LOG("MvdLinuxWindow::dtor  DONE  this=%p", static_cast<void*>(this));
+  StopDragReleaseWatcher();
+}
+
+void MvdLinuxWindow::SetEventEmitter(std::function<void(const char*)> emitter) {
+  event_emitter_ = std::move(emitter);
+}
+
+void MvdLinuxWindow::SeedConfigureBaseline() {
+  if (!window) {
+    return;
+  }
+  gtk_window_get_position(window, &last_configure_x, &last_configure_y);
+  gtk_window_get_size(window, &last_configure_width, &last_configure_height);
+  has_configure_baseline = true;
+  has_origin_baseline = false;
+}
+
+void MvdLinuxWindow::HandleConfigureEvent(const GdkEventConfigure* configure) {
+  if (!configure || !event_emitter_) {
+    return;
+  }
+  if (!has_configure_baseline) {
+    last_configure_x = configure->x;
+    last_configure_y = configure->y;
+    last_configure_width = configure->width;
+    last_configure_height = configure->height;
+    has_configure_baseline = true;
+    return;
+  }
+
+  const bool size_changed =
+      configure->width != last_configure_width ||
+      configure->height != last_configure_height;
+  const bool pos_changed = configure->x != last_configure_x ||
+                           configure->y != last_configure_y;
+
+  if (IsPointerButtonStillPressed()) {
+    if (size_changed) {
+      is_resizing = true;
+    } else if (pos_changed) {
+      is_dragging = true;
+    }
+    if (is_dragging || is_resizing) {
+      EnsureDragReleaseWatcher();
+    }
+  }
+
+  if (size_changed) {
+    last_configure_width = configure->width;
+    last_configure_height = configure->height;
+    event_emitter_("resize");
+  } else if (pos_changed) {
+    last_configure_x = configure->x;
+    last_configure_y = configure->y;
+    event_emitter_("move");
+  }
+}
+
+namespace {
+
+gboolean enforce_unmaximize_cb(gpointer data) {
+  auto* win = static_cast<GtkWindow*>(data);
+  if (win && GTK_IS_WINDOW(win)) {
+    gtk_window_unmaximize(win);
+  }
+  return G_SOURCE_REMOVE;
+}
+
+gboolean enforce_deiconify_cb(gpointer data) {
+  auto* win = static_cast<GtkWindow*>(data);
+  if (win && GTK_IS_WINDOW(win)) {
+    gtk_window_deiconify(win);
+  }
+  return G_SOURCE_REMOVE;
+}
+
+}  // namespace
+
+void MvdLinuxWindow::HandleWindowStateEvent(GdkEventWindowState* event) {
+  if (!event || !window) {
+    return;
+  }
+
+  if (event->changed_mask & GDK_WINDOW_STATE_FULLSCREEN) {
+    is_fullscreen =
+        (event->new_window_state & GDK_WINDOW_STATE_FULLSCREEN) != 0;
+    if (event_emitter_) {
+      event_emitter_(is_fullscreen ? "enter-full-screen" : "leave-full-screen");
+    }
+  }
+
+  if (event->changed_mask & GDK_WINDOW_STATE_MAXIMIZED) {
+    if (event->new_window_state & GDK_WINDOW_STATE_MAXIMIZED) {
+      if (!is_maximizable) {
+        g_idle_add(enforce_unmaximize_cb, window);
+      } else if (event_emitter_) {
+        event_emitter_("maximize");
+      }
+    } else if (event_emitter_) {
+      event_emitter_("unmaximize");
+    }
+  }
+
+  if (event->changed_mask & GDK_WINDOW_STATE_ICONIFIED) {
+    if (event->new_window_state & GDK_WINDOW_STATE_ICONIFIED) {
+      if (!is_minimizable) {
+        g_idle_add(enforce_deiconify_cb, window);
+      } else if (event_emitter_) {
+        event_emitter_("minimize");
+      }
+    } else if (event_emitter_) {
+      event_emitter_("restore");
+    }
+  }
+
+  const GdkWindowState left = static_cast<GdkWindowState>(
+      event->changed_mask & ~event->new_window_state);
+  const bool left_max_or_fs =
+      (left & GDK_WINDOW_STATE_MAXIMIZED) ||
+      (left & GDK_WINDOW_STATE_FULLSCREEN);
+  if (left_max_or_fs) {
+    ReapplyGeometryHints();
+  }
+}
+
+void MvdLinuxWindow::EmitShow() {
+  if (event_emitter_) {
+    event_emitter_("show");
+  }
+}
+
+void MvdLinuxWindow::EmitHide() {
+  if (event_emitter_) {
+    event_emitter_("hide");
+  }
+}
+
+bool MvdLinuxWindow::IsPointerButtonStillPressed() const {
+  if (!window) {
+    return false;
+  }
+  auto* screen = gtk_window_get_screen(window);
+  auto* display = gdk_screen_get_display(screen);
+  auto* seat = gdk_display_get_default_seat(display);
+  auto* device = gdk_seat_get_pointer(seat);
+  GdkWindow* gdk = gtk_widget_get_window(GTK_WIDGET(window));
+  if (!gdk || !device) {
+    return false;
+  }
+
+  gint x = 0;
+  gint y = 0;
+  GdkModifierType state = static_cast<GdkModifierType>(0);
+  gdk_window_get_device_position(gdk, device, &x, &y, &state);
+  const guint pressed_button =
+      last_button.button ? last_button.button : GDK_BUTTON_PRIMARY;
+  GdkModifierType button_mask = GDK_BUTTON1_MASK;
+  if (pressed_button == 2) {
+    button_mask = GDK_BUTTON2_MASK;
+  } else if (pressed_button == 3) {
+    button_mask = GDK_BUTTON3_MASK;
+  }
+  return (state & button_mask) != 0;
+}
+
+void MvdLinuxWindow::StopDragReleaseWatcher() {
+  if (drag_release_watch_id == 0) {
+    return;
+  }
+  const guint tag = drag_release_watch_id;
+  drag_release_watch_id = 0;
+  g_source_remove(tag);
+}
+
+void MvdLinuxWindow::FinishInteractiveGesture() {
+  if (!is_dragging && !is_resizing) {
+    return;
+  }
+  if (IsPointerButtonStillPressed()) {
+    return;
+  }
+  if (is_dragging && event_emitter_) {
+    event_emitter_("moved");
+  }
+  if (is_resizing && event_emitter_) {
+    event_emitter_("resized");
+  }
+  is_dragging = false;
+  is_resizing = false;
+  has_origin_baseline = false;
+}
+
+void MvdLinuxWindow::PollOriginMove() {
+  if (!window || !event_emitter_) {
+    return;
+  }
+  GdkWindow* gdk = gtk_widget_get_window(GTK_WIDGET(window));
+  if (!gdk) {
+    return;
+  }
+  gint ox = 0;
+  gint oy = 0;
+  gdk_window_get_origin(gdk, &ox, &oy);
+  if (!has_origin_baseline) {
+    last_origin_x = ox;
+    last_origin_y = oy;
+    has_origin_baseline = true;
+    return;
+  }
+  if (ox == last_origin_x && oy == last_origin_y) {
+    return;
+  }
+  last_origin_x = ox;
+  last_origin_y = oy;
+  if (!is_dragging && !is_resizing) {
+    is_dragging = true;
+    EnsureDragReleaseWatcher();
+  }
+  event_emitter_("move");
+}
+
+void MvdLinuxWindow::EnsureDragReleaseWatcher() {
+  StopDragReleaseWatcher();
+  drag_release_watch_id = g_idle_add(DragReleaseWatchCb, this);
+}
+
+gboolean MvdLinuxWindow::DragReleaseWatchCb(gpointer data) {
+  auto* self = static_cast<MvdLinuxWindow*>(data);
+  std::shared_ptr<MvdLinuxWindow> keep;
+  {
+    std::lock_guard<std::mutex> lock(registry_mtx);
+    auto it = windows.find(self->view_id);
+    if (it == windows.end()) {
+      self->drag_release_watch_id = 0;
+      return G_SOURCE_REMOVE;
+    }
+    keep = it->second;
+  }
+  if (!keep->window) {
+    keep->drag_release_watch_id = 0;
+    return G_SOURCE_REMOVE;
+  }
+
+  if (keep->IsPointerButtonStillPressed()) {
+    keep->PollOriginMove();
+    return G_SOURCE_CONTINUE;
+  }
+
+  keep->FinishInteractiveGesture();
+  keep->drag_release_watch_id = 0;
+  return G_SOURCE_REMOVE;
 }
 
 GdkWindow* MvdLinuxWindow::GetGdkWindow(GtkWindow* w) {
@@ -202,6 +445,7 @@ void MvdLinuxWindow::Destroy() {
             view_id);
     return;
   }
+  StopDragReleaseWatcher();
   const bool was_modal = is_modal;
   const int64_t owner_id = modal_owner_view_id;
   const int64_t vid = view_id;
@@ -524,6 +768,7 @@ void MvdLinuxWindow::Show() {
   ApplyPendingMove();
   gtk_widget_show(GTK_WIDGET(window));
   gtk_window_present(window);
+  SeedConfigureBaseline();
   MVD_LOG("Show  DONE  view_id=%" G_GINT64_FORMAT, view_id);
 }
 
@@ -918,11 +1163,11 @@ void MvdLinuxWindow::SetMinimizable(bool v) {
 }
 
 bool MvdLinuxWindow::IsMaximizable() {
-  return true;
+  return is_maximizable;
 }
 
-void MvdLinuxWindow::SetMaximizable(bool /*v*/) {
-  // Same as resizable on Linux.
+void MvdLinuxWindow::SetMaximizable(bool v) {
+  is_maximizable = v;
 }
 
 bool MvdLinuxWindow::IsClosable() {
@@ -1193,9 +1438,16 @@ void MvdLinuxWindow::StartDragging() {
   gint ry = 0;
   gdk_device_get_position(device, nullptr, &rx, &ry);
   guint32 ts = static_cast<guint32>(g_get_monotonic_time());
+  is_resizing = false;
+  is_dragging = true;
+  has_origin_baseline = false;
   gtk_window_begin_move_drag(window,
                            last_button.button ? last_button.button : 1, rx,
                            ry, ts);
+  if (event_emitter_) {
+    event_emitter_("move");
+  }
+  EnsureDragReleaseWatcher();
 }
 
 void MvdLinuxWindow::StartResizing(const gchar* edge) {
@@ -1229,9 +1481,16 @@ void MvdLinuxWindow::StartResizing(const gchar* edge) {
   gint ry = 0;
   gdk_device_get_position(device, nullptr, &rx, &ry);
   guint32 ts = static_cast<guint32>(g_get_monotonic_time());
+  is_dragging = false;
+  is_resizing = true;
+  has_origin_baseline = false;
   gtk_window_begin_resize_drag(window, ge,
                                last_button.button ? last_button.button : 1,
                                rx, ry, ts);
+  if (event_emitter_) {
+    event_emitter_("resize");
+  }
+  EnsureDragReleaseWatcher();
 }
 
 bool MvdLinuxWindow::IsMovable() {

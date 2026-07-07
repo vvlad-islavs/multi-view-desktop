@@ -5,6 +5,7 @@
 #include <gtk/gtk.h>
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -30,6 +31,7 @@ class MvdLinuxWindow {
   // (e.g. after on_delete returns TRUE) schedules a new callback correctly.
   bool close_pending = false;
   bool is_minimizable = true;
+  bool is_maximizable = true;
   bool is_resizable = true;
   bool is_fullscreen = false;
   bool is_skip_taskbar = false;
@@ -71,6 +73,31 @@ class MvdLinuxWindow {
   GtkCssProvider* csd_radius_provider = nullptr;
   gchar* title_bar_style = nullptr;
   GdkEventButton last_button{};
+
+  gint last_configure_width = 0;
+  gint last_configure_height = 0;
+  gint last_configure_x = 0;
+  gint last_configure_y = 0;
+  bool has_configure_baseline = false;
+  gint last_origin_x = 0;
+  gint last_origin_y = 0;
+  bool has_origin_baseline = false;
+  bool is_dragging = false;
+  bool is_resizing = false;
+  guint drag_release_watch_id = 0;
+  std::function<void(const char*)> event_emitter_;
+
+  void SetEventEmitter(std::function<void(const char*)> emitter);
+  void SeedConfigureBaseline();
+  void HandleConfigureEvent(const GdkEventConfigure* configure);
+  void HandleWindowStateEvent(GdkEventWindowState* event);
+  void EmitShow();
+  void EmitHide();
+  bool IsPointerButtonStillPressed() const;
+  void EnsureDragReleaseWatcher();
+  void StopDragReleaseWatcher();
+  void FinishInteractiveGesture();
+  void PollOriginMove();
 
   void SetAsFrameless();
   void Close();
@@ -147,6 +174,8 @@ class MvdLinuxWindow {
   static GdkWindow* GetGdkWindow(GtkWindow* w);
   static GtkWidget* HeaderBarOf(GtkWindow* w);
   static FlValue* MakeBounds(GtkWindow* w);
+
+  static gboolean DragReleaseWatchCb(gpointer data);
 };
 
 #endif  // MVD_LINUX_WINDOW_H_

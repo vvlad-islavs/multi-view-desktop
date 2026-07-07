@@ -1,6 +1,7 @@
 #include <multiview_desktop/multiview_desktop_runner.h>
 
 #include "mvd_linux_internal.h"
+#include "mvd_linux_log.h"
 #include "mvd_linux_window.h"
 
 #include <flutter_linux/flutter_linux.h>
@@ -14,11 +15,7 @@
 #include <memory>
 #include <string>
 
-// logging
-#define MVD_LOG(fmt, ...)                                          \
-  g_print("[MVD %.6f] [runner] " fmt "\n",                        \
-          static_cast<double>(g_get_monotonic_time()) / 1e6,      \
-          ##__VA_ARGS__)
+#define MVD_LOG MVD_LOG_RUNNER
 
 // X11 error handler - suppresses BadAccess from glXSwapBuffers.
 //
