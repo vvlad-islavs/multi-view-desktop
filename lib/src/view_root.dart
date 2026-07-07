@@ -4,6 +4,7 @@ import 'dart:ui' show FlutterView, PlatformDispatcher;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
@@ -213,6 +214,21 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     } else {
       setState(() {});
     }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Linux/Windows: lifecycle is driven only by the implicit view (view 0).
+    // When the anchor/main window is hidden or closed while other independent
+    // windows remain, the embedder emits AppLifecycleState.hidden and Flutter
+    // disables frames for the whole engine. Re-emit inactive to keep rendering
+    // (same workaround as multi_window_manager on macOS).
+    if (state != AppLifecycleState.hidden) return;
+    if (!Platform.isLinux && !Platform.isWindows) return;
+    if (_viewsManagerImpl.allRealWindowIds.isEmpty) return;
+
+    // ignore: invalid_use_of_protected_member
+    SchedulerBinding.instance.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
   }
 
   // --------------------------------------------------------------------------
