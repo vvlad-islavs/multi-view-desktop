@@ -56,7 +56,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
 
   // Event log
   final List<String> _eventLog = [];
-
+  bool get _isLinux => Platform.isLinux;
   @override
   void initState() {
     super.initState();
@@ -449,7 +449,13 @@ class _HomePageState extends State<HomePage> with WindowListener {
                         (ctx, viewId) {
                           return const HomePage();
                         },
-                        options: DialogOptions(size: const Size(450, 300), title: ' ', isResizable: false, modal: true,windowButtonVisibility: false),
+                        options: DialogOptions(
+                          size: const Size(450, 300),
+                          title: ' ',
+                          isResizable: false,
+                          modal: true,
+                          windowButtonVisibility: false,
+                        ),
                         parentContext: context,
                       );
                     },
@@ -460,11 +466,14 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   subtitle: 'Close this window',
                   onTap: () => MultiViewDesktop.of(context).closeWindow(),
                 ),
-                if (!Platform.isLinux && !windowInfo.isModal || Platform.isWindows)
+                if (!windowInfo.isModal || Platform.isWindows)
                   _tile('center', onTap: () => MultiViewDesktop.of(context).center()),
-                if (!Platform.isLinux && !windowInfo.isModal || Platform.isWindows) ...[
+                if (!windowInfo.isModal || Platform.isWindows) ...[
                   if (!(windowInfo.isModal && Platform.isWindows)) ...[
-                    _tile('setAlignment', subtitle: 'Tap a position on the grid below'),
+                    _tile(
+                      'setAlignment${_isLinux ? '. Only on X11' : ''}',
+                      subtitle: 'Tap a position on the grid below',
+                    ),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       child: _AlignmentGrid(
@@ -552,8 +561,12 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   ),
                   _tile('minimize', onTap: () => MultiViewDesktop.of(context).minimize()),
                 ],
-                if (!Platform.isLinux)
-                  _switchTile('alwaysOnTop', _isAlwaysOnTop, (v) => MultiViewDesktop.of(context).setAlwaysOnTop(v)),
+
+                _switchTile(
+                  'alwaysOnTop${_isLinux ? '. Only on X11' : ''}',
+                  _isAlwaysOnTop,
+                  (v) => MultiViewDesktop.of(context).setAlwaysOnTop(v),
+                ),
                 if (Platform.isMacOS && !windowInfo.isModal)
                   _switchTile(
                     'hideFromCollection',

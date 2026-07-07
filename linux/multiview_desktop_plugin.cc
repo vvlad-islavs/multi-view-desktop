@@ -552,36 +552,49 @@ static FlValue* display_to_map(GdkMonitor* monitor, int index) {
   gdk_monitor_get_geometry(monitor, &geo);
   gdk_monitor_get_workarea(monitor, &work);
 
-  const double scale = gdk_monitor_get_scale_factor(monitor);
+  // On X11, GDK returns physical pixel coordinates from gdk_monitor_get_geometry
+  // and gdk_monitor_get_workarea. gdk_device_get_position also returns physical
+  // pixels. All GTK window operations (gtk_window_move, gtk_window_get_position,
+  // gtk_window_get_size) also use physical X11 coordinates.
+  //
+  // Dividing by gdk_monitor_get_scale_factor would mismatch the coordinate
+  // system used by the cursor and window APIs, producing wrong results when
+  // the scale factor is > 1 (e.g. HiDPI or fractional-scaling setups).
+  //
+  // multi_window_manager uses the same approach: no division by scale.
+  const int scale = gdk_monitor_get_scale_factor(monitor);
+  const char* model = gdk_monitor_get_model(monitor);
 
   FlValue* map = fl_value_new_map();
   gchar* id = g_strdup_printf("%d", index);
   fl_value_set_string_take(map, "id", fl_value_new_string(id));
   g_free(id);
-  fl_value_set_string_take(map, "name", fl_value_new_string(""));
+  fl_value_set_string_take(map, "name",
+                           fl_value_new_string(model ? model : ""));
 
   FlValue* size = fl_value_new_map();
   fl_value_set_string_take(size, "width",
-                           fl_value_new_float(geo.width / scale));
+                           fl_value_new_float(static_cast<double>(geo.width)));
   fl_value_set_string_take(size, "height",
-                           fl_value_new_float(geo.height / scale));
+                           fl_value_new_float(static_cast<double>(geo.height)));
   fl_value_set_string_take(map, "size", size);
 
   FlValue* vis_pos = fl_value_new_map();
   fl_value_set_string_take(vis_pos, "dx",
-                           fl_value_new_float(work.x / scale));
+                           fl_value_new_float(static_cast<double>(work.x)));
   fl_value_set_string_take(vis_pos, "dy",
-                           fl_value_new_float(work.y / scale));
+                           fl_value_new_float(static_cast<double>(work.y)));
   fl_value_set_string_take(map, "visiblePosition", vis_pos);
 
   FlValue* vis_size = fl_value_new_map();
   fl_value_set_string_take(vis_size, "width",
-                           fl_value_new_float(work.width / scale));
+                           fl_value_new_float(static_cast<double>(work.width)));
   fl_value_set_string_take(vis_size, "height",
-                           fl_value_new_float(work.height / scale));
+                           fl_value_new_float(static_cast<double>(work.height)));
   fl_value_set_string_take(map, "visibleSize", vis_size);
 
-  fl_value_set_string_take(map, "scaleFactor", fl_value_new_float(scale));
+  fl_value_set_string_take(map, "scaleFactor",
+                           fl_value_new_float(static_cast<double>(scale)));
   return map;
 }
 
@@ -725,10 +738,8 @@ static void handle_view_method(FlMethodCall* method_call,
                 double_from_map(args, "height", 600));
     response = ok_null();
   } else if (g_strcmp0(method, "setPosition") == 0) {
-    FlValue* pos = fl_value_lookup_string(args, "position");
-    if (pos && fl_value_get_type(pos) == FL_VALUE_TYPE_MAP) {
-      wm->SetPosition(double_from_map(pos, "x", 0), double_from_map(pos, "y", 0));
-    }
+    // Dart sends x/y at the top level: _args(viewId, {'x': ..., 'y': ...})
+    wm->SetPosition(double_from_map(args, "x", 0), double_from_map(args, "y", 0));
     response = ok_null();
   } else if (g_strcmp0(method, "center") == 0) {
     wm->Center();

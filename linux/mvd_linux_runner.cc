@@ -101,6 +101,21 @@ static void first_frame_cb(gpointer user_data, FlView* view) {
   GtkWidget* top = gtk_widget_get_toplevel(GTK_WIDGET(view));
   MVD_LOG("first_frame_cb  toplevel=%p  view_id=%" G_GINT64_FORMAT,
           static_cast<void*>(top), view_id);
+
+  // Apply any position queued by setPosition() before the window was
+  // mapped. This must happen BEFORE gtk_widget_show() so that the X11
+  // MapRequest carries the correct PPosition hint instead of letting the
+  // WM apply GTK_WIN_POS_CENTER.
+  auto wm = MvdLinuxWindow::Find(view_id);
+  if (wm) {
+    MVD_LOG("first_frame_cb  has_pending_move=%d  view_id=%" G_GINT64_FORMAT,
+            static_cast<int>(wm->has_pending_move), view_id);
+    wm->ApplyPendingMove();
+  } else {
+    MVD_LOG("first_frame_cb  wm not found for view_id=%" G_GINT64_FORMAT
+            "  (no pending move to apply)", view_id);
+  }
+
   MVD_LOG("first_frame_cb  calling gtk_widget_show on toplevel=%p",
           static_cast<void*>(top));
   gtk_widget_show(top);

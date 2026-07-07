@@ -11,6 +11,9 @@ const int _macTopRectInset = 38;
 @internal
 Future<Offset> calcWindowPosition(Size windowSize, Alignment alignment) async {
   final currentDisplay = await _getCurrentDisplay();
+  debugPrint(
+    'currentDisplay: ${currentDisplay.id}, ${currentDisplay.name}, ${currentDisplay.visiblePosition}, ${currentDisplay.size}',
+  );
   final num visibleWidth = currentDisplay.visibleSize?.width ?? currentDisplay.size.width;
   final num visibleHeight = currentDisplay.visibleSize?.height ?? currentDisplay.size.height;
   final num visibleStartX = currentDisplay.visiblePosition?.dx ?? 0;
@@ -41,12 +44,27 @@ Future<Offset> calcWindowPositionByParent(
   required Size windowSize,
   required Rect parentBounds,
 }) async {
+  const defaultMaxSidebarLinuxSize = 150;
+  const defaultMaxTopbarLinuxSize = 100;
   final currentDisplay = await _getCurrentDisplay();
+  Offset currDisplayLinuxCorrectPos = Offset.zero;
+  if (Platform.isLinux) {
+    final dy = currentDisplay.visiblePosition?.dy ?? 0;
+    final dx = currentDisplay.visiblePosition?.dx ?? 0;
+    if (dy > 1 && dy < defaultMaxTopbarLinuxSize || dx > 1 && dx < defaultMaxSidebarLinuxSize) {
+      currDisplayLinuxCorrectPos = Offset(dx, dy);
+    }
+  }
 
   final num visibleWidth = parentBounds.size.width;
   final num visibleHeight = parentBounds.size.height;
-  final num visibleStartX = (currentDisplay.visiblePosition?.dx ?? 0) + parentBounds.left;
-  final num visibleStartY = (currentDisplay.visiblePosition?.dy ?? 0) + parentBounds.top - _platformTopRectAddSize;
+  final num visibleStartX =
+      (currentDisplay.visiblePosition?.dx ?? 0) + parentBounds.left - currDisplayLinuxCorrectPos.dx;
+  final num visibleStartY =
+      (currentDisplay.visiblePosition?.dy ?? 0) +
+      parentBounds.top -
+      _platformTopRectAddSize -
+      currDisplayLinuxCorrectPos.dy;
 
   final Offset position = calcPosition(
     alignment: alignment,

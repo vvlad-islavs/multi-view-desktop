@@ -519,6 +519,9 @@ void MvdLinuxWindow::Show() {
       ClampToParentBounds();
     }
   }
+  // Apply any position set before the window was mapped so the WM receives
+  // the coordinates in the X11 MapRequest (PPosition hint).
+  ApplyPendingMove();
   gtk_widget_show(GTK_WIDGET(window));
   gtk_window_present(window);
   MVD_LOG("Show  DONE  view_id=%" G_GINT64_FORMAT, view_id);
@@ -682,13 +685,42 @@ void MvdLinuxWindow::SetSize(double width, double height) {
   }
 }
 
+void MvdLinuxWindow::ApplyPendingMove() {
+  if (!window || !has_pending_move) return;
+  has_pending_move = false;
+  MVD_LOG("ApplyPendingMove  view_id=%" G_GINT64_FORMAT
+          "  x=%d  y=%d  visible=%d",
+          view_id, pending_move_x, pending_move_y,
+          static_cast<int>(gtk_widget_get_visible(GTK_WIDGET(window))));
+  // Clear any GTK position policy (e.g. GTK_WIN_POS_CENTER set by
+  // complete_secondary_window when no explicit initial position was given)
+  // before calling gtk_window_move. Without this the WM ignores our
+  // coordinates when the window is first mapped on X11 because the policy
+  // overrides the PPosition hint.
+  gtk_window_set_position(window, GTK_WIN_POS_NONE);
+  gtk_window_move(window, pending_move_x, pending_move_y);
+}
+
 void MvdLinuxWindow::SetPosition(double x, double y) {
-  if (window) {
-    gtk_window_move(window, static_cast<gint>(x), static_cast<gint>(y));
+  MVD_LOG("SetPosition  view_id=%" G_GINT64_FORMAT
+          "  x=%.0f  y=%.0f  window=%p  visible=%d",
+          view_id, x, y, static_cast<void*>(window),
+          window ? static_cast<int>(gtk_widget_get_visible(GTK_WIDGET(window)))
+                 : -1);
+  if (!window) return;
+  pending_move_x = static_cast<gint>(x);
+  pending_move_y = static_cast<gint>(y);
+  has_pending_move = true;
+  if (gtk_widget_get_visible(GTK_WIDGET(window))) {
+    // Window already visible: apply immediately.
+    ApplyPendingMove();
     if (is_modal) {
       ClampToParentBounds();
     }
   }
+  // Window not yet visible: has_pending_move stays true.
+  // ApplyPendingMove() will be called just before gtk_widget_show() in
+  // Show() and first_frame_cb so the WM receives the position at map time.
 }
 
 void MvdLinuxWindow::Center() {

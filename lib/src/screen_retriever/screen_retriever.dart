@@ -68,7 +68,10 @@ class ScreenRetriever {
   Future<Display> getPrimaryDisplay() async {
     final result = await _methodChannel.invokeMethod<Map>('getPrimaryDisplay', _defaultArguments);
     if (result == null) throw Exception('Unable to get primary display.');
-    return Display.fromJson(result.cast<String, dynamic>());
+    final res =  Display.fromJson(result.cast<String, dynamic>());
+    debugPrint('currentDisplay: ${res.id}, ${res.name}, ${res.visiblePosition}, ${res.size}');
+
+    return res;
   }
 
   /// Returns every connected display.

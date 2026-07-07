@@ -47,6 +47,14 @@ class MvdLinuxWindow {
   bool clamping_position = false;
   double opacity = 1.0;
 
+  // Pending move: position requested before the window is first mapped.
+  // Applied just before gtk_widget_show() so the WM receives the coordinates
+  // in the X11 MapRequest (PPosition hint), preventing GTK_WIN_POS_CENTER
+  // from overriding it.
+  bool has_pending_move = false;
+  gint pending_move_x = 0;
+  gint pending_move_y = 0;
+
   GdkGeometry geometry{};
   GdkWindowHints hints = static_cast<GdkWindowHints>(0);
   // Last shadow delta measured in a non-maximized/non-fullscreen state.
@@ -86,6 +94,7 @@ class MvdLinuxWindow {
   void SetBounds(FlValue* args);
   void SetSize(double width, double height);
   void SetPosition(double x, double y);
+  void ApplyPendingMove();
   void Center();
   void SetMinimumSize(float w, float h);
   void SetMaximumSize(float w, float h);
