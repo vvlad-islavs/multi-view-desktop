@@ -357,7 +357,7 @@ class _ViewsManagerImpl implements ViewsManager {
     if (Platform.isMacOS) {
       await _nativeChannel.setTerminateAfterLastWindowClosed(config.macosParams.closeAppAfterLastWindowClosed);
     } else if (Platform.isLinux) {
-      await _nativeChannel.setTerminateAfterLastWindowClosed(true);
+      await _nativeChannel.setTerminateAfterLastWindowClosed(false);
     }
   }
 

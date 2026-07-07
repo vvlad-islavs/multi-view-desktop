@@ -6,11 +6,16 @@
 #include <flutter_linux/flutter_linux.h>
 #include <gtk/gtk.h>
 
-#include <cstring>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+
+// logging
+#define MVD_LOG(fmt, ...)                                          \
+  g_print("[MVD %.6f] [plugin] " fmt "\n",                        \
+          static_cast<double>(g_get_monotonic_time()) / 1e6,      \
+          ##__VA_ARGS__)
 
 namespace {
 
@@ -120,7 +125,11 @@ static FlMethodResponse* err(const char* code, const char* message) {
 }
 
 static void emit_event(const char* event_name, int64_t view_id) {
+  MVD_LOG("emit_event  '%s'  viewId=%" G_GINT64_FORMAT
+          "  channel=%p",
+          event_name, view_id, static_cast<void*>(g_channel));
   if (!g_channel) {
+    MVD_LOG("emit_event  SKIP: g_channel is null");
     return;
   }
   g_autoptr(FlValue) map = fl_value_new_map();
@@ -128,10 +137,16 @@ static void emit_event(const char* event_name, int64_t view_id) {
   fl_value_set_string_take(map, "viewId", fl_value_new_int(view_id));
   fl_method_channel_invoke_method(g_channel, "onEvent", map, nullptr, nullptr,
                                   nullptr);
+  MVD_LOG("emit_event  dispatched  '%s'  viewId=%" G_GINT64_FORMAT,
+          event_name, view_id);
 }
 
 static void emit_view_created(int64_t view_id, int64_t token) {
+  MVD_LOG("emit_view_created  viewId=%" G_GINT64_FORMAT
+          "  token=%" G_GINT64_FORMAT "  channel=%p",
+          view_id, token, static_cast<void*>(g_channel));
   if (!g_channel) {
+    MVD_LOG("emit_view_created  SKIP: g_channel is null");
     return;
   }
   g_autoptr(FlValue) map = fl_value_new_map();
@@ -140,53 +155,171 @@ static void emit_view_created(int64_t view_id, int64_t token) {
   fl_value_set_string_take(map, "token", fl_value_new_int(token));
   fl_method_channel_invoke_method(g_channel, "onEvent", map, nullptr, nullptr,
                                   nullptr);
+  MVD_LOG("emit_view_created  dispatched  viewId=%" G_GINT64_FORMAT
+          "  token=%" G_GINT64_FORMAT, view_id, token);
 }
 
-static void maybe_quit_application_if_last_window() {
-  if (!g_terminate_after_last_window_closed) {
-    return;
-  }
-  std::lock_guard<std::mutex> lock(MvdLinuxWindow::registry_mtx);
-  if (!MvdLinuxWindow::windows.empty()) {
-    return;
-  }
-  GApplication* app = g_application_get_default();
-  if (app) {
-    g_application_quit(app);
-  }
-}
 
-static gboolean on_delete(GtkWidget*, GdkEvent*, gpointer data) {
+static gboolean on_delete(GtkWidget* widget, GdkEvent*, gpointer data) {
   const int64_t view_id = pointer_to_view_id(data);
+  MVD_LOG("on_delete  START  viewId=%" G_GINT64_FORMAT "  widget=%p",
+          view_id, static_cast<void*>(widget));
+
   auto wm = MvdLinuxWindow::Find(view_id);
   if (!wm) {
+    MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
+            "  wm NOT FOUND in registry, returning FALSE (allow GTK destroy)",
+            view_id);
     return FALSE;
   }
 
+  MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
+          "  wm=%p  window=%p  view=%p",
+          view_id, static_cast<void*>(wm.get()),
+          static_cast<void*>(wm->window),
+          static_cast<void*>(wm->view));
+  MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
+          "  is_pre_confirm=%d  is_prevent_close=%d  is_confirm_close=%d"
+          "  is_modal=%d  is_dialog=%d  modal_owner=%" G_GINT64_FORMAT,
+          view_id,
+          static_cast<int>(wm->is_pre_confirm),
+          static_cast<int>(wm->is_prevent_close),
+          static_cast<int>(wm->is_confirm_close),
+          static_cast<int>(wm->is_modal),
+          static_cast<int>(wm->is_dialog),
+          wm->modal_owner_view_id);
+
   if (!wm->is_pre_confirm) {
+    MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
+            "  is_pre_confirm=false -> emitting 'preconfirm-close'"
+            " (blocking GTK delete, returning TRUE)", view_id);
     emit_event("preconfirm-close", view_id);
     return TRUE;
   }
   if (wm->is_prevent_close) {
+    MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
+            "  is_prevent_close=true -> emitting 'close'"
+            " (blocking GTK delete, returning TRUE)", view_id);
     emit_event("close", view_id);
     return TRUE;
   }
   if (!wm->is_confirm_close) {
+    MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
+            "  is_confirm_close=false -> emitting 'confirm-close'"
+            " (blocking GTK delete, returning TRUE)", view_id);
     emit_event("confirm-close", view_id);
     return TRUE;
   }
 
-  emit_event("close", view_id);
+  // All checks passed - proceed with actual window destruction.
   const bool was_modal = wm->is_modal;
   const int64_t owner_id = wm->modal_owner_view_id;
+  MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
+          "  FINAL CLOSE: emitting 'close', was_modal=%d, owner_id=%"
+          G_GINT64_FORMAT,
+          view_id, static_cast<int>(was_modal), owner_id);
+  emit_event("close", view_id);
+
+  MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
+          "  calling Unregister (shared_ptr refcount before erase=%ld)",
+          view_id, wm.use_count());
   MvdLinuxWindow::Unregister(view_id);
+  MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
+          "  Unregister done (shared_ptr refcount after=%ld)",
+          view_id, wm.use_count());
+
   if (was_modal && owner_id >= 0) {
+    MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
+            "  was modal, updating modal state layer for owner=%"
+            G_GINT64_FORMAT, view_id, owner_id);
     MvdLinuxWindow::UpdateModalStateLayer(owner_id);
     MvdLinuxWindow::FocusModalTarget(
         MvdLinuxWindow::GetActiveModalFocusTarget(owner_id));
   }
-  maybe_quit_application_if_last_window();
-  return FALSE;
+
+  // Determine now (before the async delay) whether this was the last window.
+  const bool should_quit = [&]() -> bool {
+    if (!g_terminate_after_last_window_closed) { return false; }
+    std::lock_guard<std::mutex> lock(MvdLinuxWindow::registry_mtx);
+    return MvdLinuxWindow::windows.empty();
+  }();
+
+  // Deferred destroy - the root of the X11/GLX crash.
+  //
+  // Problem: returning FALSE from delete-event lets GTK destroy the GtkWindow
+  // immediately and synchronously.  The underlying X11 XID is freed on this
+  // thread, but Flutter's raster thread (running at 60 fps) still has frames
+  // queued for this view.  It calls glXMakeCurrent / glXSwapBuffers on the
+  // now-dead XID -> the GLX call returns False -> Flutter's FML_CHECK aborts.
+  // Suppressing the X11 error notification alone is not enough because the
+  // GLX API return value (False) still triggers Flutter's internal fatal check.
+  //
+  // Fix: return TRUE (block GTK's immediate destroy), hide the window for
+  // instant visual feedback, then schedule gtk_widget_destroy 100 ms later.
+  //
+  // During those 100 ms:
+  //   - Dart processes the 'close' event and removes the view from the widget
+  //     tree (~1-2 frames, <=32 ms).
+  //   - Flutter's framework marks nothing dirty for this now-empty view, so
+  //     the raster thread stops generating frames for it.
+  //   - By the time gtk_widget_destroy fires, the raster thread is idle for
+  //     this view -> fl_view_dispose -> FlutterEngineRemoveView runs cleanly
+  //     with no pending GL work -> GLX surface properly destroyed before the
+  //     X11 XID is freed -> no race, no crash.
+  //
+  // The X11 error handler installed in runner_install() remains as a safety
+  // net for any residual errors from frames that were already in flight.
+
+  MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
+          "  hiding window immediately (visual feedback)  widget=%p",
+          view_id, static_cast<void*>(widget));
+  gtk_widget_hide(widget);
+
+  // Hold an extra GObject ref so the window stays alive through the timer.
+  g_object_ref(widget);
+
+  struct DeferredCtx {
+    GtkWidget* widget;
+    bool       should_quit;
+    int64_t    view_id;   // for logging only
+  };
+  auto* ctx = new DeferredCtx{widget, should_quit, view_id};
+
+  MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
+          "  scheduling deferred gtk_widget_destroy in 100 ms  widget=%p"
+          "  should_quit=%d",
+          view_id, static_cast<void*>(widget),
+          static_cast<int>(should_quit));
+
+  g_timeout_add(
+      100,  // ms - 6+ Flutter frames; enough for Dart to clear the view tree
+      [](gpointer data) -> gboolean {
+        std::unique_ptr<DeferredCtx> c(static_cast<DeferredCtx*>(data));
+        MVD_LOG("on_delete  deferred_destroy_cb  viewId=%" G_GINT64_FORMAT
+                "  calling gtk_widget_destroy  widget=%p",
+                c->view_id, static_cast<void*>(c->widget));
+        gtk_widget_destroy(c->widget);
+        MVD_LOG("on_delete  deferred_destroy_cb  viewId=%" G_GINT64_FORMAT
+                "  gtk_widget_destroy returned  releasing extra GObject ref",
+                c->view_id);
+        g_object_unref(c->widget);  // release the ref we took before the timer
+        if (c->should_quit) {
+          GApplication* app = g_application_get_default();
+          MVD_LOG("on_delete  deferred_destroy_cb  viewId=%" G_GINT64_FORMAT
+                  "  last window closed, calling g_application_quit  app=%p",
+                  c->view_id, static_cast<void*>(app));
+          if (app) {
+            g_application_quit(app);
+          }
+        }
+        return G_SOURCE_REMOVE;
+      },
+      ctx);
+
+  MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
+          "  returning TRUE (deferred destroy scheduled, GTK immediate destroy blocked)",
+          view_id);
+  return TRUE;
 }
 
 static gboolean on_focus_in(GtkWidget*, GdkEvent*, gpointer data) {
@@ -253,6 +386,8 @@ static gboolean on_window_state(GtkWidget*, GdkEventWindowState* event,
 }
 
 static void connect_window_signals(GtkWindow* window, int64_t view_id) {
+  MVD_LOG("connect_window_signals  viewId=%" G_GINT64_FORMAT "  window=%p",
+          view_id, static_cast<void*>(window));
   gpointer id_data = view_id_to_pointer(view_id);
   g_signal_connect(window, "delete-event", G_CALLBACK(on_delete), id_data);
   g_signal_connect(window, "focus-in-event", G_CALLBACK(on_focus_in), id_data);
@@ -261,11 +396,20 @@ static void connect_window_signals(GtkWindow* window, int64_t view_id) {
   g_signal_connect(window, "map", G_CALLBACK(on_map), id_data);
   g_signal_connect(window, "window-state-event",
                    G_CALLBACK(on_window_state), id_data);
+  MVD_LOG("connect_window_signals  DONE  viewId=%" G_GINT64_FORMAT
+          "  connected: delete-event focus-in-event focus-out-event"
+          " configure-event map window-state-event", view_id);
 }
 
 static void register_window(GtkWindow* window, FlView* view, int64_t view_id,
                             bool is_dialog = false, bool is_modal = false,
                             int64_t dialog_parent_view_id = -1) {
+  MVD_LOG("register_window  START  viewId=%" G_GINT64_FORMAT
+          "  window=%p  view=%p  is_dialog=%d  is_modal=%d"
+          "  dialog_parent_id=%" G_GINT64_FORMAT,
+          view_id, static_cast<void*>(window), static_cast<void*>(view),
+          static_cast<int>(is_dialog), static_cast<int>(is_modal),
+          dialog_parent_view_id);
   auto wm = std::make_shared<MvdLinuxWindow>();
   wm->view_id = view_id;
   wm->window = window;
@@ -277,10 +421,15 @@ static void register_window(GtkWindow* window, FlView* view, int64_t view_id,
   {
     std::lock_guard<std::mutex> lock(MvdLinuxWindow::registry_mtx);
     MvdLinuxWindow::windows[view_id] = wm;
+    MVD_LOG("register_window  inserted into registry  total_windows=%zu",
+            MvdLinuxWindow::windows.size());
   }
   // FlView quits the app on delete-event; multiview_desktop handles close itself.
+  MVD_LOG("register_window  detaching Flutter quit-on-delete handler"
+          "  viewId=%" G_GINT64_FORMAT, view_id);
   mvd_linux_detach_flutter_quit_on_window_close(window, view);
   connect_window_signals(window, view_id);
+  MVD_LOG("register_window  DONE  viewId=%" G_GINT64_FORMAT, view_id);
 }
 
 struct DialogCreateParams {
@@ -477,11 +626,22 @@ static void handle_view_method(FlMethodCall* method_call,
   g_autoptr(FlMethodResponse) response = nullptr;
 
   if (g_strcmp0(method, "closeWindow") == 0) {
+    MVD_LOG("handle_view_method  closeWindow  viewId=%" G_GINT64_FORMAT
+            "  wm=%p  window=%p  view=%p",
+            wm->view_id, static_cast<void*>(wm.get()),
+            static_cast<void*>(wm->window), static_cast<void*>(wm->view));
     wm->Close();
+    MVD_LOG("handle_view_method  closeWindow  Close() returned"
+            "  viewId=%" G_GINT64_FORMAT, wm->view_id);
     response = ok_null();
   } else if (g_strcmp0(method, "destroyWindow") == 0) {
+    MVD_LOG("handle_view_method  destroyWindow  viewId=%" G_GINT64_FORMAT
+            "  wm=%p  window=%p  view=%p",
+            wm->view_id, static_cast<void*>(wm.get()),
+            static_cast<void*>(wm->window), static_cast<void*>(wm->view));
     wm->Destroy();
-    // maybe_quit_application_if_last_window();
+    MVD_LOG("handle_view_method  destroyWindow  Destroy() returned"
+            "  viewId=%" G_GINT64_FORMAT, wm->view_id);
     response = ok_null();
   } else if (g_strcmp0(method, "isPreventClose") == 0) {
     response = ok_bool(wm->is_prevent_close);
@@ -663,11 +823,23 @@ static void method_cb(FlMethodChannel*, FlMethodCall* method_call, gpointer) {
   FlValue* args = fl_method_call_get_args(method_call);
   g_autoptr(FlMethodResponse) response = nullptr;
 
+  // Log every incoming method call. High-frequency "resize" events are
+  // excluded to avoid flooding the console.
+  if (g_strcmp0(method, "getBounds") != 0 &&
+      g_strcmp0(method, "isFocused") != 0) {
+    MVD_LOG("method_cb  method='%s'  viewId=%" G_GINT64_FORMAT,
+            method, int64_from_map(args, "viewId"));
+  }
+
   if (g_strcmp0(method, "checkExistViewId") == 0) {
     const int64_t view_id = int64_from_map(args, "viewId");
-    response = ok_bool(MvdLinuxWindow::Find(view_id) != nullptr);
+    const bool exists = MvdLinuxWindow::Find(view_id) != nullptr;
+    MVD_LOG("method_cb  checkExistViewId  viewId=%" G_GINT64_FORMAT
+            "  exists=%d", view_id, static_cast<int>(exists));
+    response = ok_bool(exists);
   } else if (g_strcmp0(method, "createWindow") == 0) {
     if (!g_create_cb) {
+      MVD_LOG("method_cb  createWindow  ERROR: g_create_cb is null");
       response = err("createWindow", "WindowCreatedCallback not set in runner");
     } else {
       PendingCreate pending{};
@@ -684,6 +856,13 @@ static void method_cb(FlMethodChannel*, FlMethodCall* method_call, gpointer) {
         pending.pos_x = double_from_map(pos, "x", 0);
         pending.pos_y = double_from_map(pos, "y", 0);
       }
+      MVD_LOG("method_cb  createWindow  token=%" G_GINT64_FORMAT
+              "  size=%.0fx%.0f  title='%s'  title_bar_style='%s'"
+              "  has_pos=%d  pos=(%.0f,%.0f)",
+              pending.token, pending.width, pending.height,
+              pending.title.c_str(), pending.title_bar_style.c_str(),
+              static_cast<int>(pending.has_position),
+              pending.pos_x, pending.pos_y);
       MvdCreateWindowRequest req{};
       req.token = pending.token;
       req.width = pending.width;
@@ -695,10 +874,16 @@ static void method_cb(FlMethodChannel*, FlMethodCall* method_call, gpointer) {
       req.pos_x = pending.pos_x;
       req.pos_y = pending.pos_y;
       // Call g_create_cb before moving pending; the callback copies strings async.
+      MVD_LOG("method_cb  createWindow  calling g_create_cb  token=%"
+              G_GINT64_FORMAT, req.token);
       g_create_cb(&req);
+      MVD_LOG("method_cb  createWindow  g_create_cb returned  token=%"
+              G_GINT64_FORMAT, req.token);
       {
         std::lock_guard<std::mutex> lk(g_pending_mtx);
         g_pending_create[pending.token] = std::move(pending);
+        MVD_LOG("method_cb  createWindow  stored in pending_create  pending_count=%zu",
+                g_pending_create.size());
       }
       response = ok_null();
     }
@@ -706,6 +891,8 @@ static void method_cb(FlMethodChannel*, FlMethodCall* method_call, gpointer) {
     const int64_t parent_id = int64_from_map(args, "parentId");
     const bool is_modal = bool_from_map(args, "modal", false);
     if (MvdLinuxWindow::Find(parent_id) == nullptr) {
+      MVD_LOG("method_cb  createModalDialog  ERROR: parent viewId=%"
+              G_GINT64_FORMAT " not found", parent_id);
       response = err("NO_PARENT", "No parent window for viewId");
     } else {
       auto* params = new DialogCreateParams();
@@ -724,11 +911,21 @@ static void method_cb(FlMethodChannel*, FlMethodCall* method_call, gpointer) {
         params->pos_x = static_cast<int>(double_from_map(pos, "x", 0));
         params->pos_y = static_cast<int>(double_from_map(pos, "y", 0));
       }
+      MVD_LOG("method_cb  createModalDialog  token=%" G_GINT64_FORMAT
+              "  parent_id=%" G_GINT64_FORMAT "  is_modal=%d"
+              "  size=%dx%d  title='%s'",
+              params->token, params->parent_id, static_cast<int>(params->is_modal),
+              params->width, params->height, params->title.c_str());
+      MVD_LOG("method_cb  createModalDialog  dispatching to main thread"
+              " via g_main_context_invoke");
       g_main_context_invoke(
           nullptr,
           [](gpointer data) -> gboolean {
             std::unique_ptr<DialogCreateParams> params(
                 static_cast<DialogCreateParams*>(data));
+            MVD_LOG("method_cb  createModalDialog  main-thread callback"
+                    "  token=%" G_GINT64_FORMAT "  parent_id=%" G_GINT64_FORMAT,
+                    params->token, params->parent_id);
             create_modal_dialog_impl(*params);
             return G_SOURCE_REMOVE;
           },
@@ -807,10 +1004,19 @@ void mvd_linux_register_primary(GtkWindow* window, FlView* view) {
   g_return_if_fail(GTK_IS_WINDOW(window));
   g_return_if_fail(FL_IS_VIEW(view));
   const int64_t view_id = fl_view_get_id(view);
+  MVD_LOG("register_primary  window=%p  view=%p  view_id=%" G_GINT64_FORMAT,
+          static_cast<void*>(window), static_cast<void*>(view), view_id);
   register_window(window, view, view_id);
   if (g_anchor_view_id < 0) {
     g_anchor_view_id = view_id;
+    MVD_LOG("register_primary  anchor_view_id set to %" G_GINT64_FORMAT,
+            g_anchor_view_id);
+  } else {
+    MVD_LOG("register_primary  anchor_view_id already set to %"
+            G_GINT64_FORMAT " (not overriding)", g_anchor_view_id);
   }
+  MVD_LOG("register_primary  DONE  primary view_id=%" G_GINT64_FORMAT,
+          view_id);
 }
 
 void mvd_linux_complete_secondary_window(GtkWindow* window,
@@ -819,32 +1025,68 @@ void mvd_linux_complete_secondary_window(GtkWindow* window,
   g_return_if_fail(GTK_IS_WINDOW(window));
   g_return_if_fail(FL_IS_VIEW(view));
 
+  MVD_LOG("complete_secondary_window  START  token=%" G_GINT64_FORMAT
+          "  window=%p  view=%p", token,
+          static_cast<void*>(window), static_cast<void*>(view));
+
   PendingCreate pending{};
+  bool found_pending = false;
   {
     std::lock_guard<std::mutex> lk(g_pending_mtx);
     auto it = g_pending_create.find(token);
     if (it != g_pending_create.end()) {
       pending = std::move(it->second);
       g_pending_create.erase(it);
+      found_pending = true;
     }
   }
 
-  const int64_t view_id = fl_view_get_id(view);
+  MVD_LOG("complete_secondary_window  token=%" G_GINT64_FORMAT
+          "  pending_found=%d  pending_title='%s'"
+          "  pending_title_bar_style='%s'  has_position=%d"
+          "  size=%.0fx%.0f",
+          token, static_cast<int>(found_pending),
+          pending.title.c_str(), pending.title_bar_style.c_str(),
+          static_cast<int>(pending.has_position),
+          pending.width, pending.height);
 
-  // Center the window when the runner did not receive an explicit position.
+  const int64_t view_id = fl_view_get_id(view);
+  MVD_LOG("complete_secondary_window  token=%" G_GINT64_FORMAT
+          "  view_id=%" G_GINT64_FORMAT, token, view_id);
+
   if (!pending.has_position) {
+    MVD_LOG("complete_secondary_window  no explicit position -> GTK_WIN_POS_CENTER"
+            "  viewId=%" G_GINT64_FORMAT, view_id);
     gtk_window_set_position(window, GTK_WIN_POS_CENTER);
+  } else {
+    MVD_LOG("complete_secondary_window  explicit position=(%.0f,%.0f)"
+            "  viewId=%" G_GINT64_FORMAT,
+            pending.pos_x, pending.pos_y, view_id);
   }
 
+  MVD_LOG("complete_secondary_window  calling register_window"
+          "  viewId=%" G_GINT64_FORMAT, view_id);
   register_window(window, view, view_id);
 
   auto wm = MvdLinuxWindow::Find(view_id);
   if (wm && !pending.title_bar_style.empty()) {
+    MVD_LOG("complete_secondary_window  applying title_bar_style='%s'"
+            "  wbv=%d  viewId=%" G_GINT64_FORMAT,
+            pending.title_bar_style.c_str(),
+            static_cast<int>(pending.window_button_visibility), view_id);
     wm->SetTitleBarStyle(pending.title_bar_style.c_str(),
                          pending.window_button_visibility);
+  } else {
+    MVD_LOG("complete_secondary_window  no title_bar_style to apply"
+            "  viewId=%" G_GINT64_FORMAT, view_id);
   }
 
+  MVD_LOG("complete_secondary_window  emitting viewCreated"
+          "  viewId=%" G_GINT64_FORMAT "  token=%" G_GINT64_FORMAT,
+          view_id, token);
   emit_view_created(view_id, token);
+  MVD_LOG("complete_secondary_window  DONE  viewId=%" G_GINT64_FORMAT
+          "  token=%" G_GINT64_FORMAT, view_id, token);
 }
 
 void mvd_linux_detach_flutter_quit_on_window_close(
@@ -853,26 +1095,41 @@ void mvd_linux_detach_flutter_quit_on_window_close(
   g_return_if_fail(GTK_IS_WINDOW(window));
   g_return_if_fail(FL_IS_VIEW(view));
   const guint signal_id = g_signal_lookup("delete-event", GTK_TYPE_WIDGET);
+  MVD_LOG("detach_flutter_quit  window=%p  view=%p  signal_id=%u",
+          static_cast<void*>(window), static_cast<void*>(view), signal_id);
   if (signal_id == 0) {
+    MVD_LOG("detach_flutter_quit  SKIP: delete-event signal_id not found");
     return;
   }
   g_signal_handlers_disconnect_matched(
       G_OBJECT(window),
       static_cast<GSignalMatchType>(G_SIGNAL_MATCH_ID | G_SIGNAL_MATCH_DATA),
       signal_id, static_cast<GQuark>(0), nullptr, nullptr, view);
+  MVD_LOG("detach_flutter_quit  disconnected Flutter's quit handler"
+          "  window=%p  view=%p", static_cast<void*>(window),
+          static_cast<void*>(view));
 }
 
 void multiview_desktop_plugin_register_with_registrar(
     FlPluginRegistrar* registrar) {
+  MVD_LOG("register_with_registrar  START  registrar=%p",
+          static_cast<void*>(registrar));
   FlBinaryMessenger* messenger = fl_plugin_registrar_get_messenger(registrar);
+  MVD_LOG("register_with_registrar  messenger=%p",
+          static_cast<void*>(messenger));
 
   g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
   FlMethodChannel* ch = fl_method_channel_new(
       messenger, "multiview_desktop", FL_METHOD_CODEC(codec));
   if (g_channel) {
+    MVD_LOG("register_with_registrar  replacing existing g_channel=%p"
+            " with new ch=%p",
+            static_cast<void*>(g_channel), static_cast<void*>(ch));
     g_object_unref(g_channel);
   }
   g_channel = ch;
+  MVD_LOG("register_with_registrar  MethodChannel 'multiview_desktop'"
+          "  ch=%p", static_cast<void*>(ch));
   fl_method_channel_set_method_call_handler(g_channel, method_cb, nullptr,
                                             nullptr);
 
@@ -896,6 +1153,11 @@ void multiview_desktop_plugin_register_with_registrar(
   fl_event_channel_set_stream_handlers(
       g_screen_event_channel, screen_stream_listen_cb, screen_stream_cancel_cb,
       nullptr, nullptr);
+  MVD_LOG("register_with_registrar  DONE"
+          "  channels: main=%p screen=%p screen_event=%p",
+          static_cast<void*>(g_channel),
+          static_cast<void*>(g_screen_channel),
+          static_cast<void*>(g_screen_event_channel));
 }
 
 }  // extern "C"

@@ -8,6 +8,35 @@
 #include <cstring>
 #include <vector>
 
+// logging
+// All MVD log lines start with "[MVD <seconds.ms>]" so they can be easily
+// grep-filtered from Flutter's own output.
+// Usage:  GDK_BACKEND=x11 flutter run -d linux 2>&1 | grep '\[MVD'
+#define MVD_LOG(fmt, ...)                                          \
+  g_print("[MVD %.6f] [window] " fmt "\n",                        \
+          static_cast<double>(g_get_monotonic_time()) / 1e6,      \
+          ##__VA_ARGS__)
+
+// Helper: return X11 XID as a string (only meaningful on X11 sessions).
+// Returns "(no-gdk-win)" when the GdkWindow isn't realized yet, or the
+// decimal XID when running under X11.
+static std::string mvd_xid_str(GtkWindow* w) {
+#ifdef GDK_WINDOWING_X11
+  if (!w) return "(null-gtk-window)";
+  GdkWindow* gdk = gtk_widget_get_window(GTK_WIDGET(w));
+  if (!gdk) return "(not-realized)";
+  if (GDK_IS_X11_WINDOW(gdk)) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "XID=0x%lx", GDK_WINDOW_XID(gdk));
+    return buf;
+  }
+  return "(wayland-surface)";
+#else
+  (void)w;
+  return "(no-x11-support)";
+#endif
+}
+
 std::mutex MvdLinuxWindow::registry_mtx;
 std::map<int64_t, std::shared_ptr<MvdLinuxWindow>> MvdLinuxWindow::windows;
 
@@ -16,18 +45,36 @@ MvdLinuxWindow::MvdLinuxWindow() {
   geometry.min_height = -1;
   geometry.max_width = G_MAXINT;
   geometry.max_height = G_MAXINT;
+  MVD_LOG("MvdLinuxWindow::ctor  this=%p", static_cast<void*>(this));
 }
 
 MvdLinuxWindow::~MvdLinuxWindow() {
+  MVD_LOG("MvdLinuxWindow::dtor  this=%p  view_id=%" G_GINT64_FORMAT
+          "  window=%p  view=%p  is_dialog=%d  is_modal=%d",
+          static_cast<void*>(this), view_id,
+          static_cast<void*>(window), static_cast<void*>(view),
+          static_cast<int>(is_dialog), static_cast<int>(is_modal));
+  MVD_LOG("MvdLinuxWindow::dtor  css_provider=%p  csd_radius_provider=%p"
+          "  title_bar_style='%s'",
+          static_cast<void*>(css_provider),
+          static_cast<void*>(csd_radius_provider),
+          title_bar_style ? title_bar_style : "(null)");
   if (css_provider) {
+    MVD_LOG("MvdLinuxWindow::dtor  unref css_provider=%p",
+            static_cast<void*>(css_provider));
     g_object_unref(css_provider);
   }
   if (csd_radius_provider) {
+    MVD_LOG("MvdLinuxWindow::dtor  unref csd_radius_provider=%p",
+            static_cast<void*>(csd_radius_provider));
     g_object_unref(csd_radius_provider);
   }
   if (title_bar_style) {
+    MVD_LOG("MvdLinuxWindow::dtor  g_free title_bar_style='%s'",
+            title_bar_style);
     g_free(title_bar_style);
   }
+  MVD_LOG("MvdLinuxWindow::dtor  DONE  this=%p", static_cast<void*>(this));
 }
 
 GdkWindow* MvdLinuxWindow::GetGdkWindow(GtkWindow* w) {
@@ -70,7 +117,12 @@ std::shared_ptr<MvdLinuxWindow> MvdLinuxWindow::Find(int64_t view_id) {
 
 void MvdLinuxWindow::Unregister(int64_t view_id) {
   std::lock_guard<std::mutex> lock(registry_mtx);
+  const size_t before = windows.size();
   windows.erase(view_id);
+  const size_t after = windows.size();
+  MVD_LOG("Unregister  view_id=%" G_GINT64_FORMAT
+          "  windows: %zu -> %zu",
+          view_id, before, after);
 }
 
 void MvdLinuxWindow::SetAsFrameless() {
@@ -87,37 +139,79 @@ void MvdLinuxWindow::SetAsFrameless() {
 }
 
 void MvdLinuxWindow::Close() {
+  MVD_LOG("Close  view_id=%" G_GINT64_FORMAT "  window=%p  %s",
+          view_id, static_cast<void*>(window), mvd_xid_str(window).c_str());
   if (!window) {
+    MVD_LOG("Close  view_id=%" G_GINT64_FORMAT "  SKIP: window is null",
+            view_id);
     return;
   }
+  MVD_LOG("Close  view_id=%" G_GINT64_FORMAT
+          "  scheduling gtk_window_close via g_idle_add", view_id);
   auto* vid = new int64_t(view_id);
   g_idle_add(
       [](gpointer data) -> gboolean {
         std::unique_ptr<int64_t> p(static_cast<int64_t*>(data));
-        auto wm = MvdLinuxWindow::Find(*p);
+        const int64_t vid = *p;
+        MVD_LOG("Close  idle_cb  view_id=%" G_GINT64_FORMAT
+                "  looking up window in registry", vid);
+        auto wm = MvdLinuxWindow::Find(vid);
         if (wm && wm->window) {
+          MVD_LOG("Close  idle_cb  view_id=%" G_GINT64_FORMAT
+                  "  calling gtk_window_close on window=%p  %s",
+                  vid, static_cast<void*>(wm->window),
+                  mvd_xid_str(wm->window).c_str());
           gtk_window_close(wm->window);
+          MVD_LOG("Close  idle_cb  view_id=%" G_GINT64_FORMAT
+                  "  gtk_window_close returned", vid);
+        } else {
+          MVD_LOG("Close  idle_cb  view_id=%" G_GINT64_FORMAT
+                  "  SKIP: wm=%p or window already null",
+                  vid, static_cast<void*>(wm.get()));
         }
         return G_SOURCE_REMOVE;
       },
       vid);
+  MVD_LOG("Close  view_id=%" G_GINT64_FORMAT "  g_idle_add done", view_id);
 }
 
 void MvdLinuxWindow::Destroy() {
+  MVD_LOG("Destroy  START  view_id=%" G_GINT64_FORMAT
+          "  window=%p  view=%p  is_modal=%d  modal_owner=%" G_GINT64_FORMAT
+          "  is_dialog=%d  %s",
+          view_id, static_cast<void*>(window), static_cast<void*>(view),
+          static_cast<int>(is_modal), modal_owner_view_id,
+          static_cast<int>(is_dialog), mvd_xid_str(window).c_str());
   if (!window) {
+    MVD_LOG("Destroy  SKIP: window already null  view_id=%" G_GINT64_FORMAT,
+            view_id);
     return;
   }
   const bool was_modal = is_modal;
   const int64_t owner_id = modal_owner_view_id;
   GtkWindow* w = window;
+  MVD_LOG("Destroy  nulling this->window and this->view  view_id=%"
+          G_GINT64_FORMAT "  w=%p  view=%p",
+          view_id, static_cast<void*>(w), static_cast<void*>(view));
   window = nullptr;
   view = nullptr;
+  MVD_LOG("Destroy  calling Unregister(%" G_GINT64_FORMAT ")  w=%p",
+          view_id, static_cast<void*>(w));
   Unregister(view_id);
+  MVD_LOG("Destroy  calling gtk_widget_destroy  w=%p  %s",
+          static_cast<void*>(w), mvd_xid_str(w).c_str());
   gtk_widget_destroy(GTK_WIDGET(w));
+  MVD_LOG("Destroy  gtk_widget_destroy returned  w=%p", static_cast<void*>(w));
   if (was_modal && owner_id >= 0) {
+    MVD_LOG("Destroy  was_modal=true, updating modal layer for owner=%"
+            G_GINT64_FORMAT, owner_id);
     UpdateModalStateLayer(owner_id);
+    MVD_LOG("Destroy  focusing modal target for owner=%" G_GINT64_FORMAT,
+            owner_id);
     FocusModalTarget(GetActiveModalFocusTarget(owner_id));
   }
+  MVD_LOG("Destroy  END  (original view_id=%" G_GINT64_FORMAT ")",
+          view_id);
 }
 
 namespace {
@@ -339,6 +433,8 @@ void MvdLinuxWindow::ClampToParentBounds() {
 }
 
 void MvdLinuxWindow::Focus() {
+  MVD_LOG("Focus  view_id=%" G_GINT64_FORMAT "  window=%p",
+          view_id, static_cast<void*>(window));
   if (window) {
     gtk_window_present(window);
   }
@@ -349,10 +445,18 @@ bool MvdLinuxWindow::IsFocused() {
 }
 
 void MvdLinuxWindow::Show() {
+  MVD_LOG("Show  view_id=%" G_GINT64_FORMAT
+          "  window=%p  is_dialog=%d  is_modal=%d  parent_id=%" G_GINT64_FORMAT,
+          view_id, static_cast<void*>(window),
+          static_cast<int>(is_dialog), static_cast<int>(is_modal),
+          dialog_parent_view_id);
   if (!window) {
+    MVD_LOG("Show  SKIP: window is null  view_id=%" G_GINT64_FORMAT, view_id);
     return;
   }
   if (is_dialog && dialog_parent_view_id >= 0) {
+    MVD_LOG("Show  centering dialog on parent_id=%" G_GINT64_FORMAT,
+            dialog_parent_view_id);
     CenterOnDialogParent();
     if (is_modal) {
       ClampToParentBounds();
@@ -360,10 +464,14 @@ void MvdLinuxWindow::Show() {
   }
   gtk_widget_show(GTK_WIDGET(window));
   gtk_window_present(window);
+  MVD_LOG("Show  DONE  view_id=%" G_GINT64_FORMAT, view_id);
 }
 
 void MvdLinuxWindow::Hide() {
+  MVD_LOG("Hide  view_id=%" G_GINT64_FORMAT "  window=%p",
+          view_id, static_cast<void*>(window));
   if (!window) {
+    MVD_LOG("Hide  SKIP: window is null  view_id=%" G_GINT64_FORMAT, view_id);
     return;
   }
   gint x = 0;
@@ -372,9 +480,12 @@ void MvdLinuxWindow::Hide() {
   gint h = 0;
   gtk_window_get_position(window, &x, &y);
   gtk_window_get_size(window, &w, &h);
+  MVD_LOG("Hide  current bounds: pos=(%d,%d) size=%dx%d  view_id=%"
+          G_GINT64_FORMAT, x, y, w, h, view_id);
   gtk_widget_hide(GTK_WIDGET(window));
   gtk_window_move(window, x, y);
   gtk_window_resize(window, w, h);
+  MVD_LOG("Hide  DONE  view_id=%" G_GINT64_FORMAT, view_id);
 }
 
 bool MvdLinuxWindow::IsVisible() {
