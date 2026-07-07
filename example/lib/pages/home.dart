@@ -337,7 +337,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     );
                   },
                 ),
-                // if (!Platform.isLinux)
+                if (!Platform.isLinux)
                   ListenableBuilder(
                     listenable: sharedConfig,
                     builder: (context, _) {
