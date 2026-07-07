@@ -177,13 +177,9 @@ class NativeChannel {
 
   Future<Offset?> _calculateOffFromAlign(int viewId, {required Alignment alignment}) async {
     final sizeResult = await _staticChannel.invokeMethod<Map>(kMethodGetBounds, _args(viewId));
-    debugPrint('sizeRes: $sizeResult');
     if (sizeResult != null) {
       final windowSize = Size((sizeResult['width'] as num).toDouble(), (sizeResult['height'] as num).toDouble());
-      final res = await calcWindowPosition(windowSize, alignment);
-      debugPrint('windowSize: $windowSize, respos: $res');
-
-      return res;
+      return calcWindowPosition(windowSize, alignment);
     }
     return null;
   }

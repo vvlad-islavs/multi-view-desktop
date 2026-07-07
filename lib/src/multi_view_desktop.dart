@@ -144,6 +144,9 @@ class MultiViewDesktop {
     return completer.future;
   }
 
+  /// Return `enableDynamicAnchor` from runMultiApp->config->generalParams->enableDynamicAnchor
+  static bool get isEnabledDynamicAnchor => _manager.isEnabledDynamicAnchor;
+
   /// Closes all windows using [closeMode] or the mode set in [MultiAppConfig].
   static Future<void> closeApp({CloseMode? closeMode}) async {
     await _manager.closeApp(closeMode: closeMode);

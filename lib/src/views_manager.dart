@@ -37,6 +37,8 @@ abstract class ViewsManager {
 
   CloseMode getAppCloseMode();
 
+  bool get isEnabledDynamicAnchor;
+
   Future<String> getTitle(int viewId);
 
   Future<void> setTitle(int viewId, String title);

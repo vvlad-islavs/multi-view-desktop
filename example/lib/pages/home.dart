@@ -25,6 +25,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with WindowListener {
   final GlobalKey _dialogKey = GlobalKey();
+
   // final GlobalKey _modelessDialogKey = GlobalKey();
 
   // Window state mirrors
@@ -56,7 +57,9 @@ class _HomePageState extends State<HomePage> with WindowListener {
 
   // Event log
   final List<String> _eventLog = [];
+
   bool get _isLinux => Platform.isLinux;
+
   @override
   void initState() {
     super.initState();
@@ -363,7 +366,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     );
                   },
                 ),
-                if (ParentWindowScope.of(context).parentContext == null)
+                if (ParentWindowScope.of(context).parentContext == null && !MultiViewDesktop.isEnabledDynamicAnchor)
                   ListenableBuilder(
                     listenable: sharedConfig,
                     builder: (context, _) => _tile(
@@ -529,7 +532,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     maximizeVisibility: _titleBarButtonVisibility && !windowInfo.isDialog,
                   );
                 }),
-                if (windowInfo.isModal)
+                if (windowInfo.isModal || Platform.isMacOS)
                   _switchTile('titleBarButtonVisibility', _titleBarButtonVisibility, (v) async {
                     await MultiViewDesktop.of(context).setTitleBarStyle(
                       _titleBarHidden ? TitleBarStyle.hidden : TitleBarStyle.normal,

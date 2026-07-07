@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:ui' show FlutterView, PlatformDispatcher;
+import 'package:collection/collection.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -20,6 +22,24 @@ import 'app_shell/app_shell_registry.dart';
 import 'view_shell_brightness_sync.dart';
 import 'utils/calc_window_position.dart';
 import 'utils/mapped_value_notifier.dart';
+
+enum _CreateViewError {
+  timeout(code: -1),
+  forceClose(code: -2),
+  unhandled(code: null);
+
+  final int? code;
+
+  String message(int token) => switch (this) {
+    _CreateViewError.timeout => 'Failed to create dialog window, tokenId: $token. Error: timeout',
+    // TODO: Handle this case.
+    _CreateViewError.forceClose => 'Failed to create dialog window, tokenId: $token. Error: force close',
+    // TODO: Handle this case.
+    _CreateViewError.unhandled => 'Failed to create dialog window, tokenId: $token. Unhandled error',
+  };
+
+  const _CreateViewError({required this.code});
+}
 
 // ---------------------------------------------------------------------------
 // Per-window registration (widget tree + optional parent link).
@@ -352,6 +372,34 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
 // ViewsManager impl
 // ---------------------------------------------------------------------------
 
+class _CreateCompleter<T> {
+  final Completer<T?> completer;
+  final int token;
+  final bool isDialog;
+  final int? parentId;
+
+  const _CreateCompleter({
+    required this.completer,
+    required this.token,
+    required this.isDialog,
+    required this.parentId,
+  });
+
+  factory _CreateCompleter.window(int token, {int? parentId}) {
+    return _CreateCompleter(completer: Completer<T?>(), token: token, isDialog: false, parentId: parentId);
+  }
+
+  factory _CreateCompleter.dialog(int token, {required int parentId}) {
+    return _CreateCompleter(completer: Completer<T?>(), token: token, isDialog: true, parentId: parentId);
+  }
+
+  void complete([T? resId]) => completer.complete(resId);
+
+  bool get isCompleted => completer.isCompleted;
+
+  Future<T?> get future => completer.future;
+}
+
 /// Default [ViewsManager]: native channel, window registry, listeners, and close modes.
 class _ViewsManagerImpl implements ViewsManager {
   final CascadeCloseService cascadeCloseService;
@@ -404,7 +452,7 @@ class _ViewsManagerImpl implements ViewsManager {
   final Map<int, dynamic> _dialogsResults = {};
 
   // token -> Completer<int?> for pending views.
-  final Map<int, Completer<int?>> _createCompleters = {};
+  final Map<int, _CreateCompleter<int?>> _createCompleters = {};
 
   final Map<int, int> _childCreatePending = {};
 
@@ -469,7 +517,7 @@ class _ViewsManagerImpl implements ViewsManager {
   Future<int> _createNextMainWindowAfterRestart(Widget Function(BuildContext) homeBuilder) async {
     final opts = config.globalOptions;
     final int token = _nextToken++;
-    _createCompleters[token] = Completer();
+    _createCompleters[token] = _CreateCompleter.window(token);
 
     Offset? pos;
     final windowSize = Size(opts.size?.width ?? 800.0, opts.size?.height ?? 600.0);
@@ -490,14 +538,23 @@ class _ViewsManagerImpl implements ViewsManager {
       throw Exception('Failed to create new window, tokenId: $token. Error: $e, stack: $st');
     }
 
-    final newRealId = await _createCompleters[token]!.future.timeout(Duration(seconds: 1), onTimeout: () => null);
+    final newViewId = await _waitCompleter(token);
     _createCompleters.remove(token);
 
-    if (newRealId == null) {
-      throw Exception('Failed to create new window, tokenId: $token. Error: timeout');
+    if (_CreateViewError.values.map((e) => e.code).contains(newViewId)) {
+      final error = _CreateViewError.values.firstWhere(
+        (e) => e.code == newViewId,
+        orElse: () => _CreateViewError.unhandled,
+      );
+      if (error == _CreateViewError.forceClose) {
+        // if (newRealIdAndErrorCode.viewId != null) {
+        //   _nativeChannel.forceCloseView(newViewId);
+        // }
+      }
+      throw Exception(error.message(token));
     }
 
-    return newRealId;
+    return newViewId!;
   }
 
   Future<void> _applyOptionsToInitialAnchor() async {
@@ -671,8 +728,8 @@ class _ViewsManagerImpl implements ViewsManager {
     if (eventName == 'viewCreated') {
       final int viewId = call.arguments['viewId'] as int;
       final int token = call.arguments['token'] as int;
-      _createComplete(token, viewId);
       final maybeParentId = _childCreatePending[token];
+      _createComplete(token, viewId);
       if (maybeParentId == null) return;
       _childCreatePending.remove(token);
       await _nativeChannel.setPreConfirmClose(maybeParentId, false);
@@ -736,6 +793,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   Future<void> _closeSubtreeByMode(int rootId, CloseMode mode) async {
+    await _waitAllCreatingViews();
     switch (mode) {
       case CloseMode.none:
         await _removeViewsNone(rootId);
@@ -902,7 +960,6 @@ class _ViewsManagerImpl implements ViewsManager {
       if (!closed) return;
     }
 
-    // debugPrint('close root: $rootId');
     if (reverse) await _preConfirmCloseCallable(rootId);
   }
 
@@ -1100,9 +1157,6 @@ class _ViewsManagerImpl implements ViewsManager {
     if (parent != null && !_windows.containsKey(parent)) {
       throw ArgumentError.value(parent, 'Parent error', 'Parent window is not registered');
     }
-    if (_createCompleters.values.any((e) => !e.isCompleted) || _createCompleters.isNotEmpty) {
-      throw ArgumentError('Create error', '"Create" was called while another window is creating');
-    }
 
     final comparedOpts = _compareGlobalAndNewOpts(preferred: newOpts, global: config.globalOptions);
 
@@ -1118,15 +1172,19 @@ class _ViewsManagerImpl implements ViewsManager {
     if (!_windows.containsKey(parentRealId)) {
       throw ArgumentError.value(parentRealId, 'Parent error', 'Parent window is not registered');
     }
-    if (_createCompleters.values.any((e) => !e.isCompleted) || _createCompleters.isNotEmpty) {
-      throw ArgumentError('Create error', '"Create" was called while another window is creating');
+
+    if (_createCompleters.values.any((e) => !e.completer.isCompleted && e.isDialog && e.parentId == parentRealId)) {
+      throw Exception('Create error: "Create dialog" was called while another dialog is creating in the same window');
     }
 
     final comparedOpts = _compareDialogGlobalAndNewOpts(preferred: newOpts, global: config.globalDialogOptions);
-
+    if (comparedOpts.modal == true) {
+      final hasModal = _modalStateService.getNotifier(parentRealId).value.firstWhereOrNull((e) => e.isModal) != null;
+      if (hasModal) {
+        throw Exception('Create error: One window can has only one modal dialog');
+      }
+    }
     final dialogId = await _createDialog(opts: comparedOpts, parentId: parentRealId, onCreated: onCreated);
-
-    _modalStateService.registerDialog(parentRealId, dialogId: dialogId, isModal: comparedOpts.modal ?? false);
 
     return dialogId;
   }
@@ -1136,13 +1194,47 @@ class _ViewsManagerImpl implements ViewsManager {
     await _nativeChannel.setPreConfirmClose(newViewId, false);
   }
 
+  /// [excludeTokens] - current view tokens, so don't wait yourself
+  Future<void> _waitAllCreatingViews({List<int> excludeTokens = const []}) async {
+    if (_createCompleters.entries.any((e) => !e.value.isCompleted)) {
+      try {
+        for (final key in _createCompleters.keys.toList()..sort()) {
+          if (excludeTokens.contains(key)) continue;
+
+          final completer = _createCompleters[key];
+          if (!(completer?.isCompleted ?? true)) {
+            await completer?.future;
+          }
+        }
+      } catch (_) {
+        // error in _createCompleters map is non-critical, do nothing
+      }
+    }
+  }
+
+  Future<int?> _waitCompleter(int token, {int timeoutMs = 10000}) async {
+    return await _createCompleters[token]?.future.timeout(
+      Duration(milliseconds: timeoutMs),
+      onTimeout: () {
+        _createCompleters[token]?.complete(_CreateViewError.timeout.code);
+        return _CreateViewError.timeout.code;
+      },
+    );
+  }
+
   Future<int> _createWindow({
     required WindowOptions opts,
     int? parentId,
     required Future<void> Function(int) onCreated,
   }) async {
     final int token = _nextToken++;
-    _createCompleters[token] = Completer();
+    _createCompleters[token] = _CreateCompleter.window(token, parentId: parentId);
+    final int windowFinishedToken = _nextToken++;
+    _createCompleters[windowFinishedToken] = _CreateCompleter.window(token, parentId: parentId);
+
+    // wait all other creating views
+    await _waitAllCreatingViews(excludeTokens: [token, windowFinishedToken]);
+
     if (parentId != null) {
       _childCreatePending.putIfAbsent(token, () => parentId);
     }
@@ -1164,18 +1256,34 @@ class _ViewsManagerImpl implements ViewsManager {
         parentId: parentId,
       );
     } catch (e, st) {
+      _createCompleters[windowFinishedToken]?.complete(_CreateViewError.unhandled.code);
+      _createCompleters.remove(windowFinishedToken);
+
+      _createCompleters[token]?.complete(_CreateViewError.unhandled.code);
+      _createCompleters.remove(token);
       throw Exception('Failed to create new window, tokenId: $token. Error: $e, stack: $st');
     }
 
-    final newViewId = await _createCompleters[token]!.future.timeout(Duration(seconds: 10), onTimeout: () => null);
+    final newViewId = await _waitCompleter(token);
     _createCompleters.remove(token);
-
-    if (newViewId == null) {
-      throw Exception('Failed to create new window, tokenId: $token. Error: timeout');
+    if (parentId != null) {
+      _childCreatePending.remove(token);
     }
-    await _applyOptions(newViewId, opts);
+
+    if (_CreateViewError.values.map((e) => e.code).contains(newViewId)) {
+      final error = _CreateViewError.values.firstWhere(
+        (e) => e.code == newViewId,
+        orElse: () => _CreateViewError.unhandled,
+      );
+      throw Exception(error.message(token));
+    }
+
+    await _applyOptions(newViewId!, opts);
 
     await onCreated(newViewId);
+
+    _createCompleters[windowFinishedToken]?.complete();
+    _createCompleters.remove(windowFinishedToken);
 
     return newViewId;
   }
@@ -1225,7 +1333,13 @@ class _ViewsManagerImpl implements ViewsManager {
     required Future<void> Function(int) onCreated,
   }) async {
     final int token = _nextToken++;
-    _createCompleters[token] = Completer();
+    _createCompleters[token] = _CreateCompleter.dialog(token, parentId: parentId);
+    final int modalFinishedToken = _nextToken++;
+    _createCompleters[modalFinishedToken] = _CreateCompleter.dialog(token, parentId: parentId);
+
+    // wait all other creating views
+    await _waitAllCreatingViews(excludeTokens: [token, modalFinishedToken]);
+
     _childCreatePending.putIfAbsent(token, () => parentId);
 
     final windowSize = Size(opts.size?.width ?? 400.0, opts.size?.height ?? 300.0);
@@ -1249,24 +1363,39 @@ class _ViewsManagerImpl implements ViewsManager {
         parentId: parentId,
       );
     } catch (e, st) {
+      _createCompleters[modalFinishedToken]?.complete(_CreateViewError.unhandled.code);
+      _createCompleters.remove(modalFinishedToken);
+
+      _createCompleters[token]?.complete(_CreateViewError.unhandled.code);
+      _createCompleters.remove(token);
       throw Exception('Failed to create dialog window, tokenId: $token. Error: $e, stack: $st');
     }
 
-    final newViewId = await _createCompleters[token]!.future.timeout(const Duration(seconds: 10), onTimeout: () => null);
+    final newViewId = await _waitCompleter(token);
 
-    if (opts.modal == true) {
-      await Future.delayed(Duration(milliseconds: 20));
-    }
     _createCompleters.remove(token);
+    _childCreatePending.remove(token);
 
-    if (newViewId == null) {
-      throw Exception('Failed to create dialog window, tokenId: $token. Error: timeout');
+    if (_CreateViewError.values.map((e) => e.code).contains(newViewId)) {
+      final error = _CreateViewError.values.firstWhere(
+        (e) => e.code == newViewId,
+        orElse: () => _CreateViewError.unhandled,
+      );
+      throw Exception(error.message(token));
     }
+
+    _modalStateService.registerDialog(parentId, dialogId: newViewId!, isModal: opts.modal ?? false);
 
     await _applyDialogOptions(newViewId, opts);
 
     await onCreated(newViewId);
 
+    if (opts.modal == true) {
+      // delay so modal shows correct
+      await Future.delayed(Duration(milliseconds: 35));
+    }
+    _createCompleters[modalFinishedToken]?.complete();
+    _createCompleters.remove(modalFinishedToken);
     return newViewId;
   }
 
@@ -1279,6 +1408,9 @@ class _ViewsManagerImpl implements ViewsManager {
   void removeListener(int viewId, WindowListenerCallbacks listener) {
     _listeners[viewId]?.remove(listener);
   }
+
+  @override
+  bool get isEnabledDynamicAnchor=> config.generalParams.enableDynamicAnchor;
 
   @override
   Future<void> setTaskbarMenu({required List<TaskbarMenuItem> items}) async {
