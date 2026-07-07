@@ -69,7 +69,6 @@ class ScreenRetriever {
     final result = await _methodChannel.invokeMethod<Map>('getPrimaryDisplay', _defaultArguments);
     if (result == null) throw Exception('Unable to get primary display.');
     final res =  Display.fromJson(result.cast<String, dynamic>());
-    debugPrint('currentDisplay: ${res.id}, ${res.name}, ${res.visiblePosition}, ${res.size}');
 
     return res;
   }

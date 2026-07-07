@@ -954,37 +954,73 @@ class _ViewsManagerImpl implements ViewsManager {
 
     // debugPrint('cascade for $rootId');
     for (final id in descendants.reversed) {
-      cascadeCloseService.attachWindow(id);
-      await _nativeChannel.softCloseWindow(id);
-      final closed = await cascadeCloseService.waitWindow(id);
-      if (!closed) return;
+      await _viewExistChecker(id, () async {
+        cascadeCloseService.attachWindow(id);
+        await _nativeChannel.softCloseWindow(id);
+        final closed = await cascadeCloseService.waitWindow(id);
+        if (!closed) return;
+      });
     }
 
-    if (reverse) await _preConfirmCloseCallable(rootId);
+    // checks views created while doing close cycle
+    final descendantsAfter = _descendantIdsDeepestFirst(rootId).toList()..sort();
+    if (descendantsAfter.isNotEmpty) {
+      // do nothing because softClose cycle
+      return;
+    }
+
+    if (reverse) {
+        await _viewExistChecker(rootId, () async =>_preConfirmCloseCallable(rootId), dialogSupports: true);
+    }
   }
 
-  Future<void> _removeSecondaryViewsForce(int rootId) async {
+  Future<void> _removeSecondaryViewsForce(int rootId, {int loopCycle = 1, int maxLoopCycles = 10}) async {
     cascadeCloseService.clear();
     final descendants = _descendantIdsDeepestFirst(rootId).toList()..sort();
     for (final id in descendants.reversed) {
-      cascadeCloseService.attachWindow(id);
-      await _nativeChannel.forceCloseView(id);
-      final closed = await cascadeCloseService.waitWindow(id);
-      if (!closed) return;
+      await _viewExistChecker(id, () async {
+        cascadeCloseService.attachWindow(id);
+        await _nativeChannel.forceCloseView(id);
+        final closed = await cascadeCloseService.waitWindow(id);
+        if (!closed) return;
+      });
     }
-    await _preConfirmCloseCallable(rootId);
+
+    // checks views created while doing close cycle
+    if (loopCycle < maxLoopCycles) {
+      final descendantsAfter = _descendantIdsDeepestFirst(rootId).toList()..sort();
+      if (descendantsAfter.isNotEmpty) {
+        // repeat cycle because forceClose cycle
+        unawaited(_removeSecondaryViewsForce(rootId, loopCycle: loopCycle + 1));
+        return;
+      }
+    }
+    await _viewExistChecker(rootId, () async => await _preConfirmCloseCallable(rootId), dialogSupports: true);
   }
 
-  Future<void> _destroyAllViewsForce(int rootId) async {
+  Future<void> _destroyAllViewsForce(int rootId, {int loopCycle = 1, int maxLoopCycles = 10}) async {
     cascadeCloseService.clear();
     final descendants = _descendantIdsDeepestFirst(rootId).toList()..sort();
     for (final id in descendants.reversed) {
-      cascadeCloseService.attachWindow(id);
-      await _nativeChannel.forceCloseView(id);
-      final closed = await cascadeCloseService.waitWindow(id);
-      if (!closed) return;
+      await _viewExistChecker(id, () async {
+        cascadeCloseService.attachWindow(id);
+        await _nativeChannel.forceCloseView(id);
+        final closed = await cascadeCloseService.waitWindow(id);
+        if (!closed) return;
+      });
     }
-    await _preConfirmCloseCallable(rootId, isForce: true);
+
+    // checks views created while doing close cycle
+    if (loopCycle < maxLoopCycles) {
+      final descendantsAfter = _descendantIdsDeepestFirst(rootId).toList()..sort();
+      if (descendantsAfter.isNotEmpty) {
+        // repeat cycle because forceClose cycle
+        unawaited(_destroyAllViewsForce(rootId, loopCycle: loopCycle + 1));
+        return;
+      }
+    }
+
+   await _viewExistChecker(rootId, () async => await _preConfirmCloseCallable(rootId, isForce: true), dialogSupports: true);
   }
 
   Future<void> removeOrphanViewsForceAfterRestart(List<int> ids) async {
@@ -1410,7 +1446,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  bool get isEnabledDynamicAnchor=> config.generalParams.enableDynamicAnchor;
+  bool get isEnabledDynamicAnchor => config.generalParams.enableDynamicAnchor;
 
   @override
   Future<void> setTaskbarMenu({required List<TaskbarMenuItem> items}) async {

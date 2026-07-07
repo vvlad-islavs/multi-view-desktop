@@ -11,9 +11,6 @@ const int _macTopRectInset = 38;
 @internal
 Future<Offset> calcWindowPosition(Size windowSize, Alignment alignment) async {
   final currentDisplay = await _getCurrentDisplay();
-  debugPrint(
-    'currentDisplay: ${currentDisplay.id}, ${currentDisplay.name}, ${currentDisplay.visiblePosition}, ${currentDisplay.size}',
-  );
   final num visibleWidth = currentDisplay.visibleSize?.width ?? currentDisplay.size.width;
   final num visibleHeight = currentDisplay.visibleSize?.height ?? currentDisplay.size.height;
   final num visibleStartX = currentDisplay.visiblePosition?.dx ?? 0;
