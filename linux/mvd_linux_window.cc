@@ -935,7 +935,12 @@ void MvdLinuxWindow::SetClosable(bool v) {
   }
 }
 
+bool MvdLinuxWindow::IsAlwaysOnTop() {
+  return is_always_on_top;
+}
+
 void MvdLinuxWindow::SetAlwaysOnTop(bool v) {
+  is_always_on_top = v;
   if (window) {
     gtk_window_set_keep_above(window, v);
   }

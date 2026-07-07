@@ -33,6 +33,7 @@ class MvdLinuxWindow {
   bool is_resizable = true;
   bool is_fullscreen = false;
   bool is_skip_taskbar = false;
+  bool is_always_on_top = false;
   bool size_locked_by_non_resizable = false;
   GdkGeometry geometry_before_resize_lock{};
   GdkWindowHints hints_before_resize_lock = static_cast<GdkWindowHints>(0);
@@ -109,6 +110,7 @@ class MvdLinuxWindow {
   void SetMaximizable(bool v);
   bool IsClosable();
   void SetClosable(bool v);
+  bool IsAlwaysOnTop();
   void SetAlwaysOnTop(bool v);
   const gchar* GetTitle();
   void SetTitle(const gchar* t);

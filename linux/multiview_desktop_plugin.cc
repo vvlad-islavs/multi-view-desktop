@@ -781,7 +781,7 @@ static void handle_view_method(FlMethodCall* method_call,
     wm->SetClosable(bool_from_map(args, "isClosable", true));
     response = ok_null();
   } else if (g_strcmp0(method, "isAlwaysOnTop") == 0) {
-    response = ok_bool(false);
+    response = ok_bool(wm->IsAlwaysOnTop());
   } else if (g_strcmp0(method, "setAlwaysOnTop") == 0) {
     wm->SetAlwaysOnTop(bool_from_map(args, "isAlwaysOnTop", false));
     response = ok_null();

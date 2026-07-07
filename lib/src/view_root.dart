@@ -1388,7 +1388,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   Future<void> hideAppFromTaskbar(bool isHideAppFromTaskbar, {int? viewId}) async {
-    if (Platform.isMacOS || Platform.isLinux) {
+    if (Platform.isMacOS) {
       final id = _lifecycleViewId;
       if (id == null) return;
       await _viewExistChecker(
