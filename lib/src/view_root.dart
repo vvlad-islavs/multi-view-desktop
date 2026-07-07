@@ -99,7 +99,7 @@ _MultiViewRootState? _rootState;
 final NativeChannel _nativeChannel = NativeChannel();
 bool _hasInitView = true;
 
-/// Returns the live [_MultiViewRootState] after [runMultiApp] has started.
+/// Returns the live `_MultiViewRootState` after `runMultiApp` has started.
 // ignore: library_private_types_in_public_api
 _MultiViewRootState get globalRootState {
   if (_rootState == null) {
@@ -130,11 +130,11 @@ Future<Widget> createMultiViewRoot(
 // _MultiViewRoot
 // ---------------------------------------------------------------------------
 
-/// The invisible root widget placed at the top of the tree by [runMultiApp].
+/// The invisible root widget placed at the top of the tree by `runMultiApp`.
 ///
-/// Manages a [ViewCollection] whose entries grow/shrink as windows are
-/// opened or closed.  Each child is wrapped in a [ViewScope] so that any
-/// descendant can call [MultiViewDesktop.getIdByContext].
+/// Manages a `ViewCollection` whose entries grow/shrink as windows are
+/// opened or closed.  Each child is wrapped in a `ViewScope` so that any
+/// descendant can call `MultiViewDesktop.getIdByContext`.
 class _MultiViewRoot extends StatefulWidget {
   const _MultiViewRoot({required this.homeBuilder, required this.config});
 
@@ -162,7 +162,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
 
   ValueNotifier<List<int>> get dialogsIdsNotif => _viewsManagerImpl.dialogsNotifier;
 
-  /// Returns the modal-dialog counter notifier for the window with [realViewId].
+  /// Returns the modal-dialog counter notifier for the window with `realViewId`.
   ValueNotifier<List<DialogInfo>> getDialogModalNotifier(int realViewId) =>
       _viewsManagerImpl.getDialogModalPublicIdsFromRealParentIdNotifier(realViewId);
 
@@ -400,7 +400,7 @@ class _CreateCompleter<T> {
   Future<T?> get future => completer.future;
 }
 
-/// Default [ViewsManager]: native channel, window registry, listeners, and close modes.
+/// Default `ViewsManager`: native channel, window registry, listeners, and close modes.
 class _ViewsManagerImpl implements ViewsManager {
   final CascadeCloseService cascadeCloseService;
   final WindowCommunicatorImpl communicator;
@@ -425,7 +425,7 @@ class _ViewsManagerImpl implements ViewsManager {
     }
   }
 
-  /// Returns the `ValueNotifier<List<DialogInfo>>` tracking modal dialogs blocking [realViewId].
+  /// Returns the `ValueNotifier<List<DialogInfo>>` tracking modal dialogs blocking `realViewId`.
   ValueNotifier<List<DialogInfo>> getDialogModalPublicIdsFromRealParentIdNotifier(int realViewId) =>
       _dialogModalPublicNotifiers.putIfAbsent(
         realViewId,
@@ -459,7 +459,7 @@ class _ViewsManagerImpl implements ViewsManager {
   // viewId -> listener list.
   final Map<int, ObserverList<WindowListenerCallbacks>> _listeners = {};
 
-  /// Anchor window: receives app-level close policy ([CloseMode]) from the native close button.
+  /// Anchor window: receives app-level close policy (`CloseMode`) from the native close button.
   int? _realAnchorId;
 
   int? get realAnchorId => _realAnchorId;
@@ -650,7 +650,7 @@ class _ViewsManagerImpl implements ViewsManager {
     await _nativeChannel.setAnchorViewId(viewId);
   }
 
-  /// When the anchor [FlutterView] disappears, pick another root window.
+  /// When the anchor `FlutterView` disappears, pick another root window.
   void reconcileAnchor(PlatformDispatcher dispatcher) {
     final anchor = _realAnchorId;
     if (anchor == null) return;
@@ -671,7 +671,7 @@ class _ViewsManagerImpl implements ViewsManager {
     return candidates;
   }
 
-  /// Picks another root window as anchor (lowest live view id), optionally skipping [excludingViewId].
+  /// Picks another root window as anchor (lowest live view id), optionally skipping `excludingViewId`.
   void _promoteAnchor({int? excludingViewId}) {
     final candidates = _anchorCandidates(excludingViewId: excludingViewId);
     if (candidates.isEmpty) {
@@ -700,7 +700,7 @@ class _ViewsManagerImpl implements ViewsManager {
   List<int> _directChildIds(int parentId) =>
       _windows.entries.where((e) => e.value.parentId == parentId).map((e) => e.key).toList();
 
-  /// Direct children of [parentId] that are dialogs ([_WindowEntry.isDialog]).
+  /// Direct children of `parentId` that are dialogs (`_WindowEntry.isDialog`).
   List<int> _directDialogChildIds(int parentId) =>
       _dialogs.entries.where((e) => e.value.parentId == parentId).map((e) => e.key).toList();
 
@@ -772,7 +772,7 @@ class _ViewsManagerImpl implements ViewsManager {
     cascadeCloseService.completeWindow(viewId);
   }
 
-  /// Runs before [isPreventClose] / [isConfirmClose]; subtree closes per [closeMode].
+  /// Runs before `isPreventClose` / `isConfirmClose`; subtree closes per `closeMode`.
   Future<void> _handlePreConfirmClose(int viewId) async {
     final nextAnchorCandidates = _anchorCandidates(excludingViewId: viewId)..sort();
     // debugPrint('nextAnchorCandidates: $nextAnchorCandidates');
@@ -810,7 +810,7 @@ class _ViewsManagerImpl implements ViewsManager {
     }
   }
 
-  /// Aborts the cascade close that is waiting on [viewId].
+  /// Aborts the cascade close that is waiting on `viewId`.
   ///
   /// Completing the completer with `false` causes the cascade loop to `return`
   /// early, leaving the main window open. All other pending completers are
@@ -1194,7 +1194,7 @@ class _ViewsManagerImpl implements ViewsManager {
     await _nativeChannel.setPreConfirmClose(newViewId, false);
   }
 
-  /// [excludeTokens] - current view tokens, so don't wait yourself
+  /// `excludeTokens` - current view tokens, so don't wait yourself
   Future<void> _waitAllCreatingViews({List<int> excludeTokens = const []}) async {
     if (_createCompleters.entries.any((e) => !e.value.isCompleted)) {
       try {

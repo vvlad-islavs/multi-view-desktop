@@ -4,14 +4,14 @@ import 'multi_view_desktop.dart';
 
 /// Callback surface used by the library to deliver native window events.
 ///
-/// Implement this interface directly or use the [WindowListener] mixin on a
-/// [State] under [ViewScope]. All methods have empty default implementations
+/// Implement this interface directly or use the `WindowListener` mixin on a
+/// `State` under `ViewScope`. All methods have empty default implementations
 /// in the mixin.
 abstract interface class WindowListenerCallbacks {
   /// Called when the user requests close (title bar button or OS shortcut).
   ///
-  /// Fires instead of destroying the window when [MultiViewDesktop.setPreventClose]
-  /// is true. Call [MultiViewDesktop.closeWindow] after your confirmation logic.
+  /// Fires instead of destroying the window when `MultiViewDesktop.setPreventClose`
+  /// is true. Call `MultiViewDesktop.closeWindow` after your confirmation logic.
   void onWindowClose();
 
   /// Called when this window gains keyboard focus.
@@ -52,16 +52,16 @@ abstract interface class WindowListenerCallbacks {
 
   /// Called for every native event, including those with dedicated callbacks above.
   ///
-  /// [eventName] is the raw name from the native layer, for example `focus`,
+  /// `eventName` is the raw name from the native layer, for example `focus`,
   /// `blur`, `maximize`, `close`, `resize`, `move`.
   void onWindowEvent(String eventName);
 }
 
-/// [State] mixin that registers [WindowListenerCallbacks] for the current window.
+/// `State` mixin that registers `WindowListenerCallbacks` for the current window.
 ///
-/// Registration runs from [didChangeDependencies] and uses the public view id
-/// from [MultiViewDesktop.getIdByContext]. Cleanup runs from [dispose] without
-/// needing [BuildContext].
+/// Registration runs from `didChangeDependencies` and uses the public view id
+/// from `MultiViewDesktop.getIdByContext`. Cleanup runs from `dispose` without
+/// needing `BuildContext`.
 ///
 /// ```dart
 /// class _HomePageState extends State<HomePage> with WindowListener {

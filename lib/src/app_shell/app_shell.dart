@@ -1,15 +1,15 @@
 /// Shared entry shell for secondary and dialog views.
 ///
-/// Each OS [View] has its own widget subtree. Theme, locale, and other
-/// app-wide [InheritedWidget] values from the main [MaterialApp] are not
+/// Each OS `View` has its own widget subtree. Theme, locale, and other
+/// app-wide `InheritedWidget` values from the main `MaterialApp` are not
 /// visible in secondary windows. This module provides a single in-process
 /// registry that mirrors those settings and wraps secondary content in a
-/// matching entry shell ([MaterialApp], [CupertinoApp], or [WidgetsApp]
+/// matching entry shell (`MaterialApp`, `CupertinoApp`, or `WidgetsApp`
 /// without navigation).
 ///
 /// ## Typical setup
 ///
-/// Main window ([homeBuilder]): full entry widget with navigation.
+/// Main window (`homeBuilder`): full entry widget with navigation.
 ///
 /// ```dart
 /// runMultiApp(
@@ -59,12 +59,12 @@
 /// );
 /// ```
 ///
-/// Do not wrap secondary content in a second full [MaterialApp]. Use
-/// [ViewShellOverrides] on [WindowOptions.shellOverrides] or
-/// [MultiViewDesktop.patchViewShell] so appearance stays inherited from the
+/// Do not wrap secondary content in a second full `MaterialApp`. Use
+/// `ViewShellOverrides` on `WindowOptions.shellOverrides` or
+/// `MultiViewDesktop.patchViewShell` so appearance stays inherited from the
 /// global shell while navigation remains per-view.
 ///
-/// See [AppShellController] for keeping the main window in sync without feedback loops.
+/// See `AppShellController` for keeping the main window in sync without feedback loops.
 library;
 
 export 'app_entry_kind.dart';

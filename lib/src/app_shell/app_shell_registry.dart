@@ -3,9 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'app_shell_patch.dart';
 import 'app_shell_snapshot.dart';
 
-/// Internal store for the live [AppShellSnapshot].
+/// Internal store for the live `AppShellSnapshot`.
 ///
-/// Not exported from the public API. Use [AppShellController] instead.
+/// Not exported from the public API. Use `AppShellController` instead.
 @internal
 class AppShellRegistry extends ChangeNotifier {
   AppShellSnapshot? _snapshot;

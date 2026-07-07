@@ -10,7 +10,7 @@ const double kWindowCaptionHeight = 32.0;
 
 /// A custom title-bar replacement for frameless windows.
 ///
-/// Renders a [DragToMoveArea] that lets the user move the window by dragging,
+/// Renders a `DragToMoveArea` that lets the user move the window by dragging,
 /// plus optional window control buttons (minimize / maximize / close).
 ///
 /// Typical usage when the native title bar has been hidden:
@@ -37,7 +37,7 @@ class WindowCaption extends StatefulWidget {
   final Color? backgroundColor;
 
   /// Controls the foreground colour of title text and icons.
-  /// Defaults to [Brightness.light] (dark icons).
+  /// Defaults to `Brightness.light` (dark icons).
   final Brightness? brightness;
 
   @override

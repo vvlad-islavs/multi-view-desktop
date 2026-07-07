@@ -11,7 +11,7 @@
 part of 'app_router.dart';
 
 /// generated route for
-/// [AutoCatalogPage]
+/// `AutoCatalogPage`
 class AutoCatalogRoute extends PageRouteInfo<void> {
   const AutoCatalogRoute({List<PageRouteInfo>? children})
     : super(AutoCatalogRoute.name, initialChildren: children);
@@ -27,7 +27,7 @@ class AutoCatalogRoute extends PageRouteInfo<void> {
 }
 
 /// generated route for
-/// [AutoItemPage]
+/// `AutoItemPage`
 class AutoItemRoute extends PageRouteInfo<void> {
   const AutoItemRoute({List<PageRouteInfo>? children})
     : super(AutoItemRoute.name, initialChildren: children);

@@ -2,16 +2,16 @@ import 'package:flutter/material.dart';
 
 import 'app_shell_patch.dart';
 
-/// Per-view entry shell configuration for a secondary or dialog [View].
+/// Per-view entry shell configuration for a secondary or dialog `View`.
 ///
-/// [appearance] overrides app-wide fields (theme, locale, shortcuts) on top of
-/// the global [MultiViewDesktop.appShell] snapshot for **this view only**.
+/// `appearance` overrides app-wide fields (theme, locale, shortcuts) on top of
+/// the global `MultiViewDesktop.appShell` snapshot for **this view only**.
 ///
-/// Navigation fields ([routerConfig], [home], [routes], and so on) are also
+/// Navigation fields (`routerConfig`, `home`, `routes`, and so on) are also
 /// per-view. Each OS window gets its own navigator or router stack. They are
-/// never shared through the global [AppShellController].
+/// never shared through the global `AppShellController`.
 ///
-/// Simple content window (default: [openWindow] builder becomes [home]):
+/// Simple content window (default: `openWindow` builder becomes `home`):
 ///
 /// ```dart
 /// openWindow((_, __) => SettingsPage());
@@ -90,7 +90,7 @@ class ViewShellOverrides {
   /// Named routes map for this view.
   final Map<String, WidgetBuilder>? routes;
 
-  /// Initial route name when [routes] is used.
+  /// Initial route name when `routes` is used.
   final String? initialRoute;
 
   /// Route generator for this view.
@@ -102,7 +102,7 @@ class ViewShellOverrides {
   /// Fallback route generator for unknown names.
   final RouteFactory? onUnknownRoute;
 
-  /// Called when a [NavigationNotification] is dispatched in this view.
+  /// Called when a `NavigationNotification` is dispatched in this view.
   final NotificationListenerCallback<NavigationNotification>? onNavigationNotification;
 
   /// Observers attached to this view's navigator.
@@ -114,7 +114,7 @@ class ViewShellOverrides {
   /// Window title string used by the entry shell on this view.
   final String? title;
 
-  /// Generates the title from [BuildContext] on this view.
+  /// Generates the title from `BuildContext` on this view.
   final GenerateAppTitle? onGenerateTitle;
 
   /// Router config for this view (Flutter 3.7+ declarative routing).
@@ -132,16 +132,16 @@ class ViewShellOverrides {
   /// Back button dispatcher for this view's router.
   final BackButtonDispatcher? backButtonDispatcher;
 
-  /// Custom [PageRoute] factory for this view.
+  /// Custom `PageRoute` factory for this view.
   final PageRouteFactory? pageRouteBuilder;
 
   /// Restoration scope id for this view's navigator.
   final String? restorationScopeId;
 
-  /// Whether this view uses a router-based entry instead of [home].
+  /// Whether this view uses a router-based entry instead of `home`.
   bool get usesRouter => routerConfig != null || routerDelegate != null;
 
-  /// Combines [base] with [delta]. Non-null fields in [delta] replace [base].
+  /// Combines `base` with `delta`. Non-null fields in `delta` replace `base`.
   ///
   /// Returns the merged overrides. Used internally when patching view shells.
   static ViewShellOverrides merge(ViewShellOverrides? base, ViewShellOverrides delta) {

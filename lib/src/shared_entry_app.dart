@@ -6,9 +6,9 @@ import 'app_shell/app_shell_registry.dart';
 import 'app_shell/app_shell_snapshot.dart';
 import 'app_shell/app_entry_kind.dart';
 import 'app_shell/view_shell_overrides.dart';
-/// Finds [MaterialApp] / [CupertinoApp] / [WidgetsApp] in the main view tree.
+/// Finds `MaterialApp` / `CupertinoApp` / `WidgetsApp` in the main view tree.
 abstract final class AppEntryPointFinder {
-  /// Walks **up** from [context] and keeps the outermost recognized entry widget.
+  /// Walks **up** from `context` and keeps the outermost recognized entry widget.
   static AppShellSnapshot? findOutermostUpstream(BuildContext context) {
     AppShellSnapshot? material;
     AppShellSnapshot? cupertino;
@@ -29,7 +29,7 @@ abstract final class AppEntryPointFinder {
     return material ?? cupertino ?? widgets;
   }
 
-  /// Walks **down** from [root] and returns the shallowest recognized entry widget.
+  /// Walks **down** from `root` and returns the shallowest recognized entry widget.
   static AppShellSnapshot? findShallowestInSubtree(Element root) {
     AppShellSnapshot? material;
     AppShellSnapshot? cupertino;
@@ -58,7 +58,7 @@ abstract final class AppEntryPointFinder {
   }
 }
 
-/// Captures the main entry widget into [registry] after each frame.
+/// Captures the main entry widget into `registry` after each frame.
 class MainAppShellCapture extends StatefulWidget {
   const MainAppShellCapture({super.key, required this.registry, required this.child});
 
@@ -86,9 +86,9 @@ class _MainAppShellCaptureState extends State<MainAppShellCapture> {
 
   /// Re-syncs after every frame while mounted.
   ///
-  /// [homeBuilder] may return a [StatefulWidget] (e.g. `MainWindowRoot`) whose
-  /// inner [MaterialApp] rebuilds without updating this capture widget. A
-  /// one-shot capture on [didUpdateWidget] misses runtime theme/locale changes.
+  /// `homeBuilder` may return a `StatefulWidget` (e.g. `MainWindowRoot`) whose
+  /// inner `MaterialApp` rebuilds without updating this capture widget. A
+  /// one-shot capture on `didUpdateWidget` misses runtime theme/locale changes.
   void _scheduleCaptureLoop() {
     if (_captureLoopScheduled || !mounted) return;
     _captureLoopScheduled = true;
@@ -165,7 +165,7 @@ class _AppShellUpstreamProbeState extends State<_AppShellUpstreamProbe> {
 
   @override
   Widget build(BuildContext context) {
-    // Runs when an ancestor [MaterialApp] rebuilds (e.g. [ThemeMode] toggle).
+    // Runs when an ancestor `MaterialApp` rebuilds (e.g. `ThemeMode` toggle).
     WidgetsBinding.instance.addPostFrameCallback(_probe);
     return widget.child;
   }

@@ -787,7 +787,7 @@ class _CloseModePickerDialog extends StatelessWidget {
 // Alignment grid widget
 // ---------------------------------------------------------------------------
 
-/// 3x3 grid for picking one of the nine standard [Alignment] values.
+/// 3x3 grid for picking one of the nine standard `Alignment` values.
 class _AlignmentGrid extends StatefulWidget {
   const _AlignmentGrid({required this.onSelected});
 

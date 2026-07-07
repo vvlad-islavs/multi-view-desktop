@@ -3,16 +3,16 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 
 abstract class TaskbarMenuItem {}
 
-/// Internal window manager contract. Public API: [MultiViewDesktop].
+/// Internal window manager contract. Public API: `MultiViewDesktop`.
 abstract class ViewsManager {
   int realToShiftedId(int viewId);
 
   int shiftedToRealId(int viewId);
 
-  /// Creates a native window and calls [onCreated] with its real view id.
+  /// Creates a native window and calls `onCreated` with its real view id.
   Future<int> createWindow({WindowOptions? newOpts, required Future<void> Function(int) onCreated, int? parent});
 
-  /// Creates a dialog for [parentRealId]. See [DialogOptions] and [openDialog].
+  /// Creates a dialog for `parentRealId`. See `DialogOptions` and `openDialog`.
   Future<int> createDialog({
     DialogOptions? newOpts,
     required int parentRealId,
@@ -29,7 +29,7 @@ abstract class ViewsManager {
 
   Future<void> setPreventClose(int viewId, bool isPreventClose);
 
-  /// Aborts an in-progress [CloseMode.softCascade] waiting on [viewId].
+  /// Aborts an in-progress `CloseMode.softCascade` waiting on `viewId`.
   Future<void> cancelCascadeClose(int viewId);
 
   /// Updates the strategy used when the main window close button is pressed.
@@ -56,7 +56,7 @@ abstract class ViewsManager {
 
   Future<void> setAsFrameless(int viewId);
 
-  /// Sets anchor id. Only for views without parents (root view). Returns [true] if id was set successfully
+  /// Sets anchor id. Only for views without parents (root view). Returns `true` if id was set successfully
   Future<bool> setPublicAnchorId(int viewId);
 
   int? getPublicAnchorId();
@@ -185,9 +185,9 @@ abstract class ViewsManager {
 
   void patchViewShell(int viewId, ViewShellOverrides overrides);
 
-  /// Replaces the entry shell overrides for [viewId], or clears them when null.
+  /// Replaces the entry shell overrides for `viewId`, or clears them when null.
   void setViewShellOverrides(int viewId, ViewShellOverrides? overrides);
 
-  /// Returns the current entry shell overrides for [viewId], if any.
+  /// Returns the current entry shell overrides for `viewId`, if any.
   ViewShellOverrides? getViewShellOverrides(int viewId);
 }

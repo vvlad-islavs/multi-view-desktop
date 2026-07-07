@@ -2,14 +2,14 @@
 import 'package:flutter/material.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 
-/// Tracks open dialogs per parent window for [DialogModalLayer].
+/// Tracks open dialogs per parent window for `DialogModalLayer`.
 ///
-/// Each parent has a [ValueNotifier] with the list of child dialog ids.
-/// [DialogModalLayer] listens to it to show or hide the scrim.
+/// Each parent has a `ValueNotifier` with the list of child dialog ids.
+/// `DialogModalLayer` listens to it to show or hide the scrim.
 class ModalStateService {
   final Map<int, ValueNotifier<List<DialogInfo>>> _notifiers = {};
 
-  /// Notifier for [realViewId]. Created on first access.
+  /// Notifier for `realViewId`. Created on first access.
   ValueNotifier<List<DialogInfo>> getNotifier(int realViewId) {
     return _notifiers.putIfAbsent(realViewId, () => ValueNotifier([]));
   }

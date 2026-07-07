@@ -1,4 +1,4 @@
-/// Edge or corner used when starting a native resize drag ([DragToResizeArea]).
+/// Edge or corner used when starting a native resize drag (`DragToResizeArea`).
 enum ResizeEdge {
   /// Top edge.
   top,

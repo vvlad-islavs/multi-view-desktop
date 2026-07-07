@@ -82,8 +82,8 @@ class AppWindowObserver extends WindowObserver {
 
 /// Root widget for the initial (main) OS window.
 ///
-/// Every secondary window opened via [openWindow] uses [_SecondaryWindowRoot]
-/// which is defined inside pages/home.dart and shares the same [themeConfig]
+/// Every secondary window opened via `openWindow` uses `_SecondaryWindowRoot`
+/// which is defined inside pages/home.dart and shares the same `themeConfig`
 /// singleton.
 class MainWindowRoot extends StatefulWidget {
   const MainWindowRoot({super.key});

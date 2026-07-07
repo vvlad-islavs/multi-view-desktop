@@ -111,11 +111,11 @@ class NativeChannel {
     });
   }
 
-  /// Creates a dialog attached to [parentId].
+  /// Creates a dialog attached to `parentId`.
   ///
   /// Modal behavior is platform-specific (macOS sheet, Windows owner chain,
   /// Linux transient window with parent input lock). The native side sends
-  /// `viewCreated` when the dialog is ready, same as [createWindowRequest].
+  /// `viewCreated` when the dialog is ready, same as `createWindowRequest`.
   Future<void> createModalDialogRequest({
     required int token,
     required String title,
@@ -275,7 +275,7 @@ class NativeChannel {
     await _staticChannel.invokeMethod<void>(kMethodCloseWindow, _args(viewId));
   }
 
-  /// Clears close flags, then [softCloseWindow].
+  /// Clears close flags, then `softCloseWindow`.
   Future<void> forceCloseView(int viewId) async {
     // await setPreConfirmClose(viewId, true);
     await setPreventClose(viewId, isPreventClose: false);

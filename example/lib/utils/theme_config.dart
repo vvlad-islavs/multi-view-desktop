@@ -5,7 +5,7 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 /// Application-wide theme configuration shared across all windows.
 ///
 /// Because all windows run in the same Dart isolate, this is a plain
-/// [ChangeNotifier] with no IPC or platform channels needed.
+/// `ChangeNotifier` with no IPC or platform channels needed.
 class ThemeConfig extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.light;
 

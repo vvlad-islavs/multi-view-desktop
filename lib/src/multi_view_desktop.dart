@@ -38,10 +38,10 @@ class MultiViewDesktop {
 
   MultiViewDesktop._({required int realId}) : _realId = realId;
 
-  /// Creates an instance bound to the window that owns [context].
+  /// Creates an instance bound to the window that owns `context`.
   factory MultiViewDesktop.of(BuildContext context) => MultiViewDesktop._(realId: _getRealId(context));
 
-  /// Creates an instance bound to the window with the given public [viewId].
+  /// Creates an instance bound to the window with the given public `viewId`.
   factory MultiViewDesktop.fromId(int viewId) => MultiViewDesktop._(realId: _manager.shiftedToRealId(viewId));
 
   // ---------------------------------------------------------------------------
@@ -59,11 +59,11 @@ class MultiViewDesktop {
   /// In-process message bus shared by all views in this isolate.
   static WindowCommunicator get communicator => globalRootState.communicator;
 
-  /// Returns the public view ID of the window that owns [context].
+  /// Returns the public view ID of the window that owns `context`.
   static int getIdByContext(BuildContext context) => _manager.realToShiftedId(_getRealId(context));
 
   /// Sets the preferred brightness for native chrome on all windows at once.
-  /// Does not change Flutter [ThemeData]; use [appShell] for that.
+  /// Does not change Flutter `ThemeData`; use `appShell` for that.
   static Future<void> setGlobalBrightness(Brightness brightness) => _manager.setGlobalBrightness(brightness);
 
   /// Snapshot of public view IDs for all secondary windows currently open.
@@ -80,16 +80,16 @@ class MultiViewDesktop {
 
   /// Shared entry shell for secondary and dialog views (theme, locale, and similar).
   ///
-  /// Update through [AppShellController.patch] from any window. This works after
+  /// Update through `AppShellController.patch` from any window. This works after
   /// the main window was closed. While the main window is open, the registry is
-  /// also synced from the main [MaterialApp] on each frame.
+  /// also synced from the main `MaterialApp` on each frame.
   static AppShellController get appShell => globalRootState.appShell;
 
   // ---------------------------------------------------------------------------
   // App-wide: lifecycle
   // ---------------------------------------------------------------------------
 
-  /// Opens a new OS window showing [child].
+  /// Opens a new OS window showing `child`.
   @internal
   static Future<int> addWindow(
     Widget Function(BuildContext context, int publicId) child, {
@@ -114,9 +114,9 @@ class MultiViewDesktop {
     return _manager.realToShiftedId(realId);
   }
 
-  /// Opens a dialog window bound to [parentContext].
+  /// Opens a dialog window bound to `parentContext`.
   ///
-  /// See [openDialog] for the full documentation.
+  /// See `openDialog` for the full documentation.
   @internal
   static Future<T?> addDialog<T>(
     Widget Function(BuildContext context, int publicId) child, {
@@ -147,7 +147,7 @@ class MultiViewDesktop {
   /// Return `enableDynamicAnchor` from runMultiApp->config->generalParams->enableDynamicAnchor
   static bool get isEnabledDynamicAnchor => _manager.isEnabledDynamicAnchor;
 
-  /// Closes all windows using [closeMode] or the mode set in [MultiAppConfig].
+  /// Closes all windows using `closeMode` or the mode set in `MultiAppConfig`.
   static Future<void> closeApp({CloseMode? closeMode}) async {
     await _manager.closeApp(closeMode: closeMode);
   }
@@ -160,7 +160,7 @@ class MultiViewDesktop {
   /// Returns the currently active close mode.
   static CloseMode getCloseMode() => _manager.getAppCloseMode();
 
-  /// Sets the anchor view by public [viewId]. Only valid for root views.
+  /// Sets the anchor view by public `viewId`. Only valid for root views.
   static Future<bool> setAnchorId(int viewId) async {
     return await _manager.setPublicAnchorId(viewId);
   }
@@ -172,12 +172,12 @@ class MultiViewDesktop {
   // App-wide: listeners
   // ---------------------------------------------------------------------------
 
-  /// Subscribes [listener] to events for the window with the given public [publicViewId].
+  /// Subscribes `listener` to events for the window with the given public `publicViewId`.
   static void addListenerForView(int publicViewId, WindowListenerCallbacks listener) {
     _manager.addListener(_manager.shiftedToRealId(publicViewId), listener);
   }
 
-  /// Unsubscribes [listener] from events for the given public [publicViewId].
+  /// Unsubscribes `listener` from events for the given public `publicViewId`.
   static void removeListenerForView(int publicViewId, WindowListenerCallbacks listener) {
     _manager.removeListener(_manager.shiftedToRealId(publicViewId), listener);
   }
@@ -215,15 +215,15 @@ class MultiViewDesktop {
   }
 
   /// Soft-closes this window. If `setPreventClose(true)` was set, fires
-  /// [WindowListener.onWindowClose] instead of destroying the window.
+  /// `WindowListener.onWindowClose` instead of destroying the window.
   Future<void> closeWindow() async {
     await _manager.closeView(_realId);
   }
 
-  /// Closes this dialog and completes the [openDialog] future on the caller side.
+  /// Closes this dialog and completes the `openDialog` future on the caller side.
   ///
-  /// [res] is forwarded to the `await openDialog<T>()` expression. Has no effect
-  /// on regular (non-dialog) windows; use [closeWindow] instead.
+  /// `res` is forwarded to the `await openDialog<T>()` expression. Has no effect
+  /// on regular (non-dialog) windows; use `closeWindow` instead.
   Future<void> closeDialog<T>([T? res]) async {
     await _manager.closeView<T>(_realId, dialogRes: res);
   }
@@ -233,21 +233,21 @@ class MultiViewDesktop {
     return await _manager.isPreventClose(_realId);
   }
 
-  /// When `true`, any close attempt is blocked and [WindowListener.onWindowClose]
+  /// When `true`, any close attempt is blocked and `WindowListener.onWindowClose`
   /// fires instead. Set back to `false` to re-enable closing.
   Future<void> setPreventClose(bool isPreventClose) async {
     await _manager.setPreventClose(_realId, isPreventClose);
   }
 
-  /// Aborts an in-progress [CloseMode.softCascade] that is waiting on this window.
+  /// Aborts an in-progress `CloseMode.softCascade` that is waiting on this window.
   Future<void> cancelCascadeClose() async {
     await _manager.cancelCascadeClose(_realId);
   }
 
-  /// Merges [overrides] into this view's entry shell (theme/locale and navigation).
+  /// Merges `overrides` into this view's entry shell (theme/locale and navigation).
   ///
-  /// Appearance fields in [overrides.appearance] are merged on top of the
-  /// global [appShell] snapshot. Navigation fields apply only to this view.
+  /// Appearance fields in `overrides.appearance` are merged on top of the
+  /// global `appShell` snapshot. Navigation fields apply only to this view.
   void patchViewShell(ViewShellOverrides overrides) {
     _manager.patchViewShell(_realId, overrides);
   }
@@ -274,7 +274,7 @@ class MultiViewDesktop {
     await _manager.setTitle(_realId, title);
   }
 
-  /// Changes the title-bar style. Pass [TitleBarStyle.hidden] for a frameless window.
+  /// Changes the title-bar style. Pass `TitleBarStyle.hidden` for a frameless window.
   Future<void> setTitleBarStyle(
     TitleBarStyle style, {
     bool closeVisibility = true,
@@ -346,12 +346,12 @@ class MultiViewDesktop {
   /// Returns the top-left position of the window.
   Future<Offset> getPosition() async => (await getBounds()).topLeft;
 
-  /// Resizes the window to [size] in logical pixels.
+  /// Resizes the window to `size` in logical pixels.
   Future<void> setSize(Size size) async {
     await _manager.setSize(_realId, size);
   }
 
-  /// Moves the window so its top-left corner is at [position].
+  /// Moves the window so its top-left corner is at `position`.
   Future<void> setPosition(Offset position) async {
     await _manager.setPosition(_realId, position);
   }
@@ -361,14 +361,14 @@ class MultiViewDesktop {
     await _manager.center(_realId);
   }
 
-  /// Positions the window using [alignment] on the display under the cursor.
+  /// Positions the window using `alignment` on the display under the cursor.
   Future<void> setAlignment(Alignment alignment) async {
     await _manager.setAlignment(_realId, alignment);
   }
 
-  /// Repositions this dialog within its parent window bounds using [alignment].
+  /// Repositions this dialog within its parent window bounds using `alignment`.
   ///
-  /// Only meaningful for dialog views. Regular windows should use [setAlignment].
+  /// Only meaningful for dialog views. Regular windows should use `setAlignment`.
   Future<void> setDialogAlignment(Alignment alignment) async {
     await _manager.setAlignment(_realId, alignment, insideParent: true);
   }
@@ -433,7 +433,7 @@ class MultiViewDesktop {
 
   /// Maximizes the window.
   ///
-  /// When [vertically] is true (Windows only), maximizes to half the screen height.
+  /// When `vertically` is true (Windows only), maximizes to half the screen height.
   Future<void> maximize({bool vertically = false}) async {
     await _manager.maximize(_realId, vertically: vertically);
   }
@@ -487,7 +487,7 @@ class MultiViewDesktop {
     return await _manager.isMovable(_realId);
   }
 
-  /// Enables or disables moving the window by dragging. On Linux maps to [setResizable].
+  /// Enables or disables moving the window by dragging. On Linux maps to `setResizable`.
   Future<void> setMovable(bool isMovable) async {
     await _manager.setMovable(_realId, isMovable);
   }
@@ -550,12 +550,12 @@ class MultiViewDesktop {
   // Per-window: drag and resize (used by widgets)
   // ---------------------------------------------------------------------------
 
-  /// Starts a native window-move drag session. Called by [DragToMoveArea].
+  /// Starts a native window-move drag session. Called by `DragToMoveArea`.
   Future<void> startDragging() async {
     await _manager.startDragging(_realId);
   }
 
-  /// Starts a native window-resize drag session from [edge]. Called by [DragToResizeArea].
+  /// Starts a native window-resize drag session from `edge`. Called by `DragToResizeArea`.
   Future<void> startResizing(ResizeEdge edge) async {
     await _manager.startResizing(_realId, edge);
   }
@@ -564,8 +564,8 @@ class MultiViewDesktop {
   // Per-window: mouse events
   // ---------------------------------------------------------------------------
 
-  /// When [ignore] is `true`, all mouse events pass through the window.
-  /// If [mouseMoveEvents] is `true`, mouse move events still arrive.
+  /// When `ignore` is `true`, all mouse events pass through the window.
+  /// If `mouseMoveEvents` is `true`, mouse move events still arrive.
   Future<void> setIgnoreMouseEvents(bool ignore, {bool mouseMoveEvents = false}) async {
     await _manager.setIgnoreMouseEvents(_realId, ignore, forward: mouseMoveEvents);
   }

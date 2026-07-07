@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'app_shell/view_shell_overrides.dart';
 import 'title_bar_style.dart';
 
-/// Pass to [openWindow] to control initial appearance and position.
+/// Pass to `openWindow` to control initial appearance and position.
 class WindowOptions {
   const WindowOptions({
     this.size,
@@ -38,7 +38,7 @@ class WindowOptions {
   /// When `true`, hides the entire application icon from the dock / taskbar.
   final bool? hideAppFromTaskbar;
 
-  /// Initial title-bar style; use [TitleBarStyle.hidden] for frameless chrome.
+  /// Initial title-bar style; use `TitleBarStyle.hidden` for frameless chrome.
   final TitleBarStyle? titleBarStyle;
 
   /// Whether traffic-light / caption buttons are visible when the bar is hidden.
@@ -53,10 +53,10 @@ class WindowOptions {
   /// Whether the window stays above other application windows.
   final bool? alwaysOnTop;
 
-  /// Per-view overrides merged on top of [MultiViewDesktop.appShell].
+  /// Per-view overrides merged on top of `MultiViewDesktop.appShell`.
   ///
-  /// Set [ViewShellOverrides.appearance] for theme or locale on this window only.
-  /// Set [ViewShellOverrides.routerConfig], [ViewShellOverrides.home], or [routes]
+  /// Set `ViewShellOverrides.appearance` for theme or locale on this window only.
+  /// Set `ViewShellOverrides.routerConfig`, `ViewShellOverrides.home`, or `routes`
   /// for a dedicated navigator or router stack on this view.
   final ViewShellOverrides? shellOverrides;
 }

@@ -2,7 +2,7 @@
 ///
 /// All OS windows share one Flutter engine and one Dart isolate.
 ///
-/// Entry point: [runMultiApp] instead of [runApp]:
+/// Entry point: `runMultiApp` instead of `runApp`:
 /// ```dart
 /// void main() {
 ///   runMultiApp(home: (context, id) => MyApp());
@@ -14,14 +14,14 @@
 /// openWindow((context, id) => const SettingsPage(), options: WindowOptions(title: 'Settings'));
 /// ```
 ///
-/// Control the current window via [MultiViewDesktop.of] or [MultiViewDesktop.fromId]:
+/// Control the current window via `MultiViewDesktop.of` or `MultiViewDesktop.fromId`:
 /// ```dart
 /// final win = MultiViewDesktop.of(context);
 /// await win.setTitle('Settings');
 /// await win.setTitleBarStyle(TitleBarStyle.hidden);
 /// ```
 ///
-/// See also [WindowListener], [WindowCommunicator], and [WindowOptions].
+/// See also `WindowListener`, `WindowCommunicator`, and `WindowOptions`.
 library;
 
 export 'src/multi_view_desktop.dart';

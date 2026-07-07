@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'app_entry_kind.dart';
 import 'app_shell_snapshot.dart';
 
-/// Partial update applied through [AppShellController.patch].
+/// Partial update applied through `AppShellController.patch`.
 ///
 /// Contains only app-wide fields (theme, locale, shortcuts). Navigation and
-/// router settings belong in [ViewShellOverrides] on [WindowOptions.shellOverrides]
-/// or [MultiViewDesktop.patchViewShell].
+/// router settings belong in `ViewShellOverrides` on `WindowOptions.shellOverrides`
+/// or `MultiViewDesktop.patchViewShell`.
 ///
 /// Example:
 ///
@@ -66,7 +66,7 @@ class AppShellPatch {
   final Map<Type, Action<Intent>>? actions;
   final TextStyle? textStyle;
 
-  /// Merges this patch into [current]. Used by the internal registry.
+  /// Merges this patch into `current`. Used by the internal registry.
   AppShellSnapshot applyTo(AppShellSnapshot? current) {
     if (current == null) {
       return AppShellSnapshot(
@@ -118,7 +118,7 @@ class AppShellPatch {
     );
   }
 
-  /// Combines two view-local override patches. Non-null fields in [delta] win.
+  /// Combines two view-local override patches. Non-null fields in `delta` win.
   static AppShellPatch merge(AppShellPatch? base, AppShellPatch delta) {
     if (base == null) return delta;
     return AppShellPatch(

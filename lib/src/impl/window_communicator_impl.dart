@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 
-/// [WindowCommunicator] backed by in-memory broadcast [StreamController]s.
+/// `WindowCommunicator` backed by in-memory broadcast `StreamController`s.
 /// Uses shifted ids cause has public API to add listeners by id
 class WindowCommunicatorImpl implements WindowCommunicator {
   WindowCommunicatorImpl();
@@ -73,10 +73,10 @@ class WindowCommunicatorImpl implements WindowCommunicator {
   // Internal cleanup
   // -------------------------------------------------------------------------
 
-  /// Closes and removes the per-view stream and children for [viewId].
+  /// Closes and removes the per-view stream and children for `viewId`.
   ///
   /// Called automatically by the library when a view is removed from the
-  /// [ViewCollection].  Do not call this manually.
+  /// `ViewCollection`.  Do not call this manually.
   @internal
   Future<void> disposeViewByShiftedId(int viewId) async {
     _viewControllers.remove(viewId)?.close();

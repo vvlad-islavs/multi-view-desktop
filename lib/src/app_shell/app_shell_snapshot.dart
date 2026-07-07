@@ -5,9 +5,9 @@ import 'app_entry_kind.dart';
 
 /// Immutable app-wide settings shared by secondary and dialog views.
 ///
-/// Contains only fields that are safe to replicate across separate [View]
+/// Contains only fields that are safe to replicate across separate `View`
 /// trees: theme, locale, shortcuts, scroll behavior, and similar. Navigation
-/// ([home], [routes], [routerConfig], [navigatorKey]) is intentionally omitted
+/// (`home`, `routes`, `routerConfig`, `navigatorKey`) is intentionally omitted
 /// because each OS window has its own widget subtree.
 ///
 /// Obtain a snapshot from the main entry widget:
@@ -19,10 +19,10 @@ import 'app_entry_kind.dart';
 ///
 /// While the main window is open, the library also keeps the live registry in
 /// sync by reading the entry widget from the main view each frame. Programmatic
-/// updates via [AppShellController] work even after the main window is closed.
+/// updates via `AppShellController` work even after the main window is closed.
 @immutable
 class AppShellSnapshot {
-  /// Creates a snapshot. Prefer [fromMaterialApp] and related factories when
+  /// Creates a snapshot. Prefer `fromMaterialApp` and related factories when
   /// copying from an existing entry widget.
   const AppShellSnapshot({
     required this.kind,
@@ -51,34 +51,34 @@ class AppShellSnapshot {
   /// Root widget type used for secondary and dialog shells.
   final AppEntryKind kind;
 
-  /// Light [ThemeData] for [AppEntryKind.material].
+  /// Light `ThemeData` for `AppEntryKind.material`.
   final ThemeData? theme;
 
-  /// Dark [ThemeData] for [AppEntryKind.material].
+  /// Dark `ThemeData` for `AppEntryKind.material`.
   final ThemeData? darkTheme;
 
-  /// High-contrast light theme for [AppEntryKind.material].
+  /// High-contrast light theme for `AppEntryKind.material`.
   final ThemeData? highContrastTheme;
 
-  /// High-contrast dark theme for [AppEntryKind.material].
+  /// High-contrast dark theme for `AppEntryKind.material`.
   final ThemeData? highContrastDarkTheme;
 
-  /// Active theme mode for [AppEntryKind.material].
+  /// Active theme mode for `AppEntryKind.material`.
   final ThemeMode themeMode;
 
-  /// Duration of theme change animations on [AppEntryKind.material].
+  /// Duration of theme change animations on `AppEntryKind.material`.
   final Duration themeAnimationDuration;
 
-  /// Curve of theme change animations on [AppEntryKind.material].
+  /// Curve of theme change animations on `AppEntryKind.material`.
   final Curve themeAnimationCurve;
 
-  /// Optional animation style for theme transitions on [AppEntryKind.material].
+  /// Optional animation style for theme transitions on `AppEntryKind.material`.
   final AnimationStyle? themeAnimationStyle;
 
-  /// Theme for [AppEntryKind.cupertino].
+  /// Theme for `AppEntryKind.cupertino`.
   final CupertinoThemeData? cupertinoTheme;
 
-  /// Primary color used by [AppEntryKind.widgets] and as a fallback elsewhere.
+  /// Primary color used by `AppEntryKind.widgets` and as a fallback elsewhere.
   final Color? color;
 
   /// Active locale.
@@ -108,10 +108,10 @@ class AppShellSnapshot {
   /// Global action bindings.
   final Map<Type, Action<Intent>>? actions;
 
-  /// Base text style for [AppEntryKind.widgets].
+  /// Base text style for `AppEntryKind.widgets`.
   final TextStyle? textStyle;
 
-  /// Copies app-wide fields from [app], excluding navigation.
+  /// Copies app-wide fields from `app`, excluding navigation.
   factory AppShellSnapshot.fromMaterialApp(MaterialApp app) {
     return AppShellSnapshot(
       kind: AppEntryKind.material,
@@ -136,7 +136,7 @@ class AppShellSnapshot {
     );
   }
 
-  /// Copies app-wide fields from [app], excluding navigation.
+  /// Copies app-wide fields from `app`, excluding navigation.
   factory AppShellSnapshot.fromCupertinoApp(CupertinoApp app) {
     return AppShellSnapshot(
       kind: AppEntryKind.cupertino,
@@ -154,7 +154,7 @@ class AppShellSnapshot {
     );
   }
 
-  /// Copies app-wide fields from [app], excluding navigation.
+  /// Copies app-wide fields from `app`, excluding navigation.
   factory AppShellSnapshot.fromWidgetsApp(WidgetsApp app) {
     return AppShellSnapshot(
       kind: AppEntryKind.widgets,
@@ -173,8 +173,8 @@ class AppShellSnapshot {
 
   /// Resolves native window chrome brightness for this shell.
   ///
-  /// [ThemeMode.system] follows [platformBrightness] when provided, otherwise
-  /// [PlatformDispatcher.platformBrightness].
+  /// `ThemeMode.system` follows `platformBrightness` when provided, otherwise
+  /// `PlatformDispatcher.platformBrightness`.
   Brightness resolveWindowBrightness([Brightness? platformBrightness]) {
     final platform =
         platformBrightness ?? WidgetsBinding.instance.platformDispatcher.platformBrightness;

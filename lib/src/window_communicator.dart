@@ -5,8 +5,8 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 
 /// In-process message bus between views.
 ///
-/// Because [runMultiApp] uses a single Flutter engine and a single Dart
-/// isolate, all views share memory directly.  [WindowCommunicator] provides
+/// Because `runMultiApp` uses a single Flutter engine and a single Dart
+/// isolate, all views share memory directly.  `WindowCommunicator` provides
 /// a lightweight routing layer so views can still exchange messages without
 /// tight coupling.
 ///
@@ -30,14 +30,14 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 /// WindowCommunicator.onBroadcast.listen((msg) => print(msg));
 /// ```
 abstract class WindowCommunicator {
-  /// Returns a broadcast [Stream] of messages sent to [viewId] via [send].
+  /// Returns a broadcast `Stream` of messages sent to `viewId` via `send`.
   ///
-  /// When [viewId] is omitted, listens on the window that owns [context].
-  /// When [viewId] differs from the current window, sets up a linked listener
+  /// When `viewId` is omitted, listens on the window that owns `context`.
+  /// When `viewId` differs from the current window, sets up a linked listener
   /// so the sender can target another view from this one.
   Stream<dynamic> onDirect(BuildContext context, {int? viewId});
 
-  /// A broadcast [Stream] that receives every message sent via [broadcast].
+  /// A broadcast `Stream` that receives every message sent via `broadcast`.
   ///
   /// Subscribe in any view to receive global announcements:
   /// ```dart
@@ -47,13 +47,13 @@ abstract class WindowCommunicator {
   /// ```
   Stream<dynamic> get onBroadcast;
 
-  /// Delivers [message] to every active listener registered for [viewId]
-  /// via [onDirect].
+  /// Delivers `message` to every active listener registered for `viewId`
+  /// via `onDirect`.
   ///
   /// Returns nothing. If no listener is subscribed, the message is dropped.
   void send(int viewId, dynamic message);
 
-  /// Delivers [message] to every view subscribed to [onBroadcast].
+  /// Delivers `message` to every view subscribed to `onBroadcast`.
   ///
   /// Returns nothing. If no listener is subscribed, the message is dropped.
   void broadcast(dynamic message);

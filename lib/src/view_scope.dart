@@ -3,8 +3,8 @@ import 'package:flutter/widgets.dart';
 
 /// Provides the numeric OS-view identifier for the current window.
 ///
-/// Automatically injected by [runMultiApp] around every view in the
-/// [ViewCollection].  Read it with [MultiViewDesktop._getCurrentId] or
+/// Automatically injected by `runMultiApp` around every view in the
+/// `ViewCollection`.  Read it with `MultiViewDesktop._getCurrentId` or
 /// directly:
 ///
 /// ```dart
@@ -20,16 +20,16 @@ class ViewScope extends InheritedWidget {
 
   final int viewId;
 
-  /// Returns the [ViewScope] above [context], or `null` if the tree was not
-  /// created with [runMultiApp].
+  /// Returns the `ViewScope` above `context`, or `null` if the tree was not
+  /// created with `runMultiApp`.
   @internal
   static ViewScope? maybeOf(BuildContext context) {
     return context.dependOnInheritedWidgetOfExactType<ViewScope>();
   }
 
-  /// Returns the [ViewScope] above [context].
+  /// Returns the `ViewScope` above `context`.
   ///
-  /// Throws in debug mode if [runMultiApp] was not used as the entry point.
+  /// Throws in debug mode if `runMultiApp` was not used as the entry point.
   @internal
   static ViewScope of(BuildContext context) {
     final scope = maybeOf(context);

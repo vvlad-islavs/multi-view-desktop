@@ -5,7 +5,7 @@ import '../l10n/example_localizations.dart';
 import '../routing/auto_router/app_router.dart';
 import '../routing/go_router_config.dart';
 
-/// Opens secondary windows and dialogs that demonstrate [ViewShellOverrides].
+/// Opens secondary windows and dialogs that demonstrate `ViewShellOverrides`.
 abstract final class ShellDemoActions {
   static void openGoRouterWindow(BuildContext context) {
     final router = createDemoGoRouter();

@@ -3,8 +3,8 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 
 /// Tracks open child dialogs for one OS window.
 ///
-/// Injected automatically by the library. Read the notifier via [DialogScope.of]
-/// or use [DialogModalLayer] instead of constructing this widget directly.
+/// Injected automatically by the library. Read the notifier via `DialogScope.of`
+/// or use `DialogModalLayer` instead of constructing this widget directly.
 typedef DialogInfo = ({int id, bool isModal});
 
 class DialogScope extends InheritedWidget {
@@ -16,15 +16,15 @@ class DialogScope extends InheritedWidget {
   /// An empty list means no child dialogs.
   final ValueNotifier<List<DialogInfo>> notifier;
 
-  /// Returns the notifier from the nearest [DialogScope], or null when the tree
-  /// was not created with [runMultiApp].
+  /// Returns the notifier from the nearest `DialogScope`, or null when the tree
+  /// was not created with `runMultiApp`.
   static ValueNotifier<List<DialogInfo>>? maybeOf(BuildContext context) {
     return context.dependOnInheritedWidgetOfExactType<DialogScope>()?.notifier;
   }
 
-  /// Returns the notifier from the nearest [DialogScope].
+  /// Returns the notifier from the nearest `DialogScope`.
   ///
-  /// Throws in debug mode when [runMultiApp] was not used as the entry point.
+  /// Throws in debug mode when `runMultiApp` was not used as the entry point.
   static ValueNotifier<List<DialogInfo>> of(BuildContext context) {
     final scope = maybeOf(context);
     assert(
@@ -52,7 +52,7 @@ class DialogScope extends InheritedWidget {
 /// );
 /// ```
 ///
-/// When [openDialog] is called with `modal: true`, the scrim fades in over the
+/// When `openDialog` is called with `modal: true`, the scrim fades in over the
 /// parent content. Native modal dialogs also block input on the parent at the
 /// OS level on supported platforms; this widget adds visual dimming only.
 ///
