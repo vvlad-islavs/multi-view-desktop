@@ -146,6 +146,18 @@ void MvdLinuxWindow::Close() {
             view_id);
     return;
   }
+  // Guard against duplicate idle callbacks when the caller invokes Close()
+  // multiple times before the first gtk_window_close fires (e.g. the Dart
+  // side calling closeWindow() several times in quick succession).
+  // The flag is cleared by the idle callback just before it calls
+  // gtk_window_close, so if on_delete returns TRUE (blocking the close) a
+  // subsequent Call to Close() will queue a new callback correctly.
+  if (close_pending) {
+    MVD_LOG("Close  view_id=%" G_GINT64_FORMAT
+            "  SKIP: gtk_window_close already queued", view_id);
+    return;
+  }
+  close_pending = true;
   MVD_LOG("Close  view_id=%" G_GINT64_FORMAT
           "  scheduling gtk_window_close via g_idle_add", view_id);
   auto* vid = new int64_t(view_id);
@@ -157,6 +169,9 @@ void MvdLinuxWindow::Close() {
                 "  looking up window in registry", vid);
         auto wm = MvdLinuxWindow::Find(vid);
         if (wm && wm->window) {
+          // Reset before gtk_window_close so that a new Close() call works
+          // correctly if on_delete returns TRUE (blocking the current close).
+          wm->close_pending = false;
           MVD_LOG("Close  idle_cb  view_id=%" G_GINT64_FORMAT
                   "  calling gtk_window_close on window=%p  %s",
                   vid, static_cast<void*>(wm->window),
@@ -189,6 +204,7 @@ void MvdLinuxWindow::Destroy() {
   }
   const bool was_modal = is_modal;
   const int64_t owner_id = modal_owner_view_id;
+  const int64_t vid = view_id;
   GtkWindow* w = window;
   MVD_LOG("Destroy  nulling this->window and this->view  view_id=%"
           G_GINT64_FORMAT "  w=%p  view=%p",
@@ -196,12 +212,11 @@ void MvdLinuxWindow::Destroy() {
   window = nullptr;
   view = nullptr;
   MVD_LOG("Destroy  calling Unregister(%" G_GINT64_FORMAT ")  w=%p",
-          view_id, static_cast<void*>(w));
-  Unregister(view_id);
-  MVD_LOG("Destroy  calling gtk_widget_destroy  w=%p  %s",
-          static_cast<void*>(w), mvd_xid_str(w).c_str());
-  gtk_widget_destroy(GTK_WIDGET(w));
-  MVD_LOG("Destroy  gtk_widget_destroy returned  w=%p", static_cast<void*>(w));
+          vid, static_cast<void*>(w));
+  Unregister(vid);
+
+  // Update modal state immediately so the owner regains input before the
+  // GTK widget is gone.
   if (was_modal && owner_id >= 0) {
     MVD_LOG("Destroy  was_modal=true, updating modal layer for owner=%"
             G_GINT64_FORMAT, owner_id);
@@ -210,8 +225,50 @@ void MvdLinuxWindow::Destroy() {
             owner_id);
     FocusModalTarget(GetActiveModalFocusTarget(owner_id));
   }
-  MVD_LOG("Destroy  END  (original view_id=%" G_GINT64_FORMAT ")",
-          view_id);
+
+  // ---- Deferred destroy (same rationale as on_delete FINAL CLOSE) ----------
+  //
+  // Calling gtk_widget_destroy while Flutter's raster thread still has frames
+  // queued for this view causes fl_compositor / FlView to be accessed after
+  // the GObject has been disposed, producing GLib-GObject-CRITICAL warnings
+  // and risking GLX context corruption.
+  //
+  // Fix: hide the window immediately (visual feedback), then destroy it 100 ms
+  // later.  By that time Dart has received the 'destroyWindow' acknowledgment,
+  // removed the view from its widget tree, and Flutter's raster thread has
+  // drained any in-flight frames for this view.
+  // --------------------------------------------------------------------------
+  MVD_LOG("Destroy  hiding window immediately  view_id=%" G_GINT64_FORMAT
+          "  w=%p", vid, static_cast<void*>(w));
+  gtk_widget_hide(GTK_WIDGET(w));
+
+  // Keep the GObject alive across the timer.
+  g_object_ref(GTK_WIDGET(w));
+
+  struct DestroyCtx { GtkWidget* widget; int64_t vid; };
+  auto* ctx = new DestroyCtx{GTK_WIDGET(w), vid};
+
+  MVD_LOG("Destroy  scheduling deferred gtk_widget_destroy (100 ms)"
+          "  view_id=%" G_GINT64_FORMAT "  w=%p", vid, static_cast<void*>(w));
+
+  g_timeout_add(
+      100,
+      [](gpointer data) -> gboolean {
+        auto* c = static_cast<DestroyCtx*>(data);
+        MVD_LOG("Destroy  deferred_destroy_cb  view_id=%" G_GINT64_FORMAT
+                "  calling gtk_widget_destroy  widget=%p",
+                c->vid, static_cast<void*>(c->widget));
+        gtk_widget_destroy(c->widget);
+        MVD_LOG("Destroy  deferred_destroy_cb  view_id=%" G_GINT64_FORMAT
+                "  gtk_widget_destroy returned  releasing extra GObject ref",
+                c->vid);
+        g_object_unref(c->widget);
+        delete c;
+        return G_SOURCE_REMOVE;
+      },
+      ctx);
+
+  MVD_LOG("Destroy  END (deferred)  original view_id=%" G_GINT64_FORMAT, vid);
 }
 
 namespace {

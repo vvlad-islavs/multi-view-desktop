@@ -237,11 +237,23 @@ static gboolean on_delete(GtkWidget* widget, GdkEvent*, gpointer data) {
         MvdLinuxWindow::GetActiveModalFocusTarget(owner_id));
   }
 
-  // Determine now (before the async delay) whether this was the last window.
+  // Determine now (before the async delay) whether we should quit the app.
+  //
+  // Two independent conditions can require a quit:
+  //   1. g_terminate_after_last_window_closed is true and there are no more
+  //      registered windows (Dart-controlled policy).
+  //   2. The last registered window was the primary/implicit view (view_id==0).
+  //      Flutter's engine will terminate on its own when the implicit FlView
+  //      is destroyed, but we still call g_application_quit to ensure the
+  //      GApplication main loop exits cleanly if Flutter somehow doesn't.
   const bool should_quit = [&]() -> bool {
-    if (!g_terminate_after_last_window_closed) { return false; }
     std::lock_guard<std::mutex> lock(MvdLinuxWindow::registry_mtx);
-    return MvdLinuxWindow::windows.empty();
+    if (MvdLinuxWindow::windows.empty()) {
+      // All windows closed: quit if the policy says so, OR if this was the
+      // primary window (view_id==0), which always implies the app should exit.
+      return g_terminate_after_last_window_closed || (view_id == 0);
+    }
+    return false;
   }();
 
   // Deferred destroy - the root of the X11/GLX crash.

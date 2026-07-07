@@ -25,6 +25,10 @@ class MvdLinuxWindow {
   bool is_prevent_close = false;
   bool is_confirm_close = false;
   bool is_pre_confirm = false;
+  // Set while a gtk_window_close idle-callback is queued, cleared just before
+  // the callback calls gtk_window_close so that a subsequent closeWindow call
+  // (e.g. after on_delete returns TRUE) schedules a new callback correctly.
+  bool close_pending = false;
   bool is_minimizable = true;
   bool is_resizable = true;
   bool is_fullscreen = false;
