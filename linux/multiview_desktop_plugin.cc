@@ -2,6 +2,7 @@
 
 #include "mvd_linux_internal.h"
 #include "mvd_linux_log.h"
+#include "mvd_linux_taskbar_menu.h"
 #include "mvd_linux_window.h"
 
 #include <flutter_linux/flutter_linux.h>
@@ -155,7 +156,6 @@ static void emit_view_created(int64_t view_id, int64_t token) {
   MVD_LOG("emit_view_created  dispatched  viewId=%" G_GINT64_FORMAT
           "  token=%" G_GINT64_FORMAT, view_id, token);
 }
-
 
 static gboolean on_delete(GtkWidget* widget, GdkEvent*, gpointer data) {
   const int64_t view_id = pointer_to_view_id(data);
@@ -980,6 +980,7 @@ static void method_cb(FlMethodChannel*, FlMethodCall* method_call, gpointer) {
   } else if (g_strcmp0(method, "setProgressBar") == 0) {
     response = ok_null();
   } else if (g_strcmp0(method, "setTaskbarMenu") == 0) {
+    mvd_linux_set_taskbar_menu(fl_value_lookup_string(args, "items"));
     response = ok_null();
   } else {
     const int64_t view_id = int64_from_map(args, "viewId");
@@ -1154,6 +1155,7 @@ void multiview_desktop_plugin_register_with_registrar(
     g_object_unref(g_channel);
   }
   g_channel = ch;
+  mvd_linux_taskbar_menu_set_channel(g_channel);
   MVD_LOG("register_with_registrar  MethodChannel 'multiview_desktop'"
           "  ch=%p", static_cast<void*>(ch));
   fl_method_channel_set_method_call_handler(g_channel, method_cb, nullptr,

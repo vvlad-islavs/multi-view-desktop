@@ -140,6 +140,18 @@ Edit `linux/runner/my_application.cc`.
  }
 ```
 
+4. In `my_application_new`, create the `GtkApplication` with the default `GApplication` flags. Do **not** pass `G_APPLICATION_NON_UNIQUE`: the app must register its D-Bus name (`application-id`) so taskbar / dock context menu items work.
+
+```diff
+   g_set_prgname(APPLICATION_ID);
+
+   return MY_APPLICATION(g_object_new(my_application_get_type(),
+-                                    "application-id", APPLICATION_ID, "flags",
+-                                    G_APPLICATION_NON_UNIQUE, nullptr));
++                                    "application-id", APPLICATION_ID,
++                                    nullptr));
+```
+
 What each call does:
 
 - `first_frame_cb`: shows the top-level `GtkWindow` after Flutter renders the first frame. Connect it with `g_signal_connect_swapped(view, "first-frame", G_CALLBACK(first_frame_cb), self)` and call `gtk_widget_realize` on the view before registering plugins.
@@ -153,6 +165,17 @@ You can also set the default title for secondary windows before they appear:
 multiview_desktop_linux_runner_set_default_title("My App");
 ```
 
+#### Taskbar / dock context menu (Linux)
+
+Set items via `MultiPlatformParams.menuItems` in `runMultiApp`, or replace them at runtime with `MultiViewDesktop.setMenuItems`.
+
+Requirements:
+
+- Default `GApplication` flags in `my_application_new` (step 4 above). `G_APPLICATION_NON_UNIQUE` prevents D-Bus registration and breaks the menu.
+- `g_set_prgname(APPLICATION_ID)` so the running app matches the generated `.desktop` entry.
+
+The plugin registers `GApplication` actions and writes `~/.local/share/applications/<application-id>.desktop` with `DBusActivatable=true`. GNOME and other freedesktop shells that expose `.desktop` Actions in the dock context menu pick up the items after the app starts (restart the app once if the menu does not appear immediately).
+
 #### Linux platform limitations
 
 - **Multi-view requires Wayland.** The Flutter multi-view API on Linux currently works under Wayland compositors only. Running under a pure X11 session is not supported and the application will not open secondary windows.
@@ -161,6 +184,8 @@ multiview_desktop_linux_runner_set_default_title("My App");
 - **`setHasShadow`.** No-op on Linux. The native shadow is always drawn by the compositor.
 - **`setMovable`.** Maps to `setResizable` on Linux (there is no separate movability flag in GTK).
 - **`setBadgeLabel`, `setVisibleOnAllWorkspaces`, `hideFromCollection`.** macOS-only. Not available on Linux.
+- **`setProgressBar`, taskbar menu icons.** Not available on Linux. Taskbar menu items use the title only.
+- **Taskbar / dock context menu.** Supported via `menuItems` / `setMenuItems`; see [Taskbar / dock context menu (Linux)](#taskbar--dock-context-menu-linux).
 
 ---
 
@@ -379,7 +404,7 @@ void Win32Window::CenterOnScreen() {
 
 `MultiviewDesktopPlugin.prepareEngine` enables multi-view mode on the engine, hides the window before the first frame, and stores a reference to the main `NSWindow`. This must be called before `FlutterViewController` is created.
 
-**`macos/Runner/AppDelegate.swift`**: forward the two lifecycle callbacks to the plugin:
+**`macos/Runner/AppDelegate.swift`**: forward lifecycle and dock-menu callbacks to the plugin:
 
 ```diff
  import Cocoa
@@ -408,12 +433,21 @@ void Win32Window::CenterOnScreen() {
    override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         return true
     }
++
++  override func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
++    return MultiviewDesktopPlugin.applicationShouldTerminate(sender)
++  }
++
++  override func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
++    return MultiviewDesktopPlugin.applicationDockMenu(sender)
++  }
  }
 ```
 
-`applicationShouldTerminateAfterLastWindowClosed` is driven by `CloseMode` set from Dart, so the plugin controls whether the app stays alive after all windows close.
-
-`applicationShouldHandleReopen` allows the library to restore the last window when the user clicks the dock icon after all windows have been hidden (relevant when using `MacosPlatformParams.saveLastWindowToReopen`).
+- `applicationShouldTerminateAfterLastWindowClosed` is driven by `CloseMode` set from Dart, so the plugin controls whether the app stays alive after all windows close.
+- `applicationShouldHandleReopen` restores hidden windows when the user clicks the dock icon (relevant with `MacosPlatformParams.saveLastWindowToReopen`).
+- `applicationShouldTerminate` intercepts Cmd+Q and Quit from the menu. The plugin calls `MacosPlatformParams.onTerminate`; return `true` from the callback to quit, `false` to cancel.
+- `applicationDockMenu` shows `MultiPlatformParams.menuItems` / `MultiViewDesktop.setMenuItems` in the dock context menu.
 
 ---
 
@@ -476,10 +510,19 @@ void main() {
       generalParams: MultiPlatformParams(
         closeMode: CloseMode.cascade,
         enableDynamicAnchor: true,
+        menuItems: [
+          TaskbarMenuItem(
+            title: 'Open new window',
+            onPressed: () => openWindow((ctx, id) => const HomePage()),
+          ),
+        ],
       ),
       macosParams: MacosPlatformParams(
         saveLastWindowToReopen: true,
-        closeAppAfterLastWindowClosed: false,
+        onTerminate: () async {
+          final allClosed = await MultiViewDesktop.closeApp(closeMode: CloseMode.softCascade);
+          return allClosed;
+        },
       ),
       globalWindowOptions: WindowOptions(
         size: const Size(1280, 720),
@@ -1222,10 +1265,19 @@ runMultiApp(
     generalParams: MultiPlatformParams(
       closeMode: CloseMode.cascade,
       enableDynamicAnchor: true,
+      menuItems: [
+        TaskbarMenuItem(
+          title: 'Open new window',
+          onPressed: () => openWindow((ctx, id) => const HomePage()),
+        ),
+      ],
     ),
     macosParams: MacosPlatformParams(
       saveLastWindowToReopen: true,
-      closeAppAfterLastWindowClosed: false,
+      onTerminate: () async {
+        final allClosed = await MultiViewDesktop.closeApp(closeMode: CloseMode.softCascade);
+        return allClosed;
+      },
     ),
     globalWindowOptions: WindowOptions(
       size: const Size(1280, 720),
@@ -1239,9 +1291,11 @@ runMultiApp(
 
 `enableDynamicAnchor`: when `true`, the library automatically tracks which window becomes the "anchor" (the last window visible). The anchor ID is accessible via `MultiViewDesktop.getAnchorId()`.
 
+`menuItems`: initial taskbar / dock context menu entries (Linux and macOS). Replaced entirely by `MultiViewDesktop.setMenuItems`. On Windows, optional `iconAsset` per item is supported.
+
 `saveLastWindowToReopen` (macOS): when the user closes all windows and the app stays in the dock, re-opening from the dock icon restores the last window.
 
-`closeAppAfterLastWindowClosed` (macOS): when `false` (the default), the process stays alive after the last window closes. The app icon remains in the dock. When `true`, the process terminates as soon as the last window closes.
+`onTerminate` (macOS): async callback invoked on Cmd+Q and Quit from the menu. Return `true` to quit the process, `false` to cancel. Requires `applicationShouldTerminate` in `AppDelegate` (see [macOS setup](#macos-setup)).
 
 `globalWindowOptions`: default [WindowOptions](#window-options) merged into every `openWindow` call.
 
@@ -1567,6 +1621,12 @@ Returns whether the application icon is hidden from the dock / taskbar (app-wide
 
 Hides or shows the application icon in the dock / taskbar app-wide.
 
+##### setMenuItems(List\<TaskbarMenuItem\> items) -> Future\<void\>  (static)
+
+Replaces the entire taskbar / dock context menu. Linux (freedesktop `.desktop` Actions), macOS (dock menu). Windows: stub (not implemented yet).
+
+Initial items can also be set via `MultiPlatformParams.menuItems` in `runMultiApp`.
+
 ##### isHideAppTabFromTaskbar() -> Future\<bool\>  (instance)
 
 Returns whether this specific window is hidden from the taskbar (Windows / Linux).
@@ -1854,13 +1914,15 @@ Cross-platform parameters.
 
 `enableDynamicAnchor` - when `true`, automatically tracks the last visible window as the anchor. Default: `true`.
 
+`menuItems` - initial taskbar / dock context menu items (`TaskbarMenuItem`). Default: empty. Replaced at runtime by `MultiViewDesktop.setMenuItems`.
+
 ##### macosParams -> MacosPlatformParams
 
 macOS-specific parameters.
 
 `saveLastWindowToReopen` - restore the last window when the dock icon is clicked after all windows close. Default: `true`.
 
-`closeAppAfterLastWindowClosed` - quit the process when the last window closes. Default: `false`.
+`onTerminate` - async callback on Cmd+Q and Quit from the menu. Return `true` to terminate, `false` to cancel. Default: `null` (quit immediately). Requires `applicationShouldTerminate` in `AppDelegate`.
 
 ##### globalWindowOptions -> WindowOptions
 

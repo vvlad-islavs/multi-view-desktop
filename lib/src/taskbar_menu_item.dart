@@ -6,6 +6,9 @@ import 'package:flutter/services.dart';
 /// Custom entry for the app taskbar / dock context menu.
 ///
 /// On Windows, [iconAsset] is used when provided. macOS and Linux show [title] only.
+///
+/// On Linux (GNOME / freedesktop), items are exposed through `.desktop` Actions
+/// in the dock context menu. See the Linux setup notes in the package README.
 class TaskbarMenuItem {
   const TaskbarMenuItem({
     required this.title,

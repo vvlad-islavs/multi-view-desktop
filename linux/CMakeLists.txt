@@ -6,6 +6,7 @@ set(PLUGIN_NAME "multiview_desktop_plugin")
 
 add_library(${PLUGIN_NAME} SHARED
   "multiview_desktop_plugin.cc"
+  "mvd_linux_taskbar_menu.cc"
   "mvd_linux_window.cc"
   "mvd_linux_runner.cc"
 )
