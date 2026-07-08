@@ -52,7 +52,7 @@ Unlike libraries that spawn a new Flutter engine per window, multiview_desktop u
 |:-----:|:-----:|:-------:|
 |   +   |   +   |    +    |
 
-> **Linux note.** The multi-view Flutter API on Linux currently requires a Wayland compositor. Running under an X11 session is not supported. Individual window control calls that depend on compositor positioning (such as `setPosition`, `setAlignment`, `center`) may return silently when the compositor ignores client-side placement requests.
+> **Linux note.** Multi-view on Linux works under both X11 and Wayland. On Wayland, the compositor controls window placement, so `setPosition`, `setAlignment`, and `center` may be ignored silently. On X11, client-side positioning is supported.
 
 ---
 
@@ -178,13 +178,14 @@ The plugin registers `GApplication` actions and writes `~/.local/share/applicati
 
 #### Linux platform limitations
 
-- **Multi-view requires Wayland.** The Flutter multi-view API on Linux currently works under Wayland compositors only. Running under a pure X11 session is not supported and the application will not open secondary windows.
-- **Window positioning on Wayland.** `setPosition`, `setAlignment`, and `center` use `gtk_window_move` under the hood. On Wayland the compositor controls window placement and the call is silently ignored.
+- **X11 and Wayland.** Multi-view works on both session types. Under X11 the runner installs error handling for Flutter's multi-threaded GL rendering and defers window destruction to avoid raster-thread races.
+- **Window positioning on Wayland.** `setPosition`, `setAlignment`, and `center` use `gtk_window_move` under the hood. On Wayland the compositor controls window placement and the call is silently ignored. On X11 these calls use client-side coordinates.
 - **`setAlwaysOnTop`.** Uses `gtk_window_set_keep_above`. Whether the compositor respects this hint depends on the desktop environment.
 - **`setHasShadow`.** No-op on Linux. The native shadow is always drawn by the compositor.
 - **`setMovable`.** Maps to `setResizable` on Linux (there is no separate movability flag in GTK).
 - **`setBadgeLabel`, `setVisibleOnAllWorkspaces`, `hideFromCollection`.** macOS-only. Not available on Linux.
-- **`setProgressBar`, taskbar menu icons.** Not available on Linux. Taskbar menu items use the title only.
+- **`setProgressBar`.** Not available on Linux.
+- **`TaskbarMenuItem.iconAsset`.** Not available on Linux; dock menu items show the title only.
 - **Taskbar / dock context menu.** Supported via `menuItems` / `setMenuItems`; see [Taskbar / dock context menu (Linux)](#taskbar--dock-context-menu-linux).
 
 ---
@@ -321,6 +322,35 @@ The example `windows/runner/flutter_window.cpp` and `flutter_window.h` are repla
 
 Setting `SetQuitOnClose(false)` prevents the process from terminating when the main OS window is closed. The library takes over shutdown control via `CloseMode`.
 
+**Taskbar jump list forwarding** (required for custom taskbar menu callbacks while the app is already running):
+
+```diff
+ ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
++MultiViewDesktopInitializeShellIntegration();
++
+ if (MultiViewDesktopTryForwardTaskbarMenuActivation()) {
++  ::CoUninitialize();
++  return EXIT_SUCCESS;
++}
++
+ flutter::DartProject project(L"data");
+```
+
+When the user selects a jump list item, Windows may start a second process with `--mvd-taskbar-menu=<id>`. The helper forwards that activation to the running instance and exits the duplicate process.
+
+#### Taskbar / jump list context menu (Windows)
+
+Set items via `MultiPlatformParams.menuItems` in `runMultiApp`, or replace them at runtime with `MultiViewDesktop.setMenuItems`.
+
+Requirements:
+
+- Call `MultiViewDesktopInitializeShellIntegration()` in `wWinMain` after `CoInitializeEx` and before creating the window (see diff above).
+- Call `MultiViewDesktopTryForwardTaskbarMenuActivation()` so jump list clicks reach the running process when the app is already open.
+- Optional `TaskbarMenuItem.iconAsset` per item (PNG asset shown in the jump list).
+
+Items appear in the taskbar jump list when the user right-clicks the app icon. Windows uses an internal AppUserModelID derived from the executable file name (for example `MultiviewDesktop.my_app`). Users do not see this ID; it is unrelated to the window title. Keep the `.exe` name stable across releases so pinned taskbar entries keep the same jump list.
+
 #### Optional: CenterOnScreen helper
 
 The example `flutter_window.cpp` calls `CenterOnScreen()` right after the main view is created. This positions the window at the center of the monitor immediately at the native level, before Dart has a chance to apply `WindowOptions.alignment`. Without it the window appears at the origin coordinates passed to `Create` and is only repositioned later when the Dart side runs. If you prefer to let Dart handle positioning exclusively you can skip this step and remove the `CenterOnScreen()` call from `flutter_window.cpp`.
@@ -369,6 +399,8 @@ void Win32Window::CenterOnScreen() {
 
 - **`setBadgeLabel`, `setVisibleOnAllWorkspaces`, `hideFromCollection`.** macOS-only. Not available on Windows.
 - **`setProgressBar`.** Supported on Windows via taskbar progress API.
+- **Taskbar / jump list context menu.** Supported via `menuItems` / `setMenuItems`; see [Taskbar / jump list context menu (Windows)](#taskbar--jump-list-context-menu-windows).
+- **Taskbar menu icons.** `TaskbarMenuItem.iconAsset` is supported on Windows (jump list) and macOS (dock menu). On Linux, menu items work but icons are ignored.
 
 ---
 
@@ -1291,7 +1323,7 @@ runMultiApp(
 
 `enableDynamicAnchor`: when `true`, the library automatically tracks which window becomes the "anchor" (the last window visible). The anchor ID is accessible via `MultiViewDesktop.getAnchorId()`.
 
-`menuItems`: initial taskbar / dock context menu entries (Linux and macOS). Replaced entirely by `MultiViewDesktop.setMenuItems`. On Windows, optional `iconAsset` per item is supported.
+`menuItems`: initial taskbar / dock context menu entries (Linux, macOS, and Windows). Replaced entirely by `MultiViewDesktop.setMenuItems`. Optional `iconAsset` per item is supported on Windows and macOS; Linux shows the title only.
 
 `saveLastWindowToReopen` (macOS): when the user closes all windows and the app stays in the dock, re-opening from the dock icon restores the last window.
 
@@ -1479,7 +1511,7 @@ Resizes the window to `size` in logical pixels.
 
 ##### setPosition(Offset position) -> Future\<void\>
 
-Moves the window so its top-left corner is at `position`. Silent on Wayland (Linux).
+Moves the window so its top-left corner is at `position`. On Wayland (Linux) the compositor may ignore the request silently.
 
 ##### center() -> Future\<void\>
 
@@ -1487,7 +1519,7 @@ Centers the window on the screen that contains the largest portion of it.
 
 ##### setAlignment(Alignment alignment) -> Future\<void\>
 
-Positions the window using `alignment` on the display under the cursor. Silent on Wayland (Linux).
+Positions the window using `alignment` on the display under the cursor. On Wayland (Linux) the compositor may ignore the request silently.
 
 ##### setMinimumSize(Size size) -> Future\<void\>
 
@@ -1623,7 +1655,7 @@ Hides or shows the application icon in the dock / taskbar app-wide.
 
 ##### setMenuItems(List\<TaskbarMenuItem\> items) -> Future\<void\>  (static)
 
-Replaces the entire taskbar / dock context menu. Linux (freedesktop `.desktop` Actions), macOS (dock menu). Windows: stub (not implemented yet).
+Replaces the entire taskbar / dock context menu. Linux (freedesktop `.desktop` Actions), macOS (dock menu), Windows (taskbar jump list). Optional `iconAsset` on Windows and macOS; Linux shows the title only.
 
 Initial items can also be set via `MultiPlatformParams.menuItems` in `runMultiApp`.
 
@@ -1914,7 +1946,7 @@ Cross-platform parameters.
 
 `enableDynamicAnchor` - when `true`, automatically tracks the last visible window as the anchor. Default: `true`.
 
-`menuItems` - initial taskbar / dock context menu items (`TaskbarMenuItem`). Default: empty. Replaced at runtime by `MultiViewDesktop.setMenuItems`.
+`menuItems` - initial taskbar / dock context menu items (`TaskbarMenuItem`). Default: empty. Replaced at runtime by `MultiViewDesktop.setMenuItems`. Optional `iconAsset` per item on Windows and macOS; Linux shows the title only.
 
 ##### macosParams -> MacosPlatformParams
 

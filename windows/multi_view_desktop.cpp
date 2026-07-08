@@ -15,6 +15,7 @@
 #include "include/multi_view_desktop/multi_view_desktop.h"
 
 #include "multi_view_desktop.h"
+#include "mvd_windows_taskbar_menu.h"
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "user32.lib")
@@ -482,6 +483,7 @@ void MultiViewDesktop::RegisterMain(HWND window,
     entry->pixel_ratio_ = GetDpiForHwnd(window) / 96.0;
     windows_[flutter_view_id] = std::move(entry);
     main_view_id_ = flutter_view_id;
+    MvdWindowsApplyAppUserModelIdToWindow(window);
 }
 
 void MultiViewDesktop::RegisterWindow(HWND window,
@@ -493,6 +495,7 @@ void MultiViewDesktop::RegisterWindow(HWND window,
     entry->controller = view_controller;
     entry->pixel_ratio_ = GetDpiForHwnd(window) / 96.0;
     windows_[flutter_view_id] = std::move(entry);
+    MvdWindowsApplyAppUserModelIdToWindow(window);
 }
 
 MultiViewDesktop *MultiViewDesktop::FindByViewId(int64_t target_view_id) {
@@ -559,6 +562,20 @@ void MultiViewDesktop::EmitEvent(const std::string &event_name,
                             flutter::EncodableValue(event_name)},
                     {flutter::EncodableValue("viewId"),
                             flutter::EncodableValue(target_view_id)},
+            }));
+}
+
+void MultiViewDesktop::EmitTaskbarMenuItemSelected(int menu_item_id) {
+    if (!channel_) {
+        return;
+    }
+    channel_->InvokeMethod(
+            "onEvent",
+            std::make_unique<flutter::EncodableValue>(flutter::EncodableMap{
+                    {flutter::EncodableValue("eventName"),
+                            flutter::EncodableValue("taskbarMenuItemSelected")},
+                    {flutter::EncodableValue("id"),
+                            flutter::EncodableValue(menu_item_id)},
             }));
 }
 

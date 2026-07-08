@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 
 /// Custom entry for the app taskbar / dock context menu.
 ///
-/// On Windows, [iconAsset] is used when provided. macOS and Linux show [title] only.
+/// On Windows and macOS, [iconAsset] is used when provided. Linux shows [title] only.
 ///
 /// On Linux (GNOME / freedesktop), items are exposed through `.desktop` Actions
 /// in the dock context menu. See the Linux setup notes in the package README.
@@ -19,7 +19,7 @@ class TaskbarMenuItem {
   /// Visible menu label.
   final String title;
 
-  /// Flutter asset path (e.g. `assets/icons/new_window.png`). Optional; used on Windows.
+  /// Flutter asset path (e.g. `assets/icons/new_window.png`). Optional; used on Windows and macOS.
   final String? iconAsset;
 
   /// Invoked when the user selects this item. Matched by list index on the Dart side.

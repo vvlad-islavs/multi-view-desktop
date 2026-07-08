@@ -199,6 +199,11 @@ class MultiViewDesktop {
 
   /// Replaces the entire app taskbar / dock context menu.
   ///
+  /// Windows: taskbar jump list tasks (right-click the app icon).
+  /// macOS: dock context menu.
+  /// Linux: freedesktop `.desktop` Actions in the dock context menu.
+  /// Optional [TaskbarMenuItem.iconAsset] on Windows and macOS; Linux uses [TaskbarMenuItem.title] only.
+  ///
   /// Each call overwrites previous items. Item callbacks are matched by list index.
   static Future<void> setMenuItems(List<TaskbarMenuItem> items) async {
     await _manager.setTaskbarMenu(items: items);

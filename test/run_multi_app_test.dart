@@ -8,6 +8,19 @@ void main() {
 
       expect(params.enableDynamicAnchor, isTrue);
       expect(params.closeMode, CloseMode.softCascade);
+      expect(params.menuItems, isEmpty);
+    });
+
+    test('MultiPlatformParams stores initial taskbar menu items', () {
+      const items = [
+        TaskbarMenuItem(title: 'Open new window'),
+        TaskbarMenuItem(title: 'Settings'),
+      ];
+
+      const params = MultiPlatformParams(menuItems: items);
+
+      expect(params.menuItems, items);
+      expect(params.menuItems.first.title, 'Open new window');
     });
 
     test('MultiAppConfig factory merges platform params', () {
@@ -26,7 +39,7 @@ void main() {
       final params = MacosPlatformParams.defaultParams();
 
       expect(params.saveLastWindowToReopen, isTrue);
-      expect(params.closeAppAfterLastWindowClosed, isFalse);
+      expect(params.onTerminate, isNull);
     });
   });
 

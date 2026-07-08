@@ -106,7 +106,8 @@ class MultiPlatformParams {
   /// Can be changed at runtime via `MultiViewDesktop.setCloseMode`.
   final CloseMode closeMode;
 
-  /// Initial taskbar / dock menu items. Replaced entirely by `MultiViewDesktop.setMenuItems`.
+  /// Initial taskbar / dock / jump list menu items.
+  /// Replaced entirely by `MultiViewDesktop.setMenuItems`.
   final List<TaskbarMenuItem> menuItems;
 
   const MultiPlatformParams({

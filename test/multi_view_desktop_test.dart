@@ -11,9 +11,16 @@ void main() {
 
     test('CloseMode values match runMultiApp configuration', () {
       final config = MultiAppConfig(
-        generalParams: const MultiPlatformParams(closeMode: CloseMode.forceSecondary),
+        generalParams: const MultiPlatformParams(
+          closeMode: CloseMode.forceSecondary,
+          menuItems: [
+            TaskbarMenuItem(title: 'Open new window'),
+          ],
+        ),
       );
       expect(config.generalParams.closeMode, CloseMode.forceSecondary);
+      expect(config.generalParams.menuItems, hasLength(1));
+      expect(config.generalParams.menuItems.single.title, 'Open new window');
     });
 
     test('DialogOptions and WindowOptions accept shell overrides', () {

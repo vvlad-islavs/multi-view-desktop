@@ -21,7 +21,13 @@ void main() {
       generalParams: MultiPlatformParams(
         enableDynamicAnchor: true,
         closeMode: CloseMode.softCascade,
-        menuItems: [TaskbarMenuItem(title: 'Open new window', onPressed: () => openWindow((ctx, id) => HomePage()))],
+        menuItems: [
+          TaskbarMenuItem(
+            title: 'Open new window',
+            iconAsset: 'assets/icons/new_window.png',
+            onPressed: () => openWindow((ctx, id) => HomePage()),
+          ),
+        ],
       ),
       macosParams: MacosPlatformParams(
         saveLastWindowToReopen: true,

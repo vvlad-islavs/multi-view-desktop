@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "multi_view_desktop.h"
+#include "mvd_windows_taskbar_menu.h"
 
 namespace multi_view_desktop {
 
@@ -179,6 +180,10 @@ namespace multi_view_desktop {
             UINT message,
             WPARAM wparam,
             LPARAM lparam) {
+        if (MvdWindowsHandleTaskbarMenuMessage(message, wparam, lparam)) {
+            return 0;
+        }
+
         auto &impl = MultiViewDesktop::Instance();
         MultiViewDesktop *window = impl.FindByHwnd(hwnd);
         if (!window) {
@@ -432,6 +437,13 @@ namespace multi_view_desktop {
             return;
         }
         if (method == "setTaskbarMenu") {
+            const flutter::EncodableValue* items_value = nullptr;
+            const auto items_it = args.find(flutter::EncodableValue("items"));
+            if (items_it != args.end()) {
+                items_value = &items_it->second;
+            }
+            MvdWindowsSetTaskbarMenu(items_value);
+            MvdWindowsFlushPendingTaskbarMenuSelection();
             result->Success();
             return;
         }
@@ -825,6 +837,7 @@ void MultiViewDesktopPluginRegisterWithRegistrar(
 
 void MultiViewDesktopPrepareEngine(const flutter::DartProject &project,
                                    HWND main_host_window) {
+    multi_view_desktop::MvdWindowsInitializeShellIntegration();
     if (!multi_view_desktop::g_engine_ref) {
         const FlutterDesktopEngineProperties properties =
                 multi_view_desktop::BuildEngineProperties(project);
@@ -835,6 +848,7 @@ void MultiViewDesktopPrepareEngine(const flutter::DartProject &project,
     }
     multi_view_desktop::MultiViewDesktop::Instance().SetMainHostWindow(
             main_host_window);
+    multi_view_desktop::MvdWindowsApplyAppUserModelIdToWindow(main_host_window);
 }
 
 FlutterDesktopEngineRef MultiViewDesktopGetEngineRef() {
@@ -900,4 +914,12 @@ bool MultiViewDesktopHandleWindowProc(HWND hwnd,
         return true;
     }
     return false;
+}
+
+bool MultiViewDesktopTryForwardTaskbarMenuActivation() {
+    return multi_view_desktop::MvdWindowsTryForwardTaskbarMenuActivation();
+}
+
+void MultiViewDesktopInitializeShellIntegration() {
+    multi_view_desktop::MvdWindowsInitializeShellIntegration();
 }

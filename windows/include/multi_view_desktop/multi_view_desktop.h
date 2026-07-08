@@ -47,6 +47,13 @@ FLUTTER_PLUGIN_EXPORT bool MultiViewDesktopHandleWindowProc(
     LPARAM lparam,
     LRESULT* result);
 
+// Must run before any UI or jump list updates (call from wWinMain after CoInitializeEx).
+FLUTTER_PLUGIN_EXPORT void MultiViewDesktopInitializeShellIntegration();
+
+// Returns true when a jump list activation was forwarded to another instance
+// and this process should exit before creating the Flutter window.
+FLUTTER_PLUGIN_EXPORT bool MultiViewDesktopTryForwardTaskbarMenuActivation();
+
 #endif  // __cplusplus
 
 #endif  // FLUTTER_PLUGIN_MULTI_VIEW_DESKTOP_PLUGIN_H_
