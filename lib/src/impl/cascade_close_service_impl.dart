@@ -18,7 +18,6 @@ class CascadeCloseService {
     if (completer == null || completer.isCompleted) return;
 
     completer.complete(false);
-
     // Clear remaining completers so their future completion (e.g. user later
     // closes those windows independently) does not re-trigger the cascade.
     _closeCompleters.remove(id);

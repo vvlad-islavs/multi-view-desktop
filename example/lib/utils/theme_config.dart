@@ -32,7 +32,7 @@ class ThemeConfig extends ChangeNotifier {
 
 class SharedParams extends ChangeNotifier {
   bool _isHideAppFromTaskbar = false;
-  CloseMode _closeMode = CloseMode.none;
+  CloseMode _closeMode = CloseMode.softCascade;
   int? _anchorId;
 
   bool get isHideAppFromTaskbar => _isHideAppFromTaskbar;

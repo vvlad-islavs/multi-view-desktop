@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
-import 'dart:ui' show FlutterView, PlatformDispatcher;
+import 'dart:ui' show PlatformDispatcher;
 import 'package:collection/collection.dart';
 
 import 'package:flutter/foundation.dart';
@@ -416,12 +415,15 @@ class _ViewsManagerImpl implements ViewsManager {
     closeMode = config.generalParams.closeMode;
   }
 
+  late bool _saveLastWindowToReopen = config.macosParams.saveLastWindowToReopen;
+
   /// Pushes lifecycle quit policy to the native embedder.
   Future<void> applyNativeLifecyclePolicy() async {
     if (Platform.isMacOS) {
-      await _nativeChannel.setTerminateAfterLastWindowClosed(config.macosParams.closeAppAfterLastWindowClosed);
+      // await _nativeChannel.setTerminateAfterLastWindowClosed(config.macosParams.closeAppAfterLastWindowClosed);
+      await _nativeChannel.setTerminateAfterLastWindowClosed(!_saveLastWindowToReopen);
     } else if (Platform.isLinux) {
-      await _nativeChannel.setTerminateAfterLastWindowClosed(false);
+      await _nativeChannel.setTerminateAfterLastWindowClosed(true);
     }
   }
 
@@ -745,6 +747,8 @@ class _ViewsManagerImpl implements ViewsManager {
         // debugPrint('confirm: $viewId');
         await _onConfirmClose(viewId);
       }
+    } else if (eventName == 'applicationShouldTerminateRequest') {
+      unawaited(_macosOnShouldAppTerminate());
     } else {
       final int? viewId = call.arguments['viewId'] as int?;
 
@@ -754,6 +758,11 @@ class _ViewsManagerImpl implements ViewsManager {
     }
 
     return null;
+  }
+
+  Future<void> _macosOnShouldAppTerminate() async {
+    final confirmTerminate = await config.macosParams.onTerminate?.call() ?? true;
+    await _nativeChannel.replyToApplicationShouldTerminate(confirmTerminate);
   }
 
   Future<void> _onConfirmClose(int viewId) async {
@@ -910,10 +919,15 @@ class _ViewsManagerImpl implements ViewsManager {
     }
   }
 
+  bool _isLastMacosRootView(int id) =>
+      ((_anchorCandidates(excludingViewId: id).isEmpty) && _saveLastWindowToReopen && _realAnchorId == id);
+
   Future<void> _preConfirmCloseCallable(int viewId, {bool isForce = false}) async {
     await _nativeChannel.setPreConfirmClose(viewId, true);
 
     if (isForce) {
+      _saveLastWindowToReopen = false;
+      await applyNativeLifecyclePolicy();
       await _nativeChannel.forceCloseView(viewId);
     } else {
       if (Platform.isMacOS) {
@@ -922,6 +936,7 @@ class _ViewsManagerImpl implements ViewsManager {
           await _removeAllDialogsByParent(viewId);
           await _nativeChannel.hide(viewId);
           await _nativeChannel.setPreConfirmClose(viewId, false);
+          cascadeCloseService.completeWindow(viewId);
           return;
         }
       }
@@ -943,23 +958,20 @@ class _ViewsManagerImpl implements ViewsManager {
     await _preConfirmCloseCallable(rootId);
   }
 
-  bool _isLastMacosRootView(int id) =>
-      ((_anchorCandidates(excludingViewId: id).isEmpty) &&
-      config.macosParams.saveLastWindowToReopen &&
-      _realAnchorId == id);
-
   Future<void> _removeViewsCascade(int rootId, {bool reverse = true}) async {
     if (!reverse) await _preConfirmCloseCallable(rootId);
     final descendants = _descendantIdsDeepestFirst(rootId).toList()..sort();
 
     // debugPrint('cascade for $rootId');
     for (final id in descendants.reversed) {
-      await _viewExistChecker(id, () async {
-        cascadeCloseService.attachWindow(id);
-        await _nativeChannel.softCloseWindow(id);
-        final closed = await cascadeCloseService.waitWindow(id);
-        if (!closed) return;
-      });
+      final closed =
+          await _viewExistChecker<bool>(id, () async {
+            cascadeCloseService.attachWindow(id);
+            await _nativeChannel.softCloseWindow(id);
+            return await cascadeCloseService.waitWindow(id);
+          }) ??
+          false;
+      if (!closed) return;
     }
 
     // checks views created while doing close cycle
@@ -970,7 +982,7 @@ class _ViewsManagerImpl implements ViewsManager {
     }
 
     if (reverse) {
-        await _viewExistChecker(rootId, () async =>_preConfirmCloseCallable(rootId), dialogSupports: true);
+      await _viewExistChecker(rootId, () async => _preConfirmCloseCallable(rootId), dialogSupports: true);
     }
   }
 
@@ -978,12 +990,14 @@ class _ViewsManagerImpl implements ViewsManager {
     cascadeCloseService.clear();
     final descendants = _descendantIdsDeepestFirst(rootId).toList()..sort();
     for (final id in descendants.reversed) {
-      await _viewExistChecker(id, () async {
-        cascadeCloseService.attachWindow(id);
-        await _nativeChannel.forceCloseView(id);
-        final closed = await cascadeCloseService.waitWindow(id);
-        if (!closed) return;
-      });
+      final closed =
+          await _viewExistChecker<bool>(id, () async {
+            cascadeCloseService.attachWindow(id);
+            await _nativeChannel.forceCloseView(id);
+            return await cascadeCloseService.waitWindow(id);
+          }) ??
+          false;
+      if (!closed) return;
     }
 
     // checks views created while doing close cycle
@@ -1002,12 +1016,14 @@ class _ViewsManagerImpl implements ViewsManager {
     cascadeCloseService.clear();
     final descendants = _descendantIdsDeepestFirst(rootId).toList()..sort();
     for (final id in descendants.reversed) {
-      await _viewExistChecker(id, () async {
-        cascadeCloseService.attachWindow(id);
-        await _nativeChannel.forceCloseView(id);
-        final closed = await cascadeCloseService.waitWindow(id);
-        if (!closed) return;
-      });
+      final closed =
+          await _viewExistChecker<bool>(id, () async {
+            cascadeCloseService.attachWindow(id);
+            await _nativeChannel.forceCloseView(id);
+            return await cascadeCloseService.waitWindow(id);
+          }) ??
+          false;
+      if (!closed) return;
     }
 
     // checks views created while doing close cycle
@@ -1020,7 +1036,11 @@ class _ViewsManagerImpl implements ViewsManager {
       }
     }
 
-   await _viewExistChecker(rootId, () async => await _preConfirmCloseCallable(rootId, isForce: true), dialogSupports: true);
+    await _viewExistChecker(
+      rootId,
+      () async => await _preConfirmCloseCallable(rootId, isForce: true),
+      dialogSupports: true,
+    );
   }
 
   Future<void> removeOrphanViewsForceAfterRestart(List<int> ids) async {
@@ -2024,16 +2044,32 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  Future<void> closeApp({CloseMode? closeMode}) async {
+  Future<bool> closeApp({CloseMode? closeMode}) async {
     final mode = closeMode ?? config.generalParams.closeMode;
-    await _closeEntireApp(mode);
+    return await _closeApp(mode);
   }
 
   /// Closes every registered window (all roots and their subtrees).
-  Future<void> _closeEntireApp(CloseMode mode) async {
-    for (final root in _rootWindowIds()) {
-      await _closeSubtreeByMode(root, mode);
+  /// if all views successfully closed by mode `mode` return `true` else `false`
+  Future<bool> _closeApp(CloseMode mode) async {
+    final allRoots = _rootWindowIds()..sort();
+
+    _saveLastWindowToReopen = false;
+    await applyNativeLifecyclePolicy();
+    for (final root in allRoots.reversed) {
+      cascadeCloseService.attachWindow(root);
+      unawaited(_closeSubtreeByMode(root, mode));
+      final closed = await cascadeCloseService.waitWindow(root);
+      if (!closed) {
+        if (Platform.isMacOS) {
+          _saveLastWindowToReopen = config.macosParams.saveLastWindowToReopen;
+          await applyNativeLifecyclePolicy();
+        }
+        return false;
+      }
     }
+
+    return true;
   }
 
   Future<T?> _viewExistChecker<T>(int viewId, Future<T> Function() func, {bool dialogSupports = false}) async {

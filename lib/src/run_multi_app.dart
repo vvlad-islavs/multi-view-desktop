@@ -114,12 +114,19 @@ class MultiPlatformParams {
 
 /// macOS-specific parameters for `MultiAppConfig.macosParams`.
 class MacosPlatformParams {
-  /// When true, quitting after the last window closes terminates the process.
-  final bool closeAppAfterLastWindowClosed;
+  // When true, quitting after the last window closes terminates the process.
+  // final bool closeAppAfterLastWindowClosed;
 
-  /// When true, the last closed window geometry may be restored on next launch
-  /// (native side).
+  /// When true, the last closed window with `closeWindow` or native cross will be hide instead of close and may be restored by tap on app icon
+  ///
+  /// Is not included if:
+  /// - call `closeApp`
+  /// - onTerminate
+  /// - window close mode is `destroy`
   final bool saveLastWindowToReopen;
+
+  /// Callback on `cmd+q` shortcut. Return true to close, false to skip
+  final Future<bool> Function()? onTerminate;
 
   // TODO: handle taskbar click after all windows are closed.
   /// Called when the user clicks the dock icon while no windows are visible.
@@ -129,17 +136,21 @@ class MacosPlatformParams {
   const MacosPlatformParams({
     this.saveLastWindowToReopen = true,
     @experimental this.onTaskbarTap,
-    this.closeAppAfterLastWindowClosed = false,
+    // this.closeAppAfterLastWindowClosed = false,
+    this.onTerminate,
   });
 
   factory MacosPlatformParams.defaultParams() =>
-      MacosPlatformParams(saveLastWindowToReopen: true, closeAppAfterLastWindowClosed: false, onTaskbarTap: null);
+      MacosPlatformParams(saveLastWindowToReopen: true,onTaskbarTap: null);
 }
 
 /// How closing the main window affects other open windows.
 enum CloseMode {
   /// Only the main window goes through the soft-close cycle (prevent-close,
   /// confirm dialog, destroy). Secondary windows stay open.
+  ///
+  /// Experimental, does not guarantee proper operation.
+  @experimental
   none,
 
   /// Soft-closes secondary windows one by one (newest first), then the main

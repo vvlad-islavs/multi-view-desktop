@@ -75,14 +75,19 @@ private class WindowState {
 /// single `multiview_desktop` method channel.
 class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
-    static let shared = MultiviewDesktopImpl()
+    static let shared: MultiviewDesktopImpl = MultiviewDesktopImpl()
+
+    /// Second pass of `applicationShouldTerminate` after Dart approved quit.
+    private var isConfirmTerminate = false
+
+    /// Set in `windowWillClose` when the closing window is the last managed one.
+    private var isClosingLastWindow = false
 
     weak var engine: FlutterEngine?
 
     // Temporary main NSWindow reference stored during prepareEngine(_:),
     // consumed in register(with:) once the viewIdentifier is available.
     var mainWindowRef: NSWindow?
-
 
     // All managed OS windows keyed by FlutterViewIdentifier.
     var windows: [Int64: NSWindow] = [:]
@@ -148,6 +153,39 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             self?.showHiddenWindowsIfNeeded()
         }
     }
+
+    /// Single entry for Cmd+Q and for last-window close (which bypasses
+    /// `applicationShouldTerminateAfterLastWindowClosed` when this override exists).
+    func handleApplicationShouldTerminate(sender: Any?) -> NSApplication.TerminateReply {
+        if isConfirmTerminate {
+            isConfirmTerminate = false
+            return .terminateNow
+        }
+
+        let closingLastWindow = isClosingLastWindow
+        isClosingLastWindow = false
+
+        // Same policy as `applicationShouldTerminateAfterLastWindowClosed`: stay in dock.
+        if closingLastWindow && terminateAfterLastWindowClosed {
+            return .terminateNow
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.channel?.invokeMethod(
+                "onEvent",
+                arguments: ["eventName": "applicationShouldTerminateRequest"]
+            )
+        }
+        return .terminateCancel
+    }
+
+    func replyToApplicationShouldTerminate(terminate: Bool) {
+        isConfirmTerminate = terminate
+        if terminate {
+            NSApp.terminate(nil)
+        }
+    }
+
 
     /// Call from `applicationShouldHandleReopen(_:hasVisibleWindows:)` when the dock icon is clicked.
     ///
@@ -222,6 +260,10 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             createSecondaryWindow(args: args, result: result)
         case "createModalDialog":
             createModalDialogWindow(args: args, result: result)
+        case "applicationShouldTerminateResponse":
+            let terminate = args["terminate"] as? Bool ?? false
+            replyToApplicationShouldTerminate(terminate: terminate)
+            result(nil)
         case "setTerminateAfterLastWindowClosed":
             let terminate = args["terminateAfterLastWindowClosed"] as? Bool ?? true
             setTerminateAfterLastWindowClosed(terminate)
@@ -502,7 +544,6 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             return false
         }
 
-     
         return true
     }
 
@@ -513,6 +554,9 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             return
         }
 
+        if windows.count <= 1 {
+            isClosingLastWindow = true
+        }
 
         if let parentWindow = sheetParents[viewId] {
             parentWindow.endSheet(closingWindow)

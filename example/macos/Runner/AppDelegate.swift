@@ -20,31 +20,36 @@ class AppDelegate: FlutterAppDelegate {
         return true
     }
 
+    override func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        return MultiviewDesktopPlugin.applicationShouldTerminate(sender)
+    }
+
     // add new items to taskbar menu
-//    override func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
-//        let menu = NSMenu()
-//        menu.addItem(NSMenuItem(
-//            title: "New Window",
-//            action: #selector (openNewWindow),
-//            keyEquivalent: ""
-//        ))
-//        menu.addItem(.separator())
-//        menu.addItem(NSMenuItem(
-//            title: "Sync from Dart...",
-//            action: #selector (openNewWindow),
-//            keyEquivalent: ""
-//        ))
-//        // target обязателен, иначе action не сработает
-//        menu.items.forEach {
-//            $0.target = self
-//        }
-//        return menu
-//    }
-//
-//    @objc private func openNewWindow() {
-//        // вызов native / method channel во Flutter
-//    }
+    //    override func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+    //        let menu = NSMenu()
+    //        menu.addItem(NSMenuItem(
+    //            title: "New Window",
+    //            action: #selector (openNewWindow),
+    //            keyEquivalent: ""
+    //        ))
+    //        menu.addItem(.separator())
+    //        menu.addItem(NSMenuItem(
+    //            title: "Sync from Dart...",
+    //            action: #selector (openNewWindow),
+    //            keyEquivalent: ""
+    //        ))
+    //        // target обязателен, иначе action не сработает
+    //        menu.items.forEach {
+    //            $0.target = self
+    //        }
+    //        return menu
+    //    }
+    //
+    //    @objc private func openNewWindow() {
+    //        // вызов native / method channel во Flutter
+    //    }
 }
+
 // Пример на будущее
 //override func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
 //    let menu = NSMenu()

@@ -23,7 +23,7 @@ abstract class ViewsManager {
 
   Future<void> closeView<T>(int viewId, {T? dialogRes});
 
-  Future<void> closeApp({CloseMode? closeMode});
+  Future<bool> closeApp({CloseMode? closeMode});
 
   Future<bool> isPreventClose(int viewId);
 

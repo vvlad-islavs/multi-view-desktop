@@ -73,6 +73,7 @@ const String kMethodPopUpWindowMenu = 'popUpWindowMenu';
 const String kMethodSetTerminateAfterLastWindowClosed = 'setTerminateAfterLastWindowClosed';
 const String kMethodSetAnchorViewId = 'setAnchorViewId';
 const String kMethodCheckExist = 'checkExistViewId';
+const String kMethodApplicationShouldTerminateResponse = 'applicationShouldTerminateResponse';
 
 /// MethodChannel wrapper for the `multiview_desktop` plugin.
 /// Per-window calls include `viewId` in the arguments.
@@ -217,7 +218,8 @@ class NativeChannel {
     return await _staticChannel.invokeMethod<String>(kMethodGetTitle, _args(viewId)) ?? '';
   }
 
-  Future<void> setTitleBarStyle(int viewId, {
+  Future<void> setTitleBarStyle(
+    int viewId, {
     required TitleBarStyle style,
     required bool closeVisibility,
     required bool maximizeVisibility,
@@ -239,10 +241,10 @@ class NativeChannel {
     final mapResult = await _staticChannel.invokeMethod<Map<Object?, Object?>>(kMethodGetTitleBarStyle, _args(viewId));
 
     return (
-    style: _barStyleFromJson(mapResult?['style'] as String?),
-    closeVisibility: mapResult?['closeVisibility'] as bool?,
-    maximizeVisibility: mapResult?['maximizeVisibility'] as bool?,
-    minimizeVisibility: mapResult?['minimizeVisibility'] as bool?,
+      style: _barStyleFromJson(mapResult?['style'] as String?),
+      closeVisibility: mapResult?['closeVisibility'] as bool?,
+      maximizeVisibility: mapResult?['maximizeVisibility'] as bool?,
+      minimizeVisibility: mapResult?['minimizeVisibility'] as bool?,
     );
   }
 
@@ -299,9 +301,8 @@ class NativeChannel {
   Future<void> setConfirmClose(int viewId, {required bool isConfirm}) async =>
       await _staticChannel.invokeMethod<void>(kMethodConfirmClose, _args(viewId, {'confirmClose': isConfirm}));
 
-  Future<void> setPreventClose(int viewId, {required bool isPreventClose}) async =>
-      await _staticChannel
-          .invokeMethod<void>(kMethodSetPreventClose, _args(viewId, {'isPreventClose': isPreventClose}));
+  Future<void> setPreventClose(int viewId, {required bool isPreventClose}) async => await _staticChannel
+      .invokeMethod<void>(kMethodSetPreventClose, _args(viewId, {'isPreventClose': isPreventClose}));
 
   Future<bool> isPreventClose(int viewId) async {
     return await _staticChannel.invokeMethod<bool>(kMethodIsPreventClose, _args(viewId)) ?? false;
@@ -510,6 +511,10 @@ class NativeChannel {
     });
   }
 
+  Future<void> replyToApplicationShouldTerminate(bool terminate) async {
+    await _staticChannel.invokeMethod<void>(kMethodApplicationShouldTerminateResponse, {'terminate': terminate});
+  }
+
   /// Resets close flags and related state after hot restart when the OS window
   /// survived. Title, size, and position are left unchanged.
   Future<void> resetWindowToDefaults(int viewId, MultiAppConfig config) async {
@@ -536,4 +541,3 @@ class NativeChannel {
     ]);
   }
 }
-

@@ -40,9 +40,10 @@ public class MultiviewDesktopPlugin: NSObject, FlutterPlugin {
         MvdScreenRetrieverPlugin.register(with: registrar.messenger)
     }
 
-    /// Forward from `AppDelegate.applicationShouldTerminateAfterLastWindowClosed(_:)`.
+    /// Fallback when `applicationShouldTerminate` is not overridden in AppDelegate.
     ///
-    /// Value is synced from Dart [CloseMode] via [runMultiApp] / [MultiViewDesktop.setCloseMode].
+    /// With the recommended `applicationShouldTerminate` forward, last-window policy is
+    /// applied inside [MultiviewDesktopImpl.handleApplicationShouldTerminate] instead.
     public static func applicationShouldTerminateAfterLastWindowClosed() -> Bool {
         MultiviewDesktopImpl.shared.shouldTerminateAfterLastWindowClosed()
     }
@@ -55,5 +56,9 @@ public class MultiviewDesktopPlugin: NSObject, FlutterPlugin {
         hasVisibleWindows flag: Bool
     ) -> Bool {
         MultiviewDesktopImpl.shared.handleApplicationReopen(hasVisibleWindows: flag)
+    }
+
+    public static func applicationShouldTerminate(_ sender: Any?) -> NSApplication.TerminateReply {
+        MultiviewDesktopImpl.shared.handleApplicationShouldTerminate(sender: sender)
     }
 }
