@@ -1,3 +1,11 @@
+## 1.2.0
+
+- [Check README] Linux. x11 support (setAlignment, alwaysOnTop, setPosition, center). Use GDK_BACKEND=x11 env arg to enable
+- [Check README] Taskbar custom menu items on all platforms
+- [Check README] MacOS. OnTerminate handler (CMD+Q/terminate the app from taskbar)
+- MacOS. Removed `closeAppAfterLastWindowClosed` param. App automatically defines when need to stay in memory
+- MacOS. saveLastWindowToReopen now ignored by one of causes: use `closeApp`/ onTerminate/ close mode is `destroy`
+
 ## 1.1.2
 
 - Up view create timeout to 10 sec
