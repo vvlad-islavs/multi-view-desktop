@@ -431,6 +431,10 @@ namespace multi_view_desktop {
             result->Success();
             return;
         }
+        if (method == "setTaskbarMenu") {
+            result->Success();
+            return;
+        }
 
         const int64_t view_id = MultiViewDesktop::Int64FromMap(args, "viewId");
         MultiViewDesktop *window = impl.FindByViewId(view_id);

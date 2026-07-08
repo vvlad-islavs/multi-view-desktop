@@ -61,4 +61,9 @@ public class MultiviewDesktopPlugin: NSObject, FlutterPlugin {
     public static func applicationShouldTerminate(_ sender: Any?) -> NSApplication.TerminateReply {
         MultiviewDesktopImpl.shared.handleApplicationShouldTerminate(sender: sender)
     }
+
+    /// Forward from `AppDelegate.applicationDockMenu(_:)`.
+    public static func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        MultiviewDesktopImpl.shared.applicationDockMenu()
+    }
 }

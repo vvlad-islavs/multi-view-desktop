@@ -197,6 +197,13 @@ class MultiViewDesktop {
     await _manager.hideAppFromTaskbar(isHideAppFromTaskbar);
   }
 
+  /// Replaces the entire app taskbar / dock context menu.
+  ///
+  /// Each call overwrites previous items. Item callbacks are matched by list index.
+  static Future<void> setMenuItems(List<TaskbarMenuItem> items) async {
+    await _manager.setTaskbarMenu(items: items);
+  }
+
   // ---------------------------------------------------------------------------
   // App-wide: progress bar
   // ---------------------------------------------------------------------------

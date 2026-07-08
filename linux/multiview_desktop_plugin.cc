@@ -979,6 +979,8 @@ static void method_cb(FlMethodChannel*, FlMethodCall* method_call, gpointer) {
     response = ok_bool(wm && wm->IsSkipTaskbar());
   } else if (g_strcmp0(method, "setProgressBar") == 0) {
     response = ok_null();
+  } else if (g_strcmp0(method, "setTaskbarMenu") == 0) {
+    response = ok_null();
   } else {
     const int64_t view_id = int64_from_map(args, "viewId");
     auto wm = MvdLinuxWindow::Find(view_id);

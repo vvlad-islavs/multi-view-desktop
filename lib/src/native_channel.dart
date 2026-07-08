@@ -67,6 +67,7 @@ const String kMethodIsVisibleOnAllWorkspaces = 'isVisibleOnAllWorkspaces';
 const String kMethodSetVisibleOnAllWorkspaces = 'setVisibleOnAllWorkspaces';
 const String kMethodSetBadgeLabel = 'setBadgeLabel';
 const String kMethodSetProgressBar = 'setProgressBar';
+const String kMethodSetTaskbarMenu = 'setTaskbarMenu';
 const String kMethodSetIgnoreMouseEvents = 'setIgnoreMouseEvents';
 const String kMethodIsIgnoreMouseEvents = 'isIgnoreMouseEvents';
 const String kMethodPopUpWindowMenu = 'popUpWindowMenu';
@@ -485,6 +486,10 @@ class NativeChannel {
 
   Future<void> setProgressBar(double progress) async {
     await _staticChannel.invokeMethod<void>(kMethodSetProgressBar, {'progress': progress});
+  }
+
+  Future<void> setTaskbarMenu(List<Map<String, dynamic>> items) async {
+    await _staticChannel.invokeMethod<void>(kMethodSetTaskbarMenu, {'items': items});
   }
 
   Future<void> setIgnoreMouseEvents(int viewId, bool ignore, {bool forward = false}) async {

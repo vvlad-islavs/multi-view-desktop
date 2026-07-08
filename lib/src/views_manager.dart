@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 
-abstract class TaskbarMenuItem {}
-
 /// Internal window manager contract. Public API: `MultiViewDesktop`.
 abstract class ViewsManager {
   int realToShiftedId(int viewId);

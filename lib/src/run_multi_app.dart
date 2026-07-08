@@ -5,6 +5,7 @@ import 'multi_view_desktop.dart';
 import 'title_bar_style.dart';
 import 'view_root.dart' show createMultiViewRoot;
 import 'window_observer.dart';
+import 'taskbar_menu_item.dart';
 import 'window_options.dart';
 import 'app_shell/view_shell_overrides.dart';
 
@@ -105,7 +106,14 @@ class MultiPlatformParams {
   /// Can be changed at runtime via `MultiViewDesktop.setCloseMode`.
   final CloseMode closeMode;
 
-  const MultiPlatformParams({this.enableDynamicAnchor = true, this.closeMode = CloseMode.softCascade});
+  /// Initial taskbar / dock menu items. Replaced entirely by `MultiViewDesktop.setMenuItems`.
+  final List<TaskbarMenuItem> menuItems;
+
+  const MultiPlatformParams({
+    this.enableDynamicAnchor = true,
+    this.closeMode = CloseMode.softCascade,
+    this.menuItems = const [],
+  });
 
   /// Default: dynamic anchor enabled, `CloseMode.softCascade`.
   factory MultiPlatformParams.defaultParams() =>

@@ -105,6 +105,14 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     /// Mirrors Dart [CloseMode]: `false` when windows are hidden instead of closed ([CloseMode.macos]).
     private var terminateAfterLastWindowClosed: Bool = true
 
+    private struct TaskbarMenuEntry {
+        let id: Int
+        let title: String
+        let image: NSImage?
+    }
+
+    private var taskbarMenuEntries: [TaskbarMenuEntry] = []
+
     // MARK: - Channel setup
 
     /// Binds the `multiview_desktop` method channel to this singleton.
@@ -184,6 +192,51 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         if terminate {
             NSApp.terminate(nil)
         }
+    }
+
+    /// Replaces dock menu items configured from Dart via `setTaskbarMenu`.
+    func setTaskbarMenu(items: [[String: Any]]) {
+        taskbarMenuEntries = items.compactMap { dict in
+            guard let id = int(from: dict["id"]),
+                  let title = dict["title"] as? String else {
+                return nil
+            }
+            var image: NSImage?
+            if let iconBase64 = dict["icon"] as? String,
+               let data = Data(base64Encoded: iconBase64) {
+                image = NSImage(data: data)
+            }
+            return TaskbarMenuEntry(id: id, title: title, image: image)
+        }
+    }
+
+    /// Builds the dock context menu for `applicationDockMenu(_:)`.
+    func applicationDockMenu() -> NSMenu? {
+        guard !taskbarMenuEntries.isEmpty else {
+            return nil
+        }
+        let menu = NSMenu()
+        for entry in taskbarMenuEntries {
+            let item = NSMenuItem(
+                title: entry.title,
+                action: #selector(onTaskbarMenuItemSelected(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.tag = entry.id
+            if let image = entry.image {
+                item.image = image
+            }
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func onTaskbarMenuItemSelected(_ sender: NSMenuItem) {
+        channel?.invokeMethod(
+            "onEvent",
+            arguments: ["eventName": "taskbarMenuItemSelected", "id": sender.tag]
+        )
     }
 
 
@@ -311,6 +364,10 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             }
             dockTile.display()
 
+            result(nil)
+        case "setTaskbarMenu":
+            let items = args["items"] as? [[String: Any]] ?? []
+            setTaskbarMenu(items: items)
             result(nil)
         default:
             let viewId = int64(from: args, key: "viewId")
@@ -1126,6 +1183,16 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         }
         if let v = value as? Int {
             return CGFloat(v)
+        }
+        return nil
+    }
+
+    private func int(from value: Any?) -> Int? {
+        if let v = value as? Int {
+            return v
+        }
+        if let v = value as? NSNumber {
+            return v.intValue
         }
         return nil
     }

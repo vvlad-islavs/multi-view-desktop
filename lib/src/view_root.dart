@@ -5,8 +5,8 @@ import 'package:collection/collection.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/native_channel.dart';
@@ -199,6 +199,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
       homeBuilder: (context) => widget.homeBuilder(context, 1),
     );
     unawaited(_viewsManagerImpl.applyNativeLifecyclePolicy());
+    unawaited(_viewsManagerImpl.applyInitialTaskbarMenu());
     // Only for debug. Closes all windows from past session on hot restart
     if (!kReleaseMode) {
       final registered = _viewsManagerImpl.allRealWindowIds.toSet();
@@ -416,6 +417,15 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   late bool _saveLastWindowToReopen = config.macosParams.saveLastWindowToReopen;
+
+  List<VoidCallback?> _taskbarMenuCallbacks = [];
+
+  /// Applies `MultiPlatformParams.menuItems` from startup config.
+  Future<void> applyInitialTaskbarMenu() async {
+    final items = config.generalParams.menuItems;
+    if (items.isEmpty) return;
+    await setTaskbarMenu(items: items);
+  }
 
   /// Pushes lifecycle quit policy to the native embedder.
   Future<void> applyNativeLifecyclePolicy() async {
@@ -749,6 +759,11 @@ class _ViewsManagerImpl implements ViewsManager {
       }
     } else if (eventName == 'applicationShouldTerminateRequest') {
       unawaited(_macosOnShouldAppTerminate());
+    } else if (eventName == 'taskbarMenuItemSelected') {
+      final id = call.arguments['id'] as int?;
+      if (id != null) {
+        _invokeTaskbarMenuCallback(id);
+      }
     } else {
       final int? viewId = call.arguments['viewId'] as int?;
 
@@ -1470,7 +1485,16 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   Future<void> setTaskbarMenu({required List<TaskbarMenuItem> items}) async {
-    // TODO: customize taskbar menu items.
+    _taskbarMenuCallbacks = [for (final item in items) item.onPressed];
+    final encoded = [
+      for (var i = 0; i < items.length; i++) await items[i].toJson(i),
+    ];
+    await _nativeChannel.setTaskbarMenu(encoded);
+  }
+
+  void _invokeTaskbarMenuCallback(int id) {
+    if (id < 0 || id >= _taskbarMenuCallbacks.length) return;
+    _taskbarMenuCallbacks[id]?.call();
   }
 
   @override
