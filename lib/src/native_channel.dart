@@ -39,6 +39,7 @@ const String kMethodHide = 'hide';
 const String kMethodIsVisible = 'isVisible';
 const String kMethodBlur = 'blur';
 const String kMethodIsFocused = 'isFocused';
+const String kMethodIsOnActiveSpace = 'isOnActiveSpace';
 const String kMethodIsMaximized = 'isMaximized';
 const String kMethodMaximize = 'maximize';
 const String kMethodUnmaximize = 'unmaximize';
@@ -75,6 +76,7 @@ const String kMethodSetTerminateAfterLastWindowClosed = 'setTerminateAfterLastWi
 const String kMethodSetAnchorViewId = 'setAnchorViewId';
 const String kMethodCheckExist = 'checkExistViewId';
 const String kMethodApplicationShouldTerminateResponse = 'applicationShouldTerminateResponse';
+const String kMethodSetHasTaskbarCallback = 'setHasTaskbarCallback';
 
 /// MethodChannel wrapper for the `multiview_desktop` plugin.
 /// Per-window calls include `viewId` in the arguments.
@@ -357,6 +359,12 @@ class NativeChannel {
     return await _staticChannel.invokeMethod<bool>(kMethodIsFocused, _args(viewId)) ?? false;
   }
 
+  /// macOS Spaces: whether the window is on the currently active desktop.
+  /// Other platforms always return `true`.
+  Future<bool> isOnActiveSpace(int viewId) async {
+    return await _staticChannel.invokeMethod<bool>(kMethodIsOnActiveSpace, _args(viewId)) ?? true;
+  }
+
   Future<bool> isMaximized(int viewId) async {
     return await _staticChannel.invokeMethod<bool>(kMethodIsMaximized, _args(viewId)) ?? false;
   }
@@ -518,6 +526,10 @@ class NativeChannel {
 
   Future<void> replyToApplicationShouldTerminate(bool terminate) async {
     await _staticChannel.invokeMethod<void>(kMethodApplicationShouldTerminateResponse, {'terminate': terminate});
+  }
+
+  Future<void> setHasTaskbarCallback(bool hasCallback) async {
+    await _staticChannel.invokeMethod<void>(kMethodSetHasTaskbarCallback, {'hasTaskbarCallback': hasCallback});
   }
 
   /// Resets close flags and related state after hot restart when the OS window

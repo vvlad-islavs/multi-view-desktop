@@ -124,9 +124,9 @@ class _HomePageState extends State<HomePage> with WindowListener {
     final maxi = await _safeFuture(win.isMaximizable);
     final clos = await _safeFuture(win.isClosable);
     final prev = await _safeFuture(win.isPreventClose);
-    final skip = await _safeFuture(win.isHideFromCollection);
+    final skip = await _safeFuture(win.macos.isHideFromCollection);
     final op = await _safeFuture(win.getOpacity);
-    final visibleOnAllWorkspaces = await _safeFuture(win.isVisibleOnAllWorkspaces);
+    final visibleOnAllWorkspaces = await _safeFuture(win.macos.isVisibleOnAllWorkspaces);
     final ignoreMouseEvents = await _safeFuture(win.isIgnoreMouseEvents);
     final shadow = await _safeFuture(win.hasShadow);
     final titleBarStyle = await _safeFuture(win.getTitleBarStyle);
@@ -574,7 +574,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   _switchTile(
                     'hideFromCollection',
                     _isHideFromCollection,
-                    (v) => MultiViewDesktop.of(context).hideFromCollection(v),
+                    (v) => MultiViewDesktop.of(context).macos.hideFromCollection(v),
                   ),
                 if (Platform.isWindows)
                   _switchTile(
@@ -586,7 +586,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   _switchTile(
                     'visibleOnAllWorkspaces',
                     _visibleOnAllWorkspaces,
-                    (v) => MultiViewDesktop.of(context).setVisibleOnAllWorkspaces(v),
+                    (v) => MultiViewDesktop.of(context).macos.setVisibleOnAllWorkspaces(v),
                   ),
                 if (!Platform.isLinux) _tile('progressBarExample', onTap: () => _progressBarExample()),
               ]),

@@ -25,6 +25,7 @@
 library;
 
 export 'src/multi_view_desktop.dart';
+export 'src/multi_view_desktop_macos.dart';
 export 'src/resize_edge.dart';
 export 'src/run_multi_app.dart';
 export 'src/app_shell/app_shell.dart';

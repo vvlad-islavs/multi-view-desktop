@@ -16,6 +16,10 @@ import 'view_root.dart' show globalRootState;
 /// await win.setTitle('Settings');
 /// await win.setTitleBarStyle(TitleBarStyle.hidden);
 ///
+/// // macOS-only:
+/// await win.macos.setVisibleOnAllWorkspaces(true);
+/// await win.macos.isOnActiveSpace();
+///
 /// // Or inline:
 /// await MultiViewDesktop.of(context).closeWindow();
 /// await MultiViewDesktop.fromId(id).setAlwaysOnTop(true);
@@ -35,6 +39,9 @@ class MultiViewDesktop {
 
   /// The public view ID for this instance.
   int get id => _manager.realToShiftedId(_realId);
+
+  /// macOS-only window APIs (Spaces, Mission Control, dock badge).
+  MultiViewDesktopMacos get macos => MultiViewDesktopMacos(_realId, _manager);
 
   MultiViewDesktop._({required int realId}) : _realId = realId;
 
@@ -588,37 +595,8 @@ class MultiViewDesktop {
     return await _manager.isIgnoreMouseEvents(_realId);
   }
 
-  /// Shows the native window context menu at the current cursor position (macOS).
+  /// Shows the native window context menu at the current cursor position.
   Future<void> popUpWindowMenu() async {
     await _manager.popUpWindowMenu(_realId);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Per-window: macOS-specific
-  // ---------------------------------------------------------------------------
-
-  /// Returns whether the window is excluded from Mission Control (macOS).
-  Future<bool> isHideFromCollection() async {
-    return await _manager.isHideFromCollection(_realId);
-  }
-
-  /// Hides or shows the window in Mission Control and Expose (macOS).
-  Future<void> hideFromCollection(bool isHideFromCollection) async {
-    await _manager.hideFromCollection(_realId, isHideFromCollection);
-  }
-
-  /// Returns whether the window is pinned to all Spaces (macOS).
-  Future<bool> isVisibleOnAllWorkspaces() async {
-    return await _manager.isVisibleOnAllWorkspaces(_realId);
-  }
-
-  /// Pins or unpins the window across all Spaces (macOS).
-  Future<void> setVisibleOnAllWorkspaces(bool visible, {bool visibleOnFullScreen = false}) async {
-    await _manager.setVisibleOnAllWorkspaces(_realId, visible, visibleOnFullScreen: visibleOnFullScreen);
-  }
-
-  /// Sets the dock icon badge label for this window (macOS). Pass `null` to clear.
-  Future<void> setBadgeLabel({String? label}) async {
-    await _manager.setBadgeLabel(_realId, label);
   }
 }

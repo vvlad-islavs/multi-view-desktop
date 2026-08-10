@@ -29,16 +29,51 @@ void main() {
         ],
       ),
       macosParams: MacosPlatformParams(
+        // closeAppAfterLastWindowClosed: false,
         saveLastWindowToReopen: true,
         onTerminate: () async {
           // do something before terminate
           // for example soft close instead of destroy
           final isAllClosed = await MultiViewDesktop.closeApp(closeMode: CloseMode.softCascade);
           // destroy app if all closed
-          // debugPrint('isAllClosed: $isAllClosed');
           return isAllClosed;
         },
-        // onTaskbarTap: null,
+        onTaskbarTap: () async {
+          // do something when tap taskbar icon
+          // for example two ways:
+          // 1) emptyViews - open new window
+          // 2) notEmptyViews - focus one by one for all views
+          final allWindows = MultiViewDesktop.allWindowViewIds;
+          if (allWindows.length <= 1) {
+            // when saveLastWindowToReopen == true last window hides instead of close and stay in stack
+            // so you should to detect it
+            final lastView = allWindows.isNotEmpty ? MultiViewDesktop.fromId(allWindows.first) : null;
+            if (!(await lastView?.isVisible() ?? true)) {
+              // if saveLastWindowToReopen == true and last window is hide, a tap on taskbar will be open last view and focus it.
+              // don't focus secondly at this time else focus may be broken, so just return
+              return;
+            }
+            if (allWindows.isEmpty) {
+              openWindow((ctx, id) => HomePage());
+              return;
+            }
+          }
+
+          int idWithFocus = -1;
+          for (final id in allWindows) {
+            final mvd = MultiViewDesktop.fromId(id);
+            if (await mvd.isFocused()) {
+              idWithFocus = id;
+              break;
+            }
+          }
+          final nextFocusId = allWindows.firstWhere((e) => e > idWithFocus, orElse: () => allWindows.first);
+          if (allWindows.length == 1 && idWithFocus != -1) {
+            return;
+          }
+          await MultiViewDesktop.fromId(nextFocusId).focus();
+          return;
+        },
       ),
       globalWindowOptions: WindowOptions(
         minimumSize: Size(1000, 700),

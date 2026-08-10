@@ -183,7 +183,7 @@ The plugin registers `GApplication` actions and writes `~/.local/share/applicati
 - **`setAlwaysOnTop`.** Uses `gtk_window_set_keep_above`. Whether the compositor respects this hint depends on the desktop environment.
 - **`setHasShadow`.** No-op on Linux. The native shadow is always drawn by the compositor.
 - **`setMovable`.** Maps to `setResizable` on Linux (there is no separate movability flag in GTK).
-- **`setBadgeLabel`, `setVisibleOnAllWorkspaces`, `hideFromCollection`.** macOS-only. Not available on Linux.
+- **`macos.setBadgeLabel`, `macos.setVisibleOnAllWorkspaces`, `macos.hideFromCollection`, `macos.isOnActiveSpace`.** macOS-only (`MultiViewDesktop.of(context).macos`). Not available on Linux.
 - **`setProgressBar`.** Not available on Linux.
 - **`TaskbarMenuItem.iconAsset`.** Not available on Linux; dock menu items show the title only.
 - **Taskbar / dock context menu.** Supported via `menuItems` / `setMenuItems`; see [Taskbar / dock context menu (Linux)](#taskbar--dock-context-menu-linux).
@@ -397,7 +397,7 @@ void Win32Window::CenterOnScreen() {
 
 #### Windows platform limitations
 
-- **`setBadgeLabel`, `setVisibleOnAllWorkspaces`, `hideFromCollection`.** macOS-only. Not available on Windows.
+- **`macos.setBadgeLabel`, `macos.setVisibleOnAllWorkspaces`, `macos.hideFromCollection`, `macos.isOnActiveSpace`.** macOS-only (`MultiViewDesktop.of(context).macos`). Not available on Windows.
 - **`setProgressBar`.** Supported on Windows via taskbar progress API.
 - **Taskbar / jump list context menu.** Supported via `menuItems` / `setMenuItems`; see [Taskbar / jump list context menu (Windows)](#taskbar--jump-list-context-menu-windows).
 - **Taskbar menu icons.** `TaskbarMenuItem.iconAsset` is supported on Windows (jump list) and macOS (dock menu). On Linux, menu items work but icons are ignored.
@@ -1689,29 +1689,41 @@ Returns the current mouse pass-through state.
 
 ##### popUpWindowMenu() -> Future\<void\>
 
-Shows the native window context menu at the current cursor position (macOS).
+Shows the native window context menu at the current cursor position.
 
 #### macOS-specific (instance)
 
+Access via `MultiViewDesktop.of(context).macos` (or `.fromId(id).macos`).
+
+```dart
+final mac = MultiViewDesktop.of(context).macos;
+await mac.setVisibleOnAllWorkspaces(true);
+final onSpace = await mac.isOnActiveSpace();
+```
+
 ##### isHideFromCollection() -> Future\<bool\>
 
-Returns whether the window is excluded from Mission Control (macOS).
+Returns whether the window is excluded from Mission Control.
 
 ##### hideFromCollection(bool isHideFromCollection) -> Future\<void\>
 
-Hides or shows the window in Mission Control and Expose (macOS).
+Hides or shows the window in Mission Control and Exposé.
 
 ##### isVisibleOnAllWorkspaces() -> Future\<bool\>
 
-Returns whether the window is pinned to all Spaces (macOS).
+Returns whether the window is pinned to all Spaces.
 
 ##### setVisibleOnAllWorkspaces(bool visible, {bool visibleOnFullScreen = false}) -> Future\<void\>
 
-Pins or unpins the window across all Spaces (macOS).
+Pins or unpins the window across all Spaces.
+
+##### isOnActiveSpace() -> Future\<bool\>
+
+Returns whether the window is on the currently active Mission Control Space. On Windows / Linux always `true`.
 
 ##### setBadgeLabel({String? label}) -> Future\<void\>
 
-Sets the dock icon badge text for this window (macOS). Pass `null` to clear the badge.
+Sets the dock icon badge text. Pass `null` to clear the badge.
 
 #### Progress bar
 

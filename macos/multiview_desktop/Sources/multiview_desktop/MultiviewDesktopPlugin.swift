@@ -50,7 +50,9 @@ public class MultiviewDesktopPlugin: NSObject, FlutterPlugin {
 
     /// Forward from `AppDelegate.applicationShouldHandleReopen(_:hasVisibleWindows:)`.
     ///
-    /// Restores windows hidden via [CloseMode.macos] when the user clicks the dock icon.
+    /// Returns `true` when the plugin handled the dock click (`onTaskbarTap` or
+    /// restored hidden windows). The AppDelegate must return `false` to AppKit so
+    /// the default reopen path does not cycle windows across Spaces.
     public static func applicationShouldHandleReopen(
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool

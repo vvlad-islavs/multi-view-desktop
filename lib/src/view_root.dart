@@ -243,7 +243,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     // disables frames for the whole engine. Re-emit inactive to keep rendering
     // (same workaround as multi_window_manager on macOS).
     if (state != AppLifecycleState.hidden) return;
-    if (!Platform.isLinux && !Platform.isWindows) return;
+    // if (!Platform.isLinux && !Platform.isWindows) return;
     if (_viewsManagerImpl.allRealWindowIds.isEmpty) return;
 
     // ignore: invalid_use_of_protected_member
@@ -429,8 +429,10 @@ class _ViewsManagerImpl implements ViewsManager {
   /// Pushes lifecycle quit policy to the native embedder.
   Future<void> applyNativeLifecyclePolicy() async {
     if (Platform.isMacOS) {
-      // await _nativeChannel.setTerminateAfterLastWindowClosed(config.macosParams.closeAppAfterLastWindowClosed);
-      await _nativeChannel.setTerminateAfterLastWindowClosed(!_saveLastWindowToReopen);
+      await _nativeChannel.setTerminateAfterLastWindowClosed(
+        config.macosParams.closeAppAfterLastWindowClosed && !_saveLastWindowToReopen,
+      );
+      await _nativeChannel.setHasTaskbarCallback(config.macosParams.onTaskbarTap != null);
     } else if (Platform.isLinux) {
       await _nativeChannel.setTerminateAfterLastWindowClosed(true);
     }
@@ -744,6 +746,8 @@ class _ViewsManagerImpl implements ViewsManager {
       if (maybeParentId == null) return;
       _childCreatePending.remove(token);
       await _nativeChannel.setPreConfirmClose(maybeParentId, false);
+    } else if (eventName == 'taskbar-callback') {
+      config.macosParams.onTaskbarTap?.call();
     } else if (eventName == 'preconfirm-close') {
       final int? viewId = call.arguments['viewId'] as int?;
       if (viewId != null) {
@@ -945,7 +949,7 @@ class _ViewsManagerImpl implements ViewsManager {
       await _nativeChannel.forceCloseView(viewId);
     } else {
       if (Platform.isMacOS) {
-        // Hide the anchor instead of closing it when macOS dock restore is enabled.
+        // Hide the anchor instead of closing it when macOS dock restore is enabled and taskbar callback is null.
         if (_isLastMacosRootView(viewId)) {
           await _removeAllDialogsByParent(viewId);
           await _nativeChannel.hide(viewId);
@@ -972,8 +976,7 @@ class _ViewsManagerImpl implements ViewsManager {
     await _preConfirmCloseCallable(rootId);
   }
 
-  Future<void> _removeViewsCascade(int rootId, {bool reverse = true}) async {
-    if (!reverse) await _preConfirmCloseCallable(rootId);
+  Future<void> _removeViewsCascade(int rootId) async {
     final descendants = _descendantIdsDeepestFirst(rootId).toList()..sort();
 
     // debugPrint('cascade for $rootId');
@@ -995,9 +998,7 @@ class _ViewsManagerImpl implements ViewsManager {
       return;
     }
 
-    if (reverse) {
-      await _viewExistChecker(rootId, () async => _preConfirmCloseCallable(rootId), dialogSupports: true);
-    }
+    await _viewExistChecker(rootId, () async => _preConfirmCloseCallable(rootId), dialogSupports: true);
   }
 
   Future<void> _removeSecondaryViewsForce(int rootId, {int loopCycle = 1, int maxLoopCycles = 10}) async {
@@ -1485,9 +1486,7 @@ class _ViewsManagerImpl implements ViewsManager {
   @override
   Future<void> setTaskbarMenu({required List<TaskbarMenuItem> items}) async {
     _taskbarMenuCallbacks = [for (final item in items) item.onPressed];
-    final encoded = [
-      for (var i = 0; i < items.length; i++) await items[i].toJson(i),
-    ];
+    final encoded = [for (var i = 0; i < items.length; i++) await items[i].toJson(i)];
     await _nativeChannel.setTaskbarMenu(encoded);
   }
 
@@ -1671,6 +1670,17 @@ class _ViewsManagerImpl implements ViewsManager {
   @override
   Future<bool> isFocused(int viewId) async {
     return await _viewExistChecker(viewId, () async => await _nativeChannel.isFocused(viewId), dialogSupports: true) ??
+        true;
+  }
+
+  @override
+  Future<bool> isOnActiveSpace(int viewId) async {
+    if (!Platform.isMacOS) return true;
+    return await _viewExistChecker(
+          viewId,
+          () async => await _nativeChannel.isOnActiveSpace(viewId),
+          dialogSupports: true,
+        ) ??
         true;
   }
 

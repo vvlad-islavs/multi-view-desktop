@@ -711,6 +711,8 @@ static void handle_view_method(FlMethodCall* method_call,
     response = ok_null();
   } else if (g_strcmp0(method, "isFocused") == 0) {
     response = ok_bool(wm->IsFocused());
+  } else if (g_strcmp0(method, "isOnActiveSpace") == 0) {
+    response = ok_bool(TRUE);
   } else if (g_strcmp0(method, "maximize") == 0) {
     wm->Maximize();
     response = ok_null();

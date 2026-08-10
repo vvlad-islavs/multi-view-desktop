@@ -123,8 +123,11 @@ class MultiPlatformParams {
 
 /// macOS-specific parameters for `MultiAppConfig.macosParams`.
 class MacosPlatformParams {
-  // When true, quitting after the last window closes terminates the process.
-  // final bool closeAppAfterLastWindowClosed;
+  /// When true, quitting after the last window closes terminates the process.
+  ///
+  /// Is not included if:
+  /// - `saveLastWindowToReopen` is true
+  final bool closeAppAfterLastWindowClosed;
 
   /// When true, the last closed window with `closeWindow` or native cross will be hide instead of close and may be restored by tap on app icon
   ///
@@ -137,20 +140,17 @@ class MacosPlatformParams {
   /// Callback on `cmd+q` shortcut. Return true to close, false to skip
   final Future<bool> Function()? onTerminate;
 
-  // TODO: handle taskbar click after all windows are closed.
-  /// Called when the user clicks the dock icon while no windows are visible.
-  @experimental
+  /// Called when the user clicks the dock icon.
   final Function? onTaskbarTap;
 
   const MacosPlatformParams({
+    this.closeAppAfterLastWindowClosed = true,
     this.saveLastWindowToReopen = true,
-    @experimental this.onTaskbarTap,
-    // this.closeAppAfterLastWindowClosed = false,
+    this.onTaskbarTap,
     this.onTerminate,
   });
 
-  factory MacosPlatformParams.defaultParams() =>
-      MacosPlatformParams(saveLastWindowToReopen: true,onTaskbarTap: null);
+  factory MacosPlatformParams.defaultParams() => MacosPlatformParams(saveLastWindowToReopen: true, onTaskbarTap: null);
 }
 
 /// How closing the main window affects other open windows.

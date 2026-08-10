@@ -519,6 +519,8 @@ namespace multi_view_desktop {
             result->Success();
         } else if (method == "isFocused") {
             result->Success(flutter::EncodableValue(window->IsFocused()));
+        } else if (method == "isOnActiveSpace") {
+            result->Success(flutter::EncodableValue(true));
         } else if (method == "maximize") {
             window->Maximize(args);
             result->Success();

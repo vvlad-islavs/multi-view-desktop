@@ -77,6 +77,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     static let shared: MultiviewDesktopImpl = MultiviewDesktopImpl()
 
+    private var hasTaskbarCallback = false
+
     /// Second pass of `applicationShouldTerminate` after Dart approved quit.
     private var isConfirmTerminate = false
 
@@ -242,9 +244,26 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     /// Call from `applicationShouldHandleReopen(_:hasVisibleWindows:)` when the dock icon is clicked.
     ///
-    /// Returns `true` if hidden windows were restored (caller should return `true` from the delegate).
+    /// Returns `true` when the plugin handled the click (`onTaskbarTap` or restore).
+    /// The AppDelegate must return `false` to AppKit (do not call `super`) so the
+    /// default reopen path does not also cycle windows across Spaces.
     @discardableResult
     func handleApplicationReopen(hasVisibleWindows: Bool) -> Bool {
+        if hasTaskbarCallback {
+            DispatchQueue.main.async { [weak self] in
+                self?.channel?.invokeMethod(
+                    "onEvent",
+                    arguments: ["eventName": "taskbar-callback"]
+                )
+            }
+            let hiddenEntries = windows.filter {
+                !$0.value.isVisible
+            }
+            guard !hiddenEntries.isEmpty else {
+                return true
+            }
+
+        }
         if hasVisibleWindows {
             return false
         }
@@ -286,8 +305,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         }
 
         windowStates[targetId]?.isPreConfirm = false
-        NSApp.activate(ignoringOtherApps: true)
-        targetWindow.makeKeyAndOrderFront(nil)
+        focusWindow(targetWindow)
         return true
     }
 
@@ -298,6 +316,10 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     func setTerminateAfterLastWindowClosed(_ terminate: Bool) {
         terminateAfterLastWindowClosed = terminate
+    }
+
+    func setHasTaskbarCallback(_ hasCallback: Bool) {
+        hasTaskbarCallback = hasCallback
     }
 
     // MARK: - Channel handler
@@ -320,6 +342,10 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         case "setTerminateAfterLastWindowClosed":
             let terminate = args["terminateAfterLastWindowClosed"] as? Bool ?? true
             setTerminateAfterLastWindowClosed(terminate)
+            result(nil)
+        case "setHasTaskbarCallback":
+            let hasCallback = args["hasTaskbarCallback"] as? Bool ?? false
+            setHasTaskbarCallback(hasCallback)
             result(nil)
         case "setAnchorViewId":
             let anchorId = int64(from: args, key: "viewId")
@@ -844,8 +870,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
         case "show":
             DispatchQueue.main.async {
-                NSApp.activate(ignoringOtherApps: true)
-                window.makeKeyAndOrderFront(nil)
+                self.focusWindow(window)
             }
             result(nil)
 
@@ -859,8 +884,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             result(window.isVisible)
 
         case "focus":
-            NSApp.activate(ignoringOtherApps: false)
-            window.makeKeyAndOrderFront(nil)
+            focusWindow(window)
             result(nil)
 
         case "blur":
@@ -868,7 +892,10 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             result(nil)
 
         case "isFocused":
-            result(window.isKeyWindow)
+            result(isWindowFocused(window))
+
+        case "isOnActiveSpace":
+            result(window.isOnActiveSpace)
 
         case "maximize":
             if !window.isZoomed {
@@ -1158,6 +1185,42 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     }
 
     // MARK: - Helpers
+
+    /// Brings [window] to the front.
+    ///
+    /// Dock / `AppleSpacesSwitchOnActivate` applies the Space switch *asynchronously*
+    /// after activate/reopen. A synchronous `orderFront`+`makeKey` while the window
+    /// is still `isOnActiveSpace` loses that race: the pending teleport runs afterward.
+    /// Deferred retries re-check: once the window is off the active Space,
+    /// `makeKeyAndOrderFront` pulls Mission Control back to it.
+    private func focusWindow(_ window: NSWindow) {
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Whether [window] currently has user focus.
+    ///
+    /// `isKeyWindow` alone is not enough: it can stay `true` for a window that
+    /// is ordered behind another window of this app, or for a window on another
+    /// Space while the user is looking at a different Space.
+    private func isWindowFocused(_ window: NSWindow) -> Bool {
+        guard NSApp.isActive, window.isKeyWindow, window.isVisible, !window.isMiniaturized else {
+            return false
+        }
+        guard window.isOnActiveSpace else {
+            return false
+        }
+        for ordered in NSApp.orderedWindows {
+            guard windows.contains(where: { $0.value === ordered }) else { continue }
+            guard ordered.isVisible, !ordered.isMiniaturized, ordered.isOnActiveSpace else { continue }
+            return ordered === window
+        }
+        return false
+    }
 
     /// Sends `onEvent` to Dart with [eventName] and [viewId].
     private func emitEvent(_ eventName: String, viewId: Int64) {

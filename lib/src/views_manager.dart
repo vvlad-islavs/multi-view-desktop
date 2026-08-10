@@ -105,6 +105,9 @@ abstract class ViewsManager {
 
   Future<bool> isFocused(int viewId);
 
+  /// macOS: whether the window is on the active Mission Control Space.
+  Future<bool> isOnActiveSpace(int viewId);
+
   Future<bool> isMaximized(int viewId);
 
   Future<void> maximize(int viewId, {bool vertically = false});
