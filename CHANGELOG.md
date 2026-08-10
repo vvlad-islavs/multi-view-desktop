@@ -1,10 +1,19 @@
+## 1.2.1
+
+- MacOS. Returned `closeAppAfterLastWindowClosed` param for more custom ways
+- MacOS. Add taskbar icon tap handler.
+- MacOS. Specific functions moved to `macos` part
+
 ## 1.2.0
 
-- [Check README] Linux. x11 support (setAlignment, alwaysOnTop, setPosition, center). Use GDK_BACKEND=x11 env arg to enable
+- [Check README] Linux. x11 support (setAlignment, alwaysOnTop, setPosition, center). Use
+  GDK_BACKEND=x11 env arg to enable
 - [Check README] Taskbar custom menu items on all platforms
 - [Check README] MacOS. OnTerminate handler (CMD+Q/terminate the app from taskbar)
-- MacOS. Removed `closeAppAfterLastWindowClosed` param. App automatically defines when need to stay in memory
-- MacOS. saveLastWindowToReopen now ignored by one of causes: use `closeApp`/ onTerminate/ close mode is `destroy`
+- MacOS. Removed `closeAppAfterLastWindowClosed` param. App automatically defines when need to stay
+  in memory
+- MacOS. saveLastWindowToReopen now ignored by one of causes: use `closeApp`/ onTerminate/ close
+  mode is `destroy`
 
 ## 1.1.2
 
@@ -17,7 +26,7 @@
 
 ## 1.1.0
 
-- View builder got context & id.  
+- View builder got context & id.
 - [Check README] Added observers to runMultiApp->config
 - [Check README] Added native openDialog
 - [Check README] Updated EntryApp requirements, now needs only in home builder.
