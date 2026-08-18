@@ -1,14 +1,12 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'dart:ui' show FlutterView, Offset, Rect, Size;
 
 import 'package:flutter/widgets.dart';
 import 'package:multiview_desktop/src/popup/element_position_tracker.dart';
+import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
 import 'package:multiview_desktop/src/popup/popup_content_sizer.dart';
 import 'package:multiview_desktop/src/popup/popup_controller.dart';
-import 'package:multiview_desktop/src/popup/popup_ffi.dart';
 import 'package:multiview_desktop/src/popup/popup_positioner.dart';
-import 'package:multiview_desktop/src/screen_retriever/screen_retriever.dart';
 import 'package:multiview_desktop/src/view_root.dart' show globalRootState;
 import 'package:multiview_desktop/src/view_scope.dart';
 import 'package:multiview_desktop/src/window_listener.dart';
@@ -71,25 +69,17 @@ class _PopupViewState extends State<PopupView> {
   bool _isShown = false;
 
   // Cached data that doesn't change on every position tick.
-  // On macOS the cache is populated from FFI (sync); on other platforms it is
-  // fetched once on open and refreshed in the background via channel calls.
+  // Populated from sync FFI. Refreshed only when the parent window moves/resizes.
   Rect _cachedParentFrame = Rect.zero;
   Rect _cachedDisplayRect = const Rect.fromLTWH(0, 0, 2560, 1440);
-  bool _parentFrameRefreshing = false;
 
-  // macOS: set to true when the parent window moves or resizes so that the
-  // next _applyPositionSync() call refreshes the cached parent frame via FFI.
+  // Set when the parent window moves or resizes so that the next
+  // _applyPositionSync() call refreshes the cached parent frame via FFI.
   // False during normal scroll — the parent is stationary so the cache is valid,
-  // and we can skip the getParentFrame / getDisplayRect FFI calls entirely.
+  // and we can skip the getFrame / getDisplayRect FFI calls entirely.
   bool _parentFrameDirty = true;
   int? _parentListenerViewId;
   late final _ParentWindowListener _parentListener;
-
-  // Coalescing for async channel platforms (Windows, Linux):
-  // only one positionPopup call in-flight at a time.
-  // On macOS the position update is a synchronous FFI call — no coalescing needed.
-  bool _positionInFlight = false;
-  bool _positionScheduled = false;
 
   ScrollNotificationObserverState? _scrollObserver;
   int _parentScrollDepth = 0;
@@ -102,7 +92,7 @@ class _PopupViewState extends State<PopupView> {
     super.initState();
     _parentListener = _ParentWindowListener(() {
       _parentFrameDirty = true;
-      _schedulePosition();
+      _applyPositionSync();
     });
     _positioner = widget.positioner;
     widget.controller.attach(onOpen: _open, onClose: _close);
@@ -124,7 +114,7 @@ class _PopupViewState extends State<PopupView> {
     }
     if (oldWidget.positioner != widget.positioner) {
       _positioner = widget.positioner;
-      _schedulePosition();
+      _applyPositionSync();
     }
   }
 
@@ -168,18 +158,12 @@ class _PopupViewState extends State<PopupView> {
       final parentRealId = ViewScope.of(context).viewId;
       _maxSize = _parentContentSize();
 
-      if (Platform.isMacOS) {
-        _cachedParentFrame = PopupFfi.instance.getParentFrame(parentRealId) ?? Rect.zero;
-        _cachedDisplayRect = PopupFfi.instance.getDisplayRect(_cachedParentFrame) ?? _cachedDisplayRect;
-        // Subscribe to parent window move/resize to invalidate cache.
-        _unregisterParentListener();
-        _parentListenerViewId = parentRealId;
-        _parentFrameDirty = false;
-        globalRootState.manager.addListener(parentRealId, _parentListener);
-      } else {
-        _cachedParentFrame = await globalRootState.manager.getBounds(parentRealId);
-        _cachedDisplayRect = await _fetchDisplayRect(_cachedParentFrame);
-      }
+      _cachedParentFrame = FfiBridge.instance.getFrame(parentRealId) ?? Rect.zero;
+      _cachedDisplayRect = FfiBridge.instance.getDisplayRect(_cachedParentFrame) ?? _cachedDisplayRect;
+      _unregisterParentListener();
+      _parentListenerViewId = parentRealId;
+      _parentFrameDirty = false;
+      globalRootState.manager.addListener(parentRealId, _parentListener);
       _tracker?.dispose();
       _tracker = LocalElementPositionTracker(element: _anchorKey.currentContext ?? context);
       _anchorRect = _tracker?.getGlobalRect();
@@ -198,7 +182,7 @@ class _PopupViewState extends State<PopupView> {
       _flutterView = flutterView;
       _tracker?.onGlobalRectChange = (rect) {
         _anchorRect = rect;
-        _schedulePosition();
+        _applyPositionSync();
       };
       _catchUpAncestorScrolling();
       _applyClickThrough();
@@ -262,7 +246,7 @@ class _PopupViewState extends State<PopupView> {
   void _applyClickThrough() {
     final id = _realViewId;
     if (id == null) return;
-    PopupFfi.instance.setIgnoreMouseEvents(id, _parentScrolling);
+    FfiBridge.instance.setIgnoreMouseEvents(id, _parentScrolling);
   }
 
   Future<void> _close() async {
@@ -272,14 +256,13 @@ class _PopupViewState extends State<PopupView> {
     _tracker = null;
     final viewId = _realViewId;
     if (viewId != null) {
-      PopupFfi.instance.setIgnoreMouseEvents(viewId, false);
+      FfiBridge.instance.setIgnoreMouseEvents(viewId, false);
     }
     _realViewId = null;
     _flutterView = null;
     _anchorRect = null;
     _contentSize = const Size(1, 1);
     _isShown = false;
-    _positionScheduled = false;
     _parentScrollDepth = 0;
     _parentScrolling = false;
     if (viewId != null) {
@@ -294,56 +277,28 @@ class _PopupViewState extends State<PopupView> {
       return;
     }
     _contentSize = Size(size.width.clamp(1.0, _maxSize.width), size.height.clamp(1.0, _maxSize.height));
-    _schedulePosition();
+    _applyPositionSync();
   }
 
-  // ─── Position scheduling ───────────────────────────────────────────────────
-
-  /// Requests a position update.
-  ///
-  /// macOS: calls [_applyPositionSync] directly — pure synchronous execution,
-  /// no Future allocation, no microtask yield, no coalescing overhead.
-  /// Since the FFI call completes within the same call stack, it is impossible
-  /// for two calls to overlap (Dart single-threaded isolate).
-  ///
-  /// Other platforms: coalesces via [_runPosition] so only one async channel
-  /// call is in-flight at a time.
-  void _schedulePosition() {
-    if (_realViewId == null || _anchorRect == null) return;
-    if (Platform.isMacOS) {
-      _applyPositionSync();
-    } else {
-      if (_positionInFlight) {
-        _positionScheduled = true;
-        return;
-      }
-      unawaited(_runPosition());
-    }
-  }
-
-  // ── macOS sync path ────────────────────────────────────────────────────────
-
-  /// Fully synchronous position update via FFI (macOS only).
+  /// Fully synchronous position update via FFI.
   ///
   /// Called directly on every anchor-position or content-size change.
   /// No Future, no await, no microtask queue involvement — executes inline and
-  /// returns before the caller continues. This ensures the popup window moves
-  /// in perfect lock-step with the display's refresh rate, whatever it is
-  /// (60 Hz, 120 Hz ProMotion, etc.).
+  /// returns before the caller continues. This keeps the popup in lock-step
+  /// with the display refresh rate (60 Hz, 120 Hz, etc.).
   void _applyPositionSync() {
+    if (_realViewId == null || _anchorRect == null) return;
     final viewId = _realViewId;
     final anchor = _anchorRect;
     if (viewId == null || anchor == null || !mounted) return;
 
     // Only refresh parent frame / display rect from FFI when the parent window
     // actually moved or resized (flagged by _ParentWindowListener).
-    // During scroll the parent is stationary — skip both FFI "get" calls and
-    // go straight to setFrameOrigin, which is the only WindowServer op needed.
     if (_parentFrameDirty) {
-      final pf = PopupFfi.instance.getParentFrame(ViewScope.of(context).viewId);
+      final pf = FfiBridge.instance.getFrame(ViewScope.of(context).viewId);
       if (pf == null || _realViewId != viewId) return;
       _cachedParentFrame = pf;
-      _cachedDisplayRect = PopupFfi.instance.getDisplayRect(pf) ?? _cachedDisplayRect;
+      _cachedDisplayRect = FfiBridge.instance.getDisplayRect(pf) ?? _cachedDisplayRect;
       _parentFrameDirty = false;
     }
 
@@ -360,99 +315,12 @@ class _PopupViewState extends State<PopupView> {
       displayRect: _cachedDisplayRect,
     );
 
-    PopupFfi.instance.setFrame(viewId, placed);
+    FfiBridge.instance.setFrame(viewId, placed);
 
-    // show() is async but only called once. _isShown is set synchronously
-    // first so subsequent calls to _applyPositionSync do not call show again.
     if (!_isShown && _realViewId != null) {
       _isShown = true;
       unawaited(globalRootState.manager.show(_realViewId!));
     }
-  }
-
-  // ── Async channel path (Windows / Linux) ───────────────────────────────────
-
-  Future<void> _runPosition() async {
-    _positionInFlight = true;
-    try {
-      await _applyPositionAsync();
-    } finally {
-      _positionInFlight = false;
-      if (_positionScheduled) {
-        _positionScheduled = false;
-        unawaited(_runPosition());
-      }
-    }
-  }
-
-  Future<void> _applyPositionAsync() async {
-    final viewId = _realViewId;
-    final anchor = _anchorRect;
-    if (viewId == null || anchor == null || !mounted) return;
-
-    final parentRealId = ViewScope.of(context).viewId;
-    _refreshParentFrame(parentRealId);
-
-    final flutterView = View.of(context);
-    final contentSize = flutterView.physicalSize / flutterView.devicePixelRatio;
-    final pf = _cachedParentFrame;
-    final dx = ((pf.width - contentSize.width) / 2).clamp(0.0, double.infinity);
-    final dy = (pf.height - contentSize.height).clamp(0.0, double.infinity);
-    final screenAnchor = anchor.shift(Offset(pf.left + dx, pf.top + dy));
-
-    final placed = _positioner.placeWindow(
-      childSize: _contentSize,
-      anchorRect: screenAnchor,
-      parentRect: pf,
-      displayRect: _cachedDisplayRect,
-    );
-
-    if (!mounted || _realViewId != viewId) return;
-    await globalRootState.manager.positionPopup(viewId, placed);
-
-    if (!_isShown && _realViewId != null) {
-      _isShown = true;
-      await globalRootState.manager.show(_realViewId!);
-    }
-  }
-
-  // ─── Background cache refresh ──────────────────────────────────────────────
-
-  void _refreshParentFrame(int parentRealId) {
-    if (_parentFrameRefreshing) return;
-    _parentFrameRefreshing = true;
-    globalRootState.manager
-        .getBounds(parentRealId)
-        .then((frame) {
-          if (mounted) _cachedParentFrame = frame;
-        })
-        .whenComplete(() => _parentFrameRefreshing = false);
-  }
-
-  static Future<Rect> _fetchDisplayRect(Rect parentFrame) async {
-    try {
-      final displays = await ScreenRetriever.instance.getAllDisplays();
-      Display? best;
-      var bestArea = 0.0;
-      for (final display in displays) {
-        final origin = display.visiblePosition ?? Offset.zero;
-        final size = display.visibleSize ?? display.size;
-        final rect = origin & size;
-        final overlap = rect.intersect(parentFrame);
-        final area = overlap.width.clamp(0.0, double.infinity) * overlap.height.clamp(0.0, double.infinity);
-        if (area >= bestArea) {
-          bestArea = area;
-          best = display;
-        }
-      }
-      if (best != null) {
-        final origin = best.visiblePosition ?? Offset.zero;
-        final size = best.visibleSize ?? best.size;
-        return origin & size;
-      }
-    } catch (_) {}
-    // Fallback: generous area around the parent window.
-    return parentFrame.inflate(800);
   }
 
   @override

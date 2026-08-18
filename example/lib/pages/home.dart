@@ -425,26 +425,64 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   PopupView(
                     controller: _popupController,
                     builder: (ctx) {
-                      return Material(
-                        elevation: 8,
-                        borderRadius: BorderRadius.circular(8),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Theme and context come from the parent via ViewAnchor.',
-                                style: Theme.of(ctx).textTheme.bodySmall,
+                      return SizedBox(
+                        height: 200,
+                        child: Material(
+                          elevation: 8,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Theme and context come from the parent via ViewAnchor.',
+                                    style: Theme.of(ctx).textTheme.bodySmall,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
+                                  ),
+                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Theme and context come from the parent via ViewAnchor.',
+                                    style: Theme.of(ctx).textTheme.bodySmall,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
+                                  ),
+                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Theme and context come from the parent via ViewAnchor.',
+                                    style: Theme.of(ctx).textTheme.bodySmall,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
+                                  ),
+                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Theme and context come from the parent via ViewAnchor.',
+                                    style: Theme.of(ctx).textTheme.bodySmall,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 8),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
-                              ),
-                            ],
+                            ),
                           ),
                         ),
                       );
