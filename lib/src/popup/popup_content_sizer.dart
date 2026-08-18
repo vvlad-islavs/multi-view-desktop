@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
@@ -7,6 +8,7 @@ import 'package:flutter/widgets.dart';
 /// Incoming view constraints are ignored for measurement. [maxSize] is the
 /// finite ceiling (typically the parent window) so flex children never see
 /// unbounded constraints. Wrap the content in [SizedBox] for a fixed size.
+@internal
 class PopupContentSizer extends SingleChildRenderObjectWidget {
   const PopupContentSizer({super.key, required this.maxSize, required this.onSize, required super.child});
 

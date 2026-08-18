@@ -13,7 +13,6 @@ class PopupController extends ChangeNotifier {
 
   Future<void> Function()? _openHandler;
   Future<void> Function()? _closeHandler;
-  void Function({Rect? anchorRect, PopupPositioner? positioner})? _updateHandler;
 
   /// Whether the popup is currently requested open.
   bool get isOpen => _isOpen;
@@ -40,25 +39,14 @@ class PopupController extends ChangeNotifier {
   /// Toggles [open] / [close].
   Future<void> toggle() => _isOpen ? close() : open();
 
-  /// Repositions the native popup relative to its trigger.
-  ///
-  /// Called automatically by [PopupView] when the trigger moves. Can also be
-  /// called by the owner to change [positioner] while open. Window size always
-  /// follows the popup content.
-  void updatePosition({Rect? anchorRect, PopupPositioner? positioner}) {
-    _updateHandler?.call(anchorRect: anchorRect, positioner: positioner);
-  }
-
   /// Bound by [PopupView]. Do not call from application code.
   @internal
   void attach({
     required Future<void> Function() onOpen,
     required Future<void> Function() onClose,
-    required void Function({Rect? anchorRect, PopupPositioner? positioner}) onUpdate,
   }) {
     _openHandler = onOpen;
     _closeHandler = onClose;
-    _updateHandler = onUpdate;
     _attached = true;
   }
 
@@ -67,7 +55,6 @@ class PopupController extends ChangeNotifier {
   void detach() {
     _openHandler = null;
     _closeHandler = null;
-    _updateHandler = null;
     _attached = false;
   }
 

@@ -424,7 +424,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   ),
                   PopupView(
                     controller: _popupController,
-                    popup: (ctx) {
+                    builder: (ctx) {
                       return Material(
                         elevation: 8,
                         borderRadius: BorderRadius.circular(8),

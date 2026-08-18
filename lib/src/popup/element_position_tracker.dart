@@ -1,11 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 /// Tracks the global rect of an [Element] inside a Flutter view.
 ///
 /// Independent of Flutter's experimental windowing flag. Used by [PopupView]
 /// to keep a popup aligned with its trigger widget.
-class ElementPositionTracker {
-  ElementPositionTracker({required this.element}) {
+@internal
+class LocalElementPositionTracker {
+  LocalElementPositionTracker({required this.element}) {
     _ElementPositionTrackerManager.instance.add(this);
   }
 
@@ -56,7 +58,7 @@ class ElementPositionTracker {
 class _ElementPositionTrackerManager {
   _ElementPositionTrackerManager._() {
     WidgetsBinding.instance.addPersistentFrameCallback((_) {
-      final trackersCopy = List<ElementPositionTracker>.from(_trackers, growable: false);
+      final trackersCopy = List<LocalElementPositionTracker>.from(_trackers, growable: false);
       for (final tracker in trackersCopy) {
         tracker._updateSelf();
       }
@@ -66,13 +68,13 @@ class _ElementPositionTrackerManager {
   static final _instance = _ElementPositionTrackerManager._();
 
   static _ElementPositionTrackerManager get instance => _instance;
-  final List<ElementPositionTracker> _trackers = <ElementPositionTracker>[];
+  final List<LocalElementPositionTracker> _trackers = <LocalElementPositionTracker>[];
 
-  void add(ElementPositionTracker tracker) {
+  void add(LocalElementPositionTracker tracker) {
     _trackers.add(tracker);
   }
 
-  void remove(ElementPositionTracker tracker) {
+  void remove(LocalElementPositionTracker tracker) {
     _trackers.remove(tracker);
   }
 }

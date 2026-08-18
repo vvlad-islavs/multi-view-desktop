@@ -73,6 +73,15 @@ private class WindowState {
     var opacity: CGFloat = 1.0
 }
 
+// MARK: - MVDPopupWindow
+
+/// Borderless popup that never becomes key or main, so it cannot steal
+/// focus from the parent window.
+class MVDPopupWindow: NSWindow {
+    override var canBecomeKey: Bool  { false }
+    override var canBecomeMain: Bool { false }
+}
+
 // MARK: - MultiviewDesktopImpl
 
 /// Singleton that owns the shared Flutter engine, all OS windows, and the
@@ -608,7 +617,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         newController.mouseTrackingMode = .inActiveApp
         let viewId = newController.viewIdentifier
 
-        let newWindow = NSWindow(
+        let newWindow = MVDPopupWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
             styleMask: .borderless,
             backing: .buffered,
@@ -656,6 +665,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     }
 
     private func closePopupWindow(_ window: NSWindow, viewId: Int64) {
+        window.ignoresMouseEvents = false
         if let parent = popupParents[viewId] {
             parent.removeChildWindow(window)
             popupParents.removeValue(forKey: viewId)
@@ -1079,16 +1089,27 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             result(nil)
 
         case "setPopupBounds":
-            // Combines setSize + setPosition into ONE setFrame call so the
-            // Flutter resize-synchronizer fires only once instead of twice.
+            // Atomic position + size update.
+            // When size is unchanged, use setFrameOrigin so that
+            // FlutterView.setFrameSize is never called → ResizeSynchronizer
+            // is not triggered → no Impeller texture-size crash on macOS.
             let w = args?["width"] as? CGFloat ?? window.frame.width
             let h = args?["height"] as? CGFloat ?? window.frame.height
             let x = args?["x"] as? CGFloat ?? window.frame.topLeft.x
             let y = args?["y"] as? CGFloat ?? window.frame.topLeft.y
+            let tolerance: CGFloat = 0.5
+            let sizeChanged =
+                abs(window.frame.width  - w) > tolerance ||
+                abs(window.frame.height - h) > tolerance
             var f = window.frame
-            f.size = NSSize(width: w, height: h)
-            f.topLeft = CGPoint(x: x, y: y)
-            window.setFrame(f, display: false)
+            if sizeChanged {
+                f.size   = NSSize(width: w, height: h)
+                f.topLeft = CGPoint(x: x, y: y)
+                window.setFrame(f, display: false)
+            } else {
+                f.topLeft = CGPoint(x: x, y: y)
+                window.setFrameOrigin(f.origin)
+            }
             result(true)
 
         case "center":
