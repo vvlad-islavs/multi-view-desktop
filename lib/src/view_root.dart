@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
+import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
 import 'package:multiview_desktop/src/native_channel.dart';
 import 'package:multiview_desktop/src/view_scope.dart';
 import 'package:multiview_desktop/src/views_manager.dart';
@@ -30,9 +31,7 @@ enum _CreateViewError {
 
   String message(int token) => switch (this) {
     _CreateViewError.timeout => 'Failed to create dialog window, tokenId: $token. Error: timeout',
-    // TODO: Handle this case.
     _CreateViewError.forceClose => 'Failed to create dialog window, tokenId: $token. Error: force close',
-    // TODO: Handle this case.
     _CreateViewError.unhandled => 'Failed to create dialog window, tokenId: $token. Unhandled error',
   };
 
@@ -101,6 +100,7 @@ class _PopupEntry {
 
 _MultiViewRootState? _rootState;
 final NativeChannel _nativeChannel = NativeChannel();
+final FfiBridge _ffiBridge = FfiBridge.instance;
 bool _hasInitView = true;
 
 /// Returns the live `_MultiViewRootState` after `runMultiApp` has started.
@@ -421,6 +421,7 @@ class _ViewsManagerImpl implements ViewsManager {
   late CloseMode closeMode;
 
   _ViewsManagerImpl({required this.config, required this.cascadeCloseService, required this.communicator}) {
+    _ffiBridge.setMethodCallHandler(_onStaticCall);
     _nativeChannel.setMethodCallHandler(_onStaticCall);
     closeMode = config.generalParams.closeMode;
   }

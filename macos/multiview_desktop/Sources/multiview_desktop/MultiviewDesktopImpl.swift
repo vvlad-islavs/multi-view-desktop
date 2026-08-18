@@ -196,10 +196,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         }
 
         DispatchQueue.main.async { [weak self] in
-            self?.channel?.invokeMethod(
-                "onEvent",
-                arguments: ["eventName": "applicationShouldTerminateRequest"]
-            )
+            self?.emitOnEvent("applicationShouldTerminateRequest")
         }
         return .terminateCancel
     }
@@ -250,10 +247,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     }
 
     @objc private func onTaskbarMenuItemSelected(_ sender: NSMenuItem) {
-        channel?.invokeMethod(
-            "onEvent",
-            arguments: ["eventName": "taskbarMenuItemSelected", "id": sender.tag]
-        )
+        emitOnEvent("taskbarMenuItemSelected", arg: Int64(sender.tag))
     }
 
 
@@ -266,10 +260,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     func handleApplicationReopen(hasVisibleWindows: Bool) -> Bool {
         if hasTaskbarCallback {
             DispatchQueue.main.async { [weak self] in
-                self?.channel?.invokeMethod(
-                    "onEvent",
-                    arguments: ["eventName": "taskbar-callback"]
-                )
+                self?.emitOnEvent("taskbar-callback")
             }
             let hiddenEntries = windows.filter {
                 !$0.value.isVisible
@@ -492,10 +483,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         newWindow.makeKeyAndOrderFront(nil)
 
         DispatchQueue.main.async { [weak self] in
-            self?.channel?.invokeMethod(
-                "onEvent",
-                arguments: ["eventName": "viewCreated", "viewId": Int(viewId), "token": token]
-            )
+            self?.emitOnEvent("viewCreated", viewId: viewId, arg: Int64(token))
         }
 
         result(nil)
@@ -581,10 +569,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         }
 
         DispatchQueue.main.async { [weak self] in
-            self?.channel?.invokeMethod(
-                "onEvent",
-                arguments: ["eventName": "viewCreated", "viewId": Int(viewId), "token": token]
-            )
+            self?.emitOnEvent("viewCreated", viewId: viewId, arg: Int64(token))
         }
 
         result(nil)
@@ -656,10 +641,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         parentWindow.addChildWindow(newWindow, ordered: .above)
 
         DispatchQueue.main.async { [weak self] in
-            self?.channel?.invokeMethod(
-                "onEvent",
-                arguments: ["eventName": "viewCreated", "viewId": Int(viewId), "token": token]
-            )
+            self?.emitOnEvent("viewCreated", viewId: viewId, arg: Int64(token))
         }
 
         result(nil)
@@ -764,10 +746,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
                 parent.removeChildWindow(closingWindow)
             }
             popupParents.removeValue(forKey: viewId)
-            channel?.invokeMethod(
-                "onEvent",
-                arguments: ["eventName": "popup-closed", "viewId": Int(viewId)]
-            )
+            emitOnEvent("popup-closed", viewId: viewId)
         }
 
         windows.removeValue(forKey: viewId)
@@ -1388,12 +1367,27 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         return false
     }
 
+    /// Sends `onEvent` to Dart with [eventName] and optional [viewId] / extra [arg].
+    func emitOnEvent(_ eventName: String, viewId: Int64 = -1, arg: Int64 = -1) {
+        if mvdFfiTryEmit(eventName, viewId: viewId, arg: arg) {
+            return
+        }
+        var arguments: [String: Any] = ["eventName": eventName]
+        if viewId != -1 {
+            arguments["viewId"] = Int(viewId)
+        }
+        if eventName == "viewCreated" {
+            arguments["token"] = Int(arg)
+        }
+        if eventName == "taskbarMenuItemSelected" {
+            arguments["id"] = Int(arg)
+        }
+        channel?.invokeMethod("onEvent", arguments: arguments)
+    }
+
     /// Sends `onEvent` to Dart with [eventName] and [viewId].
     private func emitEvent(_ eventName: String, viewId: Int64) {
-        channel?.invokeMethod(
-            "onEvent",
-            arguments: ["eventName": eventName, "viewId": Int(viewId)]
-        )
+        emitOnEvent(eventName, viewId: viewId)
     }
 
     private func viewIdForWindow(_ window: NSWindow) -> Int64? {

@@ -32,6 +32,25 @@ private let _i32Buf: UnsafeMutablePointer<Int32> = {
 
 private var _pendingMenu: [[String: Any]] = []
 
+public typealias MvdEventCallback = @convention(c) (
+    UnsafePointer<CChar>?, Int64, Int64
+) -> Void
+
+private var _eventCb: MvdEventCallback?
+
+@_cdecl("mvd_set_event_callback")
+public func mvdSetEventCallback(_ cb: MvdEventCallback?) {
+    _eventCb = cb
+}
+
+func mvdFfiTryEmit(_ name: String, viewId: Int64, arg: Int64) -> Bool {
+    guard let cb = _eventCb else { return false }
+    name.withCString { cstr in
+        cb(cstr, viewId, arg)
+    }
+    return true
+}
+
 private func impl() -> MultiviewDesktopImpl { MultiviewDesktopImpl.shared }
 
 private func win(_ id: Int64) -> NSWindow? { impl().windows[id] }

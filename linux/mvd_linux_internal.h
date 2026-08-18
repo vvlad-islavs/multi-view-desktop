@@ -5,6 +5,7 @@
 #include <gtk/gtk.h>
 
 #include <glib.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -65,6 +66,13 @@ void mvd_linux_queue_create_popup(int64_t token,
 void mvd_linux_set_anchor_view_id(int64_t view_id);
 
 void mvd_linux_set_terminate_after_last(int terminate);
+
+typedef void (*MvdEventCallback)(const char* event_name, int64_t view_id,
+                                 int64_t arg);
+
+void mvd_set_event_callback(MvdEventCallback cb);
+
+int32_t mvd_emit_event(const char* event_name, int64_t view_id, int64_t arg);
 
 #ifdef __cplusplus
 }

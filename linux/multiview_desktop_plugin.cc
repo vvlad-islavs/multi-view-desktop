@@ -126,6 +126,11 @@ static void emit_event(const char* event_name, int64_t view_id) {
   MVD_LOG("emit_event  '%s'  viewId=%" G_GINT64_FORMAT
           "  channel=%p",
           event_name, view_id, static_cast<void*>(g_channel));
+  if (mvd_emit_event(event_name, view_id, -1)) {
+    MVD_LOG("emit_event  ffi  '%s'  viewId=%" G_GINT64_FORMAT,
+            event_name, view_id);
+    return;
+  }
   if (!g_channel) {
     MVD_LOG("emit_event  SKIP: g_channel is null");
     return;
@@ -143,6 +148,12 @@ static void emit_view_created(int64_t view_id, int64_t token) {
   MVD_LOG("emit_view_created  viewId=%" G_GINT64_FORMAT
           "  token=%" G_GINT64_FORMAT "  channel=%p",
           view_id, token, static_cast<void*>(g_channel));
+  if (mvd_emit_event("viewCreated", view_id, token)) {
+    MVD_LOG("emit_view_created  ffi  viewId=%" G_GINT64_FORMAT
+            "  token=%" G_GINT64_FORMAT,
+            view_id, token);
+    return;
+  }
   if (!g_channel) {
     MVD_LOG("emit_view_created  SKIP: g_channel is null");
     return;

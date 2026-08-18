@@ -153,6 +153,9 @@ namespace {
 
 }  // namespace
 
+extern "C" int32_t mvd_emit_event(const char* event_name, int64_t view_id,
+                                  int64_t arg);
+
 namespace multi_view_desktop {
 
     FlutterDesktopEngineRef MultiViewDesktop::engine_ = nullptr;
@@ -565,32 +568,34 @@ void MultiViewDesktop::DestroyEntry(int64_t target_view_id) {
 }
 
 void MultiViewDesktop::EmitEvent(const std::string &event_name,
-                                 int64_t target_view_id) {
+                                 int64_t target_view_id, int64_t arg) {
+    if (mvd_emit_event(event_name.c_str(), target_view_id, arg)) {
+        return;
+    }
     if (!channel_) {
         return;
     }
+    flutter::EncodableMap map{
+            {flutter::EncodableValue("eventName"),
+                    flutter::EncodableValue(event_name)},
+    };
+    if (target_view_id != -1) {
+        map[flutter::EncodableValue("viewId")] =
+                flutter::EncodableValue(target_view_id);
+    }
+    if (event_name == "viewCreated") {
+        map[flutter::EncodableValue("token")] = flutter::EncodableValue(arg);
+    }
+    if (event_name == "taskbarMenuItemSelected") {
+        map[flutter::EncodableValue("id")] = flutter::EncodableValue(arg);
+    }
     channel_->InvokeMethod(
             "onEvent",
-            std::make_unique<flutter::EncodableValue>(flutter::EncodableMap{
-                    {flutter::EncodableValue("eventName"),
-                            flutter::EncodableValue(event_name)},
-                    {flutter::EncodableValue("viewId"),
-                            flutter::EncodableValue(target_view_id)},
-            }));
+            std::make_unique<flutter::EncodableValue>(std::move(map)));
 }
 
 void MultiViewDesktop::EmitTaskbarMenuItemSelected(int menu_item_id) {
-    if (!channel_) {
-        return;
-    }
-    channel_->InvokeMethod(
-            "onEvent",
-            std::make_unique<flutter::EncodableValue>(flutter::EncodableMap{
-                    {flutter::EncodableValue("eventName"),
-                            flutter::EncodableValue("taskbarMenuItemSelected")},
-                    {flutter::EncodableValue("id"),
-                            flutter::EncodableValue(menu_item_id)},
-            }));
+    EmitEvent("taskbarMenuItemSelected", -1, menu_item_id);
 }
 
 int64_t MultiViewDesktop::Int64FromMap(const flutter::EncodableMap &args,
@@ -729,18 +734,7 @@ void MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &args) 
     SetForegroundWindow(host_hwnd);
     FlutterDesktopViewControllerForceRedraw(view_controller);
 
-    if (channel_) {
-        channel_->InvokeMethod(
-                "onEvent",
-                std::make_unique<flutter::EncodableValue>(flutter::EncodableMap{
-                        {flutter::EncodableValue("eventName"),
-                                flutter::EncodableValue("viewCreated")},
-                        {flutter::EncodableValue("viewId"),
-                                flutter::EncodableValue(
-                                        flutter_view_id)},
-                        {flutter::EncodableValue("token"), flutter::EncodableValue(token)},
-                }));
-    }
+    EmitEvent("viewCreated", flutter_view_id, token);
 }
 
 void MultiViewDesktop::CreateModalDialogWindow(
@@ -861,19 +855,7 @@ void MultiViewDesktop::CreateModalDialogWindow(
         FlutterDesktopViewControllerForceRedraw(view_controller);
     }
 
-    if (channel_) {
-        channel_->InvokeMethod(
-                "onEvent",
-                std::make_unique<flutter::EncodableValue>(flutter::EncodableMap{
-                        {flutter::EncodableValue("eventName"),
-                                flutter::EncodableValue("viewCreated")},
-                        {flutter::EncodableValue("viewId"),
-                                flutter::EncodableValue(flutter_view_id)},
-                        {flutter::EncodableValue("token"), flutter::EncodableValue(token)},
-                }));
-    }
-}
-
+    EmitEvent("viewCreated", flutter_view_id, token);
 }
 
 void MultiViewDesktop::CreatePopupWindow(const flutter::EncodableMap &args) {
@@ -935,17 +917,7 @@ void MultiViewDesktop::CreatePopupWindow(const flutter::EncodableMap &args) {
     ShowWindow(host_hwnd, SW_SHOWNOACTIVATE);
     FlutterDesktopViewControllerForceRedraw(view_controller);
 
-    if (channel_) {
-        channel_->InvokeMethod(
-                "onEvent",
-                std::make_unique<flutter::EncodableValue>(flutter::EncodableMap{
-                        {flutter::EncodableValue("eventName"),
-                                flutter::EncodableValue("viewCreated")},
-                        {flutter::EncodableValue("viewId"),
-                                flutter::EncodableValue(flutter_view_id)},
-                        {flutter::EncodableValue("token"), flutter::EncodableValue(token)},
-                }));
-    }
+    EmitEvent("viewCreated", flutter_view_id, token);
 }
 
 HWND MultiViewDesktop::GetMainWindow() {

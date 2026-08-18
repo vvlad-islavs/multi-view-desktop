@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:ui' show Brightness, Color, Offset, Rect, Size;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show MethodCall;
 import 'package:multiview_desktop/src/resize_edge.dart';
 import 'package:multiview_desktop/src/title_bar_style.dart';
 
@@ -59,6 +60,11 @@ typedef _AddMenuN = Void Function(Int32);
 typedef _AddMenuD = void Function(int);
 typedef _VBoolN = Void Function(Int32);
 typedef _VBoolD = void Function(int);
+typedef _EventCbN = Void Function(Pointer<Char>, Int64, Int64);
+typedef _SetEventCbN = Void Function(Pointer<NativeFunction<_EventCbN>>);
+typedef _SetEventCbD = void Function(Pointer<NativeFunction<_EventCbN>>);
+
+const _kNoViewId = -1;
 
 const _kRectBufSymbol = 'mvd_rect_buf_ptr';
 const _kStrCap = 8192;
@@ -177,6 +183,10 @@ abstract class FfiBridge {
   late final _setIgnoreN = _lib!.lookupFunction<_V2bN, _V2bD>('mvd_set_ignore_mouse_events');
   late final _isIgnoreN = _lib!.lookupFunction<_I1N, _I1D>('mvd_is_ignore_mouse_events');
   late final _popupMenuN = _lib!.lookupFunction<_V1N, _V1D>('mvd_pop_up_window_menu');
+  late final _setEventCallbackN = _lib!.lookupFunction<_SetEventCbN, _SetEventCbD>('mvd_set_event_callback');
+
+  NativeCallable<_EventCbN>? _eventCallable;
+  Future<dynamic> Function(MethodCall)? _eventHandler;
 
   void _writeStr(Uint8List buf, String s) {
     final units = utf8.encode(s);
@@ -203,7 +213,38 @@ abstract class FfiBridge {
     fn(viewId);
   }
 
-  // Create (fire-and-forget; completion still arrives via channel `viewCreated`)
+  /// Native -> Dart events (`onEvent`). Same handler shape as [NativeChannel.setMethodCallHandler].
+  void setMethodCallHandler(Future<dynamic> Function(MethodCall) handler) {
+    _eventHandler = handler;
+    if (!_supported) return;
+    final previous = _eventCallable;
+    _eventCallable = NativeCallable<_EventCbN>.isolateLocal(_dispatchNativeEvent);
+    _setEventCallbackN(_eventCallable!.nativeFunction);
+    previous?.close();
+  }
+
+  void _dispatchNativeEvent(Pointer<Char> namePtr, int viewId, int arg) {
+    final handler = _eventHandler;
+    if (handler == null) return;
+    final eventName = _readCString(namePtr);
+    final args = <String, dynamic>{'eventName': eventName};
+    if (viewId != _kNoViewId) args['viewId'] = viewId;
+    if (eventName == 'viewCreated') args['token'] = arg;
+    if (eventName == 'taskbarMenuItemSelected') args['id'] = arg;
+    handler(MethodCall('onEvent', args));
+  }
+
+  String _readCString(Pointer<Char> p) {
+    if (p == nullptr) return '';
+    final bytes = p.cast<Uint8>();
+    var n = 0;
+    while (bytes[n] != 0) {
+      n++;
+    }
+    return utf8.decode(bytes.asTypedList(n));
+  }
+
+  // Create (fire-and-forget; completion still arrives via `viewCreated`)
 
   void createWindowRequest({
     required int token,

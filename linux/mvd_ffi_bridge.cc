@@ -48,9 +48,24 @@ double OverlapArea(double ax, double ay, double aw, double ah, double bx,
 
 std::shared_ptr<MvdLinuxWindow> Win(int64_t id) { return MvdLinuxWindow::Find(id); }
 
+MvdEventCallback g_event_cb = nullptr;
+
 }  // namespace
 
 extern "C" {
+
+FLUTTER_PLUGIN_EXPORT void mvd_set_event_callback(MvdEventCallback cb) {
+  g_event_cb = cb;
+}
+
+FLUTTER_PLUGIN_EXPORT int32_t mvd_emit_event(const char* event_name,
+                                             int64_t view_id, int64_t arg) {
+  if (!g_event_cb || !event_name) {
+    return 0;
+  }
+  g_event_cb(event_name, view_id, arg);
+  return 1;
+}
 
 FLUTTER_PLUGIN_EXPORT double* mvd_rect_buf_ptr() { return g_rect_buf; }
 FLUTTER_PLUGIN_EXPORT char* mvd_str_buf_ptr() { return g_str_buf; }

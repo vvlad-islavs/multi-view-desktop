@@ -66,7 +66,7 @@ class MultiViewDesktop {
   void CreateModalDialogWindow(const flutter::EncodableMap& args);
   void CreatePopupWindow(const flutter::EncodableMap& args);
 
-  void EmitEvent(const std::string& event_name, int64_t view_id);
+  void EmitEvent(const std::string& event_name, int64_t view_id, int64_t arg = -1);
   void EmitTaskbarMenuItemSelected(int menu_item_id);
 
   static void UpdateModalStateLayer(HWND owner_hwnd);
