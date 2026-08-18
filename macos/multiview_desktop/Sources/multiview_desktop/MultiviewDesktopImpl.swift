@@ -59,7 +59,7 @@ extension NSRect {
 // MARK: - Per-window state
 
 /// Mutable close / maximize flags for one [NSWindow], keyed by Flutter view ID.
-private class WindowState {
+class WindowState {
     /// When `true`, `windowShouldClose` emits `close` and returns `false`.
     var isPreventClose: Bool = false
     /// When `true`, `windowShouldClose` may destroy the window.
@@ -110,7 +110,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     /// Flutter view ID of the main window (set in [registerMain] for [mainWindowRef]).
     private(set) var mainViewId: Int64?
 
-    private var windowStates: [Int64: WindowState] = [:]
+    var windowStates: [Int64: WindowState] = [:]
     /// Maps a sheet (modal dialog) viewId to the NSWindow it is attached to.
     /// Populated in [createModalDialogWindow]; cleared when the sheet is dismissed.
     private var sheetParents: [Int64: NSWindow] = [:]
@@ -337,6 +337,43 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         hasTaskbarCallback = hasCallback
     }
 
+    func setAnchorViewId(_ viewId: Int64) {
+        mainViewId = viewId
+    }
+
+    func setProgressBar(_ progress: Double) {
+        let dockTile: NSDockTile = NSApp.dockTile
+
+        let firstTime = dockTile.contentView == nil || dockTile.contentView?.subviews.count == 0
+        if firstTime {
+            let imageView = NSImageView()
+            imageView.image = NSApp.applicationIconImage
+            dockTile.contentView = imageView
+
+            let frame = NSMakeRect(0.0, 0.0, dockTile.size.width, 15.0)
+            let progressIndicator = NSProgressIndicator(frame: frame)
+            progressIndicator.style = .bar
+            progressIndicator.isIndeterminate = false
+            progressIndicator.minValue = 0
+            progressIndicator.maxValue = 1
+            progressIndicator.isHidden = false
+            dockTile.contentView?.addSubview(progressIndicator)
+        }
+
+        let progressIndicator = dockTile.contentView!.subviews.last as! NSProgressIndicator
+        if progress < 0 {
+            progressIndicator.isHidden = true
+        } else if progress > 1 {
+            progressIndicator.isHidden = false
+            progressIndicator.isIndeterminate = true
+            progressIndicator.doubleValue = 1
+        } else {
+            progressIndicator.isHidden = false
+            progressIndicator.doubleValue = progress
+        }
+        dockTile.display()
+    }
+
     // MARK: - Channel handler
 
     private func handle(call: FlutterMethodCall, result: FlutterResult) {
@@ -365,8 +402,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             setHasTaskbarCallback(hasCallback)
             result(nil)
         case "setAnchorViewId":
-            let anchorId = int64(from: args, key: "viewId")
-            mainViewId = anchorId
+            setAnchorViewId(int64(from: args, key: "viewId"))
             result(nil)
         case "isHideAppFromTaskbar":
             result(NSApplication.shared.activationPolicy() == .accessory)
@@ -375,38 +411,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             NSApplication.shared.setActivationPolicy(isSkipTaskbar ? .accessory : .regular)
             result(nil)
         case "setProgressBar":
-            let progress: CGFloat = CGFloat(truncating: args["progress"] as? NSNumber ?? 0)
-            let dockTile: NSDockTile = NSApp.dockTile
-
-            let firstTime = dockTile.contentView == nil || dockTile.contentView?.subviews.count == 0
-            if firstTime {
-                let imageView = NSImageView()
-                imageView.image = NSApp.applicationIconImage
-                dockTile.contentView = imageView
-
-                let frame = NSMakeRect(0.0, 0.0, dockTile.size.width, 15.0)
-                let progressIndicator = NSProgressIndicator(frame: frame)
-                progressIndicator.style = .bar
-                progressIndicator.isIndeterminate = false
-                progressIndicator.minValue = 0
-                progressIndicator.maxValue = 1
-                progressIndicator.isHidden = false
-                dockTile.contentView?.addSubview(progressIndicator)
-            }
-
-            let progressIndicator = dockTile.contentView!.subviews.last as! NSProgressIndicator
-            if progress < 0 {
-                progressIndicator.isHidden = true
-            } else if progress > 1 {
-                progressIndicator.isHidden = false
-                progressIndicator.isIndeterminate = true
-                progressIndicator.doubleValue = 1
-            } else {
-                progressIndicator.isHidden = false
-                progressIndicator.doubleValue = Double(progress)
-            }
-            dockTile.display()
-
+            setProgressBar(Double(truncating: args["progress"] as? NSNumber ?? 0))
             result(nil)
         case "setTaskbarMenu":
             let items = args["items"] as? [[String: Any]] ?? []
@@ -428,7 +433,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     // MARK: - Secondary window creation
 
-    private func createSecondaryWindow(args: [String: Any], result: FlutterResult) {
+    func createSecondaryWindow(args: [String: Any], result: FlutterResult) {
         guard let engine else {
             result(FlutterError(code: "NO_ENGINE", message: "Engine not available", details: nil))
             return
@@ -504,7 +509,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     /// and blocks all user input to it until the sheet is dismissed.  When the
     /// sheet window is closed through the normal soft-close cycle, `endSheet` is
     /// called automatically in `windowShouldClose` before the window is destroyed.
-    private func createModalDialogWindow(args: [String: Any], result: FlutterResult) {
+    func createModalDialogWindow(args: [String: Any], result: FlutterResult) {
         guard let engine else {
             result(FlutterError(code: "NO_ENGINE", message: "Engine not available", details: nil))
             return
@@ -591,7 +596,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     ///
     /// Mirrors Flutter's `createPopupWindow`: never key, auxiliary collection
     /// behavior, transparent until Dart shows it.
-    private func createPopupWindow(args: [String: Any], result: FlutterResult) {
+    func createPopupWindow(args: [String: Any], result: FlutterResult) {
         guard let engine else {
             result(FlutterError(code: "NO_ENGINE", message: "Engine not available", details: nil))
             return
@@ -664,7 +669,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         windows.keys.filter { windowStates[$0]?.isPopup != true }.count
     }
 
-    private func closePopupWindow(_ window: NSWindow, viewId: Int64) {
+    func closePopupWindow(_ window: NSWindow, viewId: Int64) {
         window.ignoresMouseEvents = false
         if let parent = popupParents[viewId] {
             parent.removeChildWindow(window)
@@ -701,7 +706,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     }
 
     /// Dismisses a modal sheet and destroys its window.
-    private func closeSheetWindow(_ sheet: NSWindow, viewId: Int64) {
+    func closeSheetWindow(_ sheet: NSWindow, viewId: Int64) {
         if let parentWindow = sheetParents[viewId] {
             sheetParents.removeValue(forKey: viewId)
             parentWindow.endSheet(sheet)
@@ -711,7 +716,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     /// Requests soft close, working around AppKit ignoring [NSWindow.performClose]
     /// while [NSWindow.attachedSheet] is non-nil.
-    private func requestSoftClose(viewId: Int64, window: NSWindow) {
+    func requestSoftClose(viewId: Int64, window: NSWindow) {
         if window.attachedSheet != nil {
             _ = advanceSoftClose(viewId: viewId)
             return
@@ -1354,7 +1359,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     /// is still `isOnActiveSpace` loses that race: the pending teleport runs afterward.
     /// Deferred retries re-check: once the window is off the active Space,
     /// `makeKeyAndOrderFront` pulls Mission Control back to it.
-    private func focusWindow(_ window: NSWindow) {
+    func focusWindow(_ window: NSWindow) {
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }
@@ -1368,7 +1373,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     /// `isKeyWindow` alone is not enough: it can stay `true` for a window that
     /// is ordered behind another window of this app, or for a window on another
     /// Space while the user is looking at a different Space.
-    private func isWindowFocused(_ window: NSWindow) -> Bool {
+    func isWindowFocused(_ window: NSWindow) -> Bool {
         guard NSApp.isActive, window.isKeyWindow, window.isVisible, !window.isMiniaturized else {
             return false
         }

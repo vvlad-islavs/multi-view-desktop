@@ -1,4 +1,4 @@
-﻿// This must be included before many other Windows headers.
+// This must be included before many other Windows headers.
 #include <windows.h>
 
 #include <flutter/method_channel.h>
@@ -1276,14 +1276,20 @@ void MultiViewDesktop::SetAspectRatio(const flutter::EncodableMap &args) {
 }
 
 void MultiViewDesktop::SetBackgroundColor(const flutter::EncodableMap &args) {
-    int backgroundColorA =
-            std::get<int>(args.at(flutter::EncodableValue("backgroundColorA")));
-    int backgroundColorR =
-            std::get<int>(args.at(flutter::EncodableValue("backgroundColorR")));
-    int backgroundColorG =
-            std::get<int>(args.at(flutter::EncodableValue("backgroundColorG")));
-    int backgroundColorB =
-            std::get<int>(args.at(flutter::EncodableValue("backgroundColorB")));
+    auto channel = [&args](const char *key) -> int {
+        const int64_t value = Int64FromMap(args, key);
+        if (value < 0) {
+            return 0;
+        }
+        if (value > 255) {
+            return 255;
+        }
+        return static_cast<int>(value);
+    };
+    int backgroundColorA = channel("backgroundColorA");
+    int backgroundColorR = channel("backgroundColorR");
+    int backgroundColorG = channel("backgroundColorG");
+    int backgroundColorB = channel("backgroundColorB");
 
     bool isTransparent = backgroundColorA == 0 && backgroundColorR == 0 &&
                          backgroundColorG == 0 && backgroundColorB == 0;
