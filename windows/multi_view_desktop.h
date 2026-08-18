@@ -64,6 +64,7 @@ class MultiViewDesktop {
 
   void CreateSecondaryWindow(const flutter::EncodableMap& args);
   void CreateModalDialogWindow(const flutter::EncodableMap& args);
+  void CreatePopupWindow(const flutter::EncodableMap& args);
 
   void EmitEvent(const std::string& event_name, int64_t view_id);
   void EmitTaskbarMenuItemSelected(int menu_item_id);
@@ -80,6 +81,9 @@ class MultiViewDesktop {
                                      bool is_modal,
                                      bool show_close_button,
                                      HWND owner_hwnd);
+  static HWND CreatePopupHostWindow(int client_width,
+                                    int client_height,
+                                    HWND owner_hwnd);
   static void CenterDialogOnOwner(HWND dialog_hwnd, HWND owner_hwnd);
   static LRESULT CALLBACK HostWndProc(HWND hwnd,
                                       UINT message,
@@ -103,6 +107,7 @@ class MultiViewDesktop {
   bool is_skip_taskbar_ = false;
   bool is_dialog_ = false;
   bool is_modal_ = false;
+  bool is_popup_ = false;
   int64_t modal_owner_view_id_ = -1;
   std::string title_bar_style_ = "normal";
   bool window_button_visibility_ = true;
@@ -140,6 +145,7 @@ class MultiViewDesktop {
   flutter::EncodableMap GetBounds(const flutter::EncodableMap& args);
   void SetSize(const flutter::EncodableMap& args);
   void SetPosition(const flutter::EncodableMap& args);
+  void SetPopupBounds(const flutter::EncodableMap& args);
   void Center();
   void SetMinimumSize(const flutter::EncodableMap& args);
   void SetMaximumSize(const flutter::EncodableMap& args);

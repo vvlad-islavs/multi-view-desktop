@@ -186,6 +186,31 @@ static gboolean on_delete(GtkWidget* widget, GdkEvent*, gpointer data) {
           static_cast<int>(wm->is_dialog),
           wm->modal_owner_view_id);
 
+  if (wm->is_popup) {
+    MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
+            "  is_popup=true, skipping soft-close", view_id);
+    emit_event("popup-closed", view_id);
+    MvdLinuxWindow::Unregister(view_id);
+    gtk_widget_hide(widget);
+    g_object_ref(widget);
+    struct DeferredCtx {
+      GtkWidget* widget;
+      bool       should_quit;
+      int64_t    view_id;
+    };
+    auto* ctx = new DeferredCtx{widget, false, view_id};
+    g_timeout_add(
+        100,
+        [](gpointer data) -> gboolean {
+          std::unique_ptr<DeferredCtx> c(static_cast<DeferredCtx*>(data));
+          gtk_widget_destroy(c->widget);
+          g_object_unref(c->widget);
+          return G_SOURCE_REMOVE;
+        },
+        ctx);
+    return TRUE;
+  }
+
   if (!wm->is_pre_confirm) {
     MVD_LOG("on_delete  viewId=%" G_GINT64_FORMAT
             "  is_pre_confirm=false -> emitting 'preconfirm-close'"
@@ -245,9 +270,14 @@ static gboolean on_delete(GtkWidget* widget, GdkEvent*, gpointer data) {
   //      GApplication main loop exits cleanly if Flutter somehow doesn't.
   const bool should_quit = [&]() -> bool {
     std::lock_guard<std::mutex> lock(MvdLinuxWindow::registry_mtx);
-    if (MvdLinuxWindow::windows.empty()) {
-      // All windows closed: quit if the policy says so, OR if this was the
-      // primary window (view_id==0), which always implies the app should exit.
+    bool has_regular = false;
+    for (const auto& p : MvdLinuxWindow::windows) {
+      if (!p.second->is_popup) {
+        has_regular = true;
+        break;
+      }
+    }
+    if (!has_regular) {
       return g_terminate_after_last_window_closed || (view_id == 0);
     }
     return false;
@@ -547,6 +577,63 @@ static void create_modal_dialog_impl(const DialogCreateParams& params) {
   emit_view_created(view_id, params.token);
 }
 
+struct PopupCreateParams {
+  int64_t token = 0;
+  int64_t parent_id = 0;
+  int width = 240;
+  int height = 320;
+};
+
+static void create_popup_window_impl(const PopupCreateParams& params) {
+  auto parent_wm = MvdLinuxWindow::Find(params.parent_id);
+  if (!parent_wm || !parent_wm->window || !parent_wm->view) {
+    return;
+  }
+
+  GApplication* app = g_application_get_default();
+  if (!app) {
+    return;
+  }
+
+  FlEngine* engine = fl_view_get_engine(parent_wm->view);
+  if (!engine) {
+    return;
+  }
+
+  GtkWindow* window =
+      GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(app)));
+  gtk_window_set_decorated(window, FALSE);
+  gtk_window_set_default_size(window, params.width, params.height);
+  gtk_window_set_type_hint(window, GDK_WINDOW_TYPE_HINT_POPUP_MENU);
+  gtk_window_set_skip_taskbar_hint(window, TRUE);
+  gtk_window_set_skip_pager_hint(window, TRUE);
+  gtk_window_set_transient_for(window, parent_wm->window);
+  gtk_window_set_keep_above(window, TRUE);
+  gtk_window_set_resizable(window, FALSE);
+
+  FlView* view = fl_view_new_for_engine(engine);
+  GdkRGBA background_color;
+  gdk_rgba_parse(&background_color, "#000000");
+  background_color.alpha = 0;
+  fl_view_set_background_color(view, &background_color);
+  gtk_widget_show(GTK_WIDGET(view));
+  gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
+  gtk_widget_realize(GTK_WIDGET(view));
+
+  const int64_t view_id = fl_view_get_id(view);
+  register_window(window, view, view_id, false, false, params.parent_id);
+  auto wm = MvdLinuxWindow::Find(view_id);
+  if (wm) {
+    wm->is_popup = true;
+    wm->is_pre_confirm = true;
+    wm->is_confirm_close = true;
+    wm->SetSkipTaskbar(true);
+  }
+
+  gtk_widget_show(GTK_WIDGET(window));
+  emit_view_created(view_id, params.token);
+}
+
 static FlValue* display_to_map(GdkMonitor* monitor, int index) {
   GdkRectangle geo{};
   GdkRectangle work{};
@@ -743,6 +830,11 @@ static void handle_view_method(FlMethodCall* method_call,
   } else if (g_strcmp0(method, "setPosition") == 0) {
     // Dart sends x/y at the top level: _args(viewId, {'x': ..., 'y': ...})
     wm->SetPosition(double_from_map(args, "x", 0), double_from_map(args, "y", 0));
+    response = ok_null();
+  } else if (g_strcmp0(method, "setPopupBounds") == 0) {
+    // Atomic size+position update: reuses SetBounds which calls
+    // gtk_window_move + gtk_window_resize in one call.
+    wm->SetBounds(args);
     response = ok_null();
   } else if (g_strcmp0(method, "center") == 0) {
     wm->Center();
@@ -953,6 +1045,27 @@ static void method_cb(FlMethodChannel*, FlMethodCall* method_call, gpointer) {
                     "  token=%" G_GINT64_FORMAT "  parent_id=%" G_GINT64_FORMAT,
                     params->token, params->parent_id);
             create_modal_dialog_impl(*params);
+            return G_SOURCE_REMOVE;
+          },
+          params);
+      response = ok_null();
+    }
+  } else if (g_strcmp0(method, "createPopupWindow") == 0) {
+    const int64_t parent_id = int64_from_map(args, "parentId");
+    if (MvdLinuxWindow::Find(parent_id) == nullptr) {
+      response = err("NO_PARENT", "No parent window for viewId");
+    } else {
+      auto* params = new PopupCreateParams();
+      params->token = int64_from_map(args, "token");
+      params->parent_id = parent_id;
+      params->width = static_cast<int>(double_from_map(args, "width", 240));
+      params->height = static_cast<int>(double_from_map(args, "height", 320));
+      g_main_context_invoke(
+          nullptr,
+          [](gpointer data) -> gboolean {
+            std::unique_ptr<PopupCreateParams> params(
+                static_cast<PopupCreateParams*>(data));
+            create_popup_window_impl(*params);
             return G_SOURCE_REMOVE;
           },
           params);

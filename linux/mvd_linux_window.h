@@ -45,6 +45,7 @@ class MvdLinuxWindow {
   bool is_forward_mouse_events = false;
   bool is_dialog = false;
   bool is_modal = false;
+  bool is_popup = false;
   int64_t dialog_parent_view_id = -1;
   int64_t modal_owner_view_id = -1;
   bool clamping_position = false;
