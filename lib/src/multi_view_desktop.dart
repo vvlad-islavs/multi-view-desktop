@@ -151,6 +151,36 @@ class MultiViewDesktop {
     return completer.future;
   }
 
+  /// Opens a dialog window bound to `parentContext`.
+  ///
+  /// See `openDialog` for the full documentation.
+  @internal
+  static Future<DialogEntry<T?>> addDialogEntry<T>(
+    Widget Function(BuildContext context, int publicId) child, {
+    required BuildContext parentContext,
+    DialogOptions? options,
+  }) async {
+    final parentRealId = _getRealId(parentContext);
+    final completer = Completer<T>();
+    final realId = await _manager.createDialog(
+      newOpts: options,
+      parentRealId: parentRealId,
+      onCreated: (int newRealId) async {
+        globalRootState.addDialogView(
+          newRealId,
+          (context) => child(context, _manager.realToShiftedId(newRealId)),
+          parentContext: parentContext,
+          parentId: parentRealId,
+          isModalDialog: options?.modal ?? false,
+          closeCompleter: completer,
+          shellOverrides: options?.shellOverrides,
+        );
+      },
+    );
+
+    return DialogEntry(id: _manager.realToShiftedId(realId), result: completer.future);
+  }
+
   /// Return `enableDynamicAnchor` from runMultiApp->config->generalParams->enableDynamicAnchor
   static bool get isEnabledDynamicAnchor => _manager.isEnabledDynamicAnchor;
 

@@ -199,8 +199,12 @@ class _HomePageState extends State<HomePage> with WindowListener {
         // }
       }
     }
-    final accept = await context.openDialog<bool?>(
+    // you may get entry with id and future result right after dialog created
+    final entry = await context.openDialogEntry<bool?>(
+      // or only result after dialog close
+      // final result = await context.openDialog<bool?>(
       (ctx, id) {
+        MultiViewDesktop.getIdByContext(context);
         ctx.viewController.focus();
         return AlertViewDialog(
           key: _dialogKey,
@@ -222,6 +226,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
       ),
     );
 
+    final accept = await entry.result;
     if (!mounted) return;
     debugPrint('диалог завершен: $accept');
     if (accept == true) {

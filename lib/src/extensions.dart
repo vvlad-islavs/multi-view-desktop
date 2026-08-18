@@ -22,6 +22,25 @@ extension MvdContext on BuildContext {
     DialogOptions? options,
   }) => run_app.openDialog<T>(childBuilder, parentContext: this, options: options);
 
+  /// Opens a dialog with this context as the parent window.
+  ///
+  /// Same as `openDialogEntry` from `run_multi_app.dart`. See that function for
+  /// dialog behavior and `DialogOptions`.
+  ///
+  /// ```dart
+  /// OutlinedButton(
+  ///   onPressed: () => context.openDialogEntry(
+  ///     (context, id) => const SettingsDialog(),
+  ///     options: DialogOptions(title: 'Settings', modal: true),
+  ///   ),
+  ///   child: const Text('Open dialog'),
+  /// )
+  /// ```
+  Future<DialogEntry<T?>> openDialogEntry<T>(
+    Widget Function(BuildContext context, int publicId) childBuilder, {
+    DialogOptions? options,
+  }) => run_app.openDialogEntry<T>(childBuilder, parentContext: this, options: options);
+
   /// Closes the dialog for this context.
   ///
   /// `res` completes the `await openDialog<T>()` future on the caller side.
