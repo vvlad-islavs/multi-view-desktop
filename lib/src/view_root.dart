@@ -21,6 +21,7 @@ import 'app_shell/app_shell_registry.dart';
 import 'view_shell_brightness_sync.dart';
 import 'utils/calc_window_position.dart';
 import 'utils/mapped_value_notifier.dart';
+import 'view_manager/view_manager_proxies.dart';
 
 enum _CreateViewError {
   timeout(code: -1),
@@ -158,6 +159,8 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   WindowCommunicator get communicator => _viewsManagerImpl.communicator;
 
   ViewsManager get manager => _viewsManagerImpl;
+
+  ViewManagerProxies get proxies => _viewsManagerImpl.proxies;
 
   List<int> get allShiftedViewsId => _viewsManagerImpl.allShiftedWindowIds;
 
@@ -311,7 +314,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   void _syncViewShellBrightness(int viewId, ViewShellOverrides? shellOverrides) {
     final brightness = resolveViewShellBrightness(_appShellRegistry, shellOverrides);
     if (brightness == null) return;
-    _viewsManagerImpl.setBrightness(viewId, brightness);
+    _viewsManagerImpl.proxies.appearance.setBrightness(viewId, brightness);
   }
 
   // --------------------------------------------------------------------------
@@ -354,7 +357,8 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
                       return ViewShellBrightnessSync(
                         registry: _appShellRegistry,
                         viewShellOverrides: entry.value.viewShellOverrides,
-                        onBrightnessChanged: (brightness) => _viewsManagerImpl.setBrightness(id, brightness),
+                        onBrightnessChanged: (brightness) =>
+                            _viewsManagerImpl.proxies.appearance.setBrightness(id, brightness),
                         child: SharedEntryApp(
                           registry: _appShellRegistry,
                           viewShellOverrides: entry.value.viewShellOverrides,
@@ -425,17 +429,33 @@ class _ViewsManagerImpl implements ViewsManager {
   _ViewsManagerImpl({required this.config, required this.cascadeCloseService, required this.communicator}) {
     _ffiBridge.setMethodCallHandler(_onStaticCall);
     closeMode = config.generalParams.closeMode;
+    _nativeHost = ViewNativeHost(
+      ffi: _ffiBridge,
+      invoke: _viewExistChecker,
+      isWindow: (id) => _windows.containsKey(id),
+      isDialog: (id) => _dialogs.containsKey(id),
+      isPopup: (id) => _popups.containsKey(id),
+      isModalDialog: (id) => _dialogs[id]?.isModal ?? false,
+      dialogParentId: (id) => _dialogs[id]?.parentId,
+      allManagedViewIds: () => [..._dialogs.keys, ..._windows.keys],
+      lifecycleViewId: () => _lifecycleViewId,
+      windowViewIds: () => _windows.keys,
+    );
+    _proxies = ViewManagerProxies(_nativeHost);
   }
 
-  late bool _saveLastWindowToReopen = config.macosParams.saveLastWindowToReopen;
+  late final ViewNativeHost _nativeHost;
+  late final ViewManagerProxies _proxies;
 
-  List<VoidCallback?> _taskbarMenuCallbacks = [];
+  ViewManagerProxies get proxies => _proxies;
+
+  late bool _saveLastWindowToReopen = config.macosParams.saveLastWindowToReopen;
 
   /// Applies `MultiPlatformParams.menuItems` from startup config.
   void applyInitialTaskbarMenu() {
     final items = config.generalParams.menuItems;
     if (items.isEmpty) return;
-    setTaskbarMenu(items: items);
+    unawaited(_proxies.taskbar.setTaskbarMenu(items: items));
   }
 
   /// Pushes lifecycle quit policy to the native embedder.
@@ -768,7 +788,7 @@ class _ViewsManagerImpl implements ViewsManager {
     } else if (eventName == 'taskbarMenuItemSelected') {
       final id = call.arguments['id'] as int?;
       if (id != null) {
-        _invokeTaskbarMenuCallback(id);
+        _proxies.taskbar.invokeMenuCallback(id);
       }
     } else {
       final int? viewId = call.arguments['viewId'] as int?;
@@ -1123,7 +1143,7 @@ class _ViewsManagerImpl implements ViewsManager {
       _ffiBridge.setFullScreen(viewId, isFullScreen: opts.fullScreen!);
     }
     if (opts.hideAppFromTaskbar ?? false) {
-      hideAppFromTaskbar(true);
+      _proxies.taskbar.hideAppFromTaskbar(true);
     }
   }
 
@@ -1321,13 +1341,8 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   bool positionPopup(int viewId, Rect bounds) {
-    if (!_popups.containsKey(viewId) || !_hasLiveFlutterView(viewId)) return false;
-    try {
-      return _ffiBridge.setPopupBounds(viewId, bounds: bounds);
-    } on PlatformException catch (e) {
-      if (e.code != 'NO_WINDOW') rethrow;
-    }
-    return false;
+    if (!_hasLiveFlutterView(viewId)) return false;
+    return _proxies.position.positionPopup(viewId, bounds);
   }
 
   void _unregisterPopup(int viewId) {
@@ -1440,7 +1455,7 @@ class _ViewsManagerImpl implements ViewsManager {
     final completer = Completer<void>();
     final from = reverse ? 1.0 : 0.0;
     final to = reverse ? 0.0 : 1.0;
-    setOpacity(viewId, from);
+    _proxies.appearance.setOpacity(viewId, from);
     final totalMs = duration.inMilliseconds.clamp(1, 60000);
     final tickMs = math.max(1, (1000 / fps).round());
     final start = DateTime.now();
@@ -1450,10 +1465,10 @@ class _ViewsManagerImpl implements ViewsManager {
       final progress = (elapsed / totalMs).clamp(0.0, 1.0); // всегда валидно
       final eased = curve.transform(progress);
       final value = from + (to - from) * eased;
-      setOpacity(viewId, value);
+      _proxies.appearance.setOpacity(viewId, value);
       if (progress >= 1.0) {
         timer?.cancel();
-        setOpacity(viewId, to);
+        _proxies.appearance.setOpacity(viewId, to);
         if (!completer.isCompleted) completer.complete();
       }
     });
@@ -1595,22 +1610,6 @@ class _ViewsManagerImpl implements ViewsManager {
   bool get isEnabledDynamicAnchor => config.generalParams.enableDynamicAnchor;
 
   @override
-  void setTaskbarMenu({required List<TaskbarMenuItem> items}) {
-    _taskbarMenuCallbacks = [for (final item in items) item.onPressed];
-    unawaited(_encodeAndSetTaskbarMenu(items));
-  }
-
-  Future<void> _encodeAndSetTaskbarMenu(List<TaskbarMenuItem> items) async {
-    final encoded = <Map<String, dynamic>>[for (var i = 0; i < items.length; i++) await items[i].toJson(i)];
-    _ffiBridge.setTaskbarMenu(encoded);
-  }
-
-  void _invokeTaskbarMenuCallback(int id) {
-    if (id < 0 || id >= _taskbarMenuCallbacks.length) return;
-    _taskbarMenuCallbacks[id]?.call();
-  }
-
-  @override
   bool setPublicAnchorId(int viewId) {
     if (config.generalParams.enableDynamicAnchor) return false;
 
@@ -1631,18 +1630,8 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  void blur(int viewId) {
-    _viewExistChecker(viewId, () => _ffiBridge.blur(viewId), dialogSupports: true);
-  }
-
-  @override
   void cancelCascadeClose(int viewId) {
     _cancelCascade(viewId);
-  }
-
-  @override
-  void center(int viewId) {
-    setAlignment(viewId, Alignment.center);
   }
 
   @override
@@ -1663,420 +1652,12 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  void focus(int viewId) {
-    _viewExistChecker(viewId, () => _ffiBridge.focus(viewId), dialogSupports: true);
-  }
-
-  @override
-  Rect getBounds(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.getBounds(viewId), dialogSupports: true) ?? Rect.zero;
-  }
-
-  @override
-  double getOpacity(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.getOpacity(viewId), dialogSupports: true) ?? 1;
-  }
-
-  @override
-  Offset getPosition(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.getPosition(viewId), dialogSupports: true) ?? Offset.zero;
-  }
-
-  @override
-  Size getSize(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.getSize(viewId), dialogSupports: true) ?? Size.zero;
-  }
-
-  @override
-  String getTitle(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.getTitle(viewId), dialogSupports: true) ?? '';
-  }
-
-  @override
-  ({TitleBarStyle? style, bool? closeVisibility, bool? maximizeVisibility, bool? minimizeVisibility}) getTitleBarStyle(
-    int viewId,
-  ) {
-    return _viewExistChecker(viewId, () => _ffiBridge.getTitleBarStyle(viewId), dialogSupports: true) ??
-        (style: TitleBarStyle.normal, closeVisibility: true, maximizeVisibility: true, minimizeVisibility: true);
-  }
-
-  @override
-  bool hasShadow(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.hasShadow(viewId), dialogSupports: true) ?? true;
-  }
-
-  @override
-  void hide(int viewId) {
-    _viewExistChecker(viewId, () => _ffiBridge.hide(viewId), dialogSupports: true);
-  }
-
-  @override
-  void hideAppFromTaskbar(bool isHideAppFromTaskbar, {int? viewId}) {
-    if (Platform.isMacOS) {
-      final id = _lifecycleViewId;
-      if (id == null) return;
-      _viewExistChecker(
-        id,
-        () => _ffiBridge.hideAppFromTaskbar(id, isHideAppFromTaskbar: isHideAppFromTaskbar),
-        dialogSupports: true,
-      );
-    } else {
-      if (viewId == null) {
-        for (final view in windowEntries) {
-          _viewExistChecker(
-            view.key,
-            () => _ffiBridge.hideAppFromTaskbar(view.key, isHideAppFromTaskbar: isHideAppFromTaskbar),
-            dialogSupports: true,
-          );
-        }
-        return;
-      }
-      _viewExistChecker(
-        viewId,
-        () => _ffiBridge.hideAppFromTaskbar(viewId, isHideAppFromTaskbar: isHideAppFromTaskbar),
-        dialogSupports: true,
-      );
-    }
-  }
-
-  @override
-  void hideFromCollection(int viewId, bool isHideFromCollection) {
-    if (!Platform.isMacOS) return;
-    _viewExistChecker(viewId, () => _ffiBridge.hideFromCollection(viewId, isHideFromCollection), dialogSupports: true);
-  }
-
-  @override
-  bool isAlwaysOnTop(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.isAlwaysOnTop(viewId), dialogSupports: true) ?? false;
-  }
-
-  @override
-  bool isClosable(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.isClosable(viewId), dialogSupports: true) ?? true;
-  }
-
-  @override
-  bool isFocused(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.isFocused(viewId), dialogSupports: true) ?? true;
-  }
-
-  @override
-  bool isOnActiveSpace(int viewId) {
-    if (!Platform.isMacOS) return true;
-    return _viewExistChecker(viewId, () => _ffiBridge.isOnActiveSpace(viewId), dialogSupports: true) ?? true;
-  }
-
-  @override
-  bool isFullScreen(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.isFullScreen(viewId)) ?? false;
-  }
-
-  @override
-  bool isHideAppFromTaskbar() {
-    if (Platform.isWindows || Platform.isLinux) {
-      return _ffiBridge.isHideAppFromTaskbar();
-    }
-    final id = _lifecycleViewId;
-    if (id == null) return false;
-    return _viewExistChecker(id, () => _ffiBridge.isHideAppFromTaskbar(), dialogSupports: true) ?? false;
-  }
-
-  @override
-  bool isHideAppTabFromTaskbar(int viewId) {
-    if (!Platform.isWindows) {
-      return isHideAppFromTaskbar();
-    }
-    return _viewExistChecker(viewId, () => _ffiBridge.isHideAppTabFromTaskbar(viewId), dialogSupports: true) ?? false;
-  }
-
-  @override
-  bool isHideFromCollection(int viewId) {
-    if (!Platform.isMacOS) return false;
-    return _viewExistChecker(viewId, () => _ffiBridge.isHideFromCollection(viewId), dialogSupports: true) ?? false;
-  }
-
-  @override
-  bool isMaximizable(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.isMaximizable(viewId)) ?? true;
-  }
-
-  @override
-  bool isMaximized(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.isMaximized(viewId)) ?? false;
-  }
-
-  @override
-  bool isMinimizable(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.isMinimizable(viewId)) ?? true;
-  }
-
-  @override
-  bool isMinimized(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.isMinimized(viewId)) ?? false;
-  }
-
-  @override
-  bool isMovable(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.isMovable(viewId), dialogSupports: true) ?? true;
-  }
-
-  @override
-  bool isPreventClose(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.isPreventClose(viewId)) ?? false;
-  }
-
-  @override
-  bool isResizable(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.isResizable(viewId), dialogSupports: true) ?? true;
-  }
-
-  @override
-  bool isVisible(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.isVisible(viewId), dialogSupports: true) ?? true;
-  }
-
-  @override
-  bool isVisibleOnAllWorkspaces(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.isVisibleOnAllWorkspaces(viewId), dialogSupports: true) ?? true;
-  }
-
-  @override
-  void maximize(int viewId, {bool vertically = false}) {
-    _viewExistChecker(viewId, () => _ffiBridge.maximize(viewId));
-  }
-
-  @override
-  void minimize(int viewId) {
-    _viewExistChecker(viewId, () => _ffiBridge.minimize(viewId));
-  }
-
-  @override
-  void popUpWindowMenu(int viewId) {
-    _viewExistChecker(viewId, () => _ffiBridge.popUpWindowMenu(viewId), dialogSupports: true);
-  }
-
-  @override
-  void restore(int viewId) {
-    _viewExistChecker(viewId, () => _ffiBridge.restore(viewId));
-  }
-
-  @override
-  void setAlignment(int viewId, Alignment alignment, {bool insideParent = false}) {
-    final dialog = _dialogs[viewId];
-    if (dialog != null && insideParent) {
-      final parentBounds = _ffiBridge.getBounds(dialog.parentId);
-      final windowSize = _ffiBridge.getSize(viewId);
-      final pos = calcWindowPositionByParent(alignment, windowSize: windowSize, parentBounds: parentBounds);
-      _viewExistChecker(viewId, () => _ffiBridge.setPosition(viewId, pos: pos), dialogSupports: true);
-      return;
-    }
-    _viewExistChecker(
-      viewId,
-      () => _ffiBridge.setAlignment(viewId, alignment: alignment),
-      dialogSupports: !(dialog?.isModal ?? false),
-    );
-  }
-
-  @override
-  void setAlwaysOnTop(int viewId, bool isAlwaysOnTop) {
-    _viewExistChecker(
-      viewId,
-      () => _ffiBridge.setAlwaysOnTop(viewId, isAlwaysOnTop: isAlwaysOnTop),
-      dialogSupports: true,
-    );
-  }
-
-  @override
-  void setAsFrameless(int viewId) {
-    _viewExistChecker(
-      viewId,
-      () => _ffiBridge.setAsFrameless(viewId),
-      dialogSupports: !(_dialogs[viewId]?.isModal ?? true),
-    );
-  }
-
-  @override
-  void setAspectRatio(int viewId, double ratio) {
-    _viewExistChecker(viewId, () => _ffiBridge.setAspectRatio(viewId, ratio));
-  }
-
-  @override
-  void setBackgroundColor(int viewId, Color color) {
-    _viewExistChecker(viewId, () => _ffiBridge.setBackgroundColor(viewId, color: color), dialogSupports: true);
-  }
-
-  @override
-  void setBadgeLabel(int viewId, String? label) {
-    if (!Platform.isMacOS) return;
-    _viewExistChecker(viewId, () => _ffiBridge.setBadgeLabel(viewId, label: label), dialogSupports: true);
-  }
-
-  @override
-  void setBrightness(int viewId, Brightness brightness) {
-    _viewExistChecker(viewId, () => _ffiBridge.setBrightness(viewId, brightness), dialogSupports: true);
-  }
-
-  @override
-  void setGlobalBrightness(Brightness brightness) {
-    final allViewIds = [..._dialogs.keys, ..._windows.keys]..sort();
-    for (final viewId in allViewIds) {
-      _viewExistChecker(viewId, () => _ffiBridge.setBrightness(viewId, brightness), dialogSupports: true);
-    }
-  }
-
-  @override
-  void setClosable(int viewId, bool isClosable) {
-    _viewExistChecker(viewId, () => _ffiBridge.setClosable(viewId, isClosable), dialogSupports: true);
-  }
-
-  @override
   CloseMode getAppCloseMode() => closeMode;
 
   @override
   void setAppCloseMode(CloseMode closeMode) {
     this.closeMode = closeMode;
     applyNativeLifecyclePolicy();
-  }
-
-  @override
-  void setFullScreen(int viewId, bool isFullScreen) {
-    _viewExistChecker(viewId, () => _ffiBridge.setFullScreen(viewId, isFullScreen: isFullScreen));
-  }
-
-  @override
-  void setHasShadow(int viewId, bool value) {
-    _viewExistChecker(viewId, () => _ffiBridge.setHasShadow(viewId, value), dialogSupports: true);
-  }
-
-  @override
-  void setIgnoreMouseEvents(int viewId, bool ignore, {bool forward = false}) {
-    _viewExistChecker(
-      viewId,
-      () => _ffiBridge.setIgnoreMouseEvents(viewId, ignore, forward: forward),
-      dialogSupports: true,
-    );
-  }
-
-  @override
-  ({bool mouseMoveEvents, bool ignore}) isIgnoreMouseEvents(int viewId) {
-    return _viewExistChecker(viewId, () => _ffiBridge.isIgnoreMouseEvents(viewId), dialogSupports: true) ??
-        (mouseMoveEvents: false, ignore: false);
-  }
-
-  @override
-  void setMaximizable(int viewId, bool isMaximizable) {
-    _viewExistChecker(viewId, () => _ffiBridge.setMaximizable(viewId, isMaximizable));
-  }
-
-  @override
-  void setMaximumSize(int viewId, Size size) {
-    _viewExistChecker(viewId, () => _ffiBridge.setMaxSize(viewId, size: size), dialogSupports: true);
-  }
-
-  @override
-  void setMinimizable(int viewId, bool isMinimizable) {
-    _viewExistChecker(viewId, () => _ffiBridge.setMinimizable(viewId, isMinimizable));
-  }
-
-  @override
-  void setMinimumSize(int viewId, Size size) {
-    _viewExistChecker(viewId, () => _ffiBridge.setMinSize(viewId, size: size), dialogSupports: true);
-  }
-
-  @override
-  void setMovable(int viewId, bool isMovable) {
-    _viewExistChecker(viewId, () => _ffiBridge.setMovable(viewId, isMovable), dialogSupports: true);
-  }
-
-  @override
-  void setOpacity(int viewId, double opacity) {
-    _viewExistChecker(viewId, () => _ffiBridge.setOpacity(viewId, opacity), dialogSupports: true);
-  }
-
-  @override
-  void setPosition(int viewId, Offset position) {
-    _viewExistChecker(viewId, () => _ffiBridge.setPosition(viewId, pos: position), dialogSupports: true);
-  }
-
-  @override
-  void setPreventClose(int viewId, bool isPreventClose) {
-    _viewExistChecker(viewId, () => _ffiBridge.setPreventClose(viewId, isPreventClose: isPreventClose));
-  }
-
-  @override
-  void setProgressBar(double progress) {
-    if (Platform.isLinux) return;
-    final id = _lifecycleViewId;
-    if (id == null) return;
-    _viewExistChecker(id, () => _ffiBridge.setProgressBar(progress), dialogSupports: true);
-  }
-
-  @override
-  void setResizable(int viewId, bool isResizable) {
-    _viewExistChecker(viewId, () => _ffiBridge.setResizable(viewId, isResizable), dialogSupports: true);
-  }
-
-  @override
-  void setSize(int viewId, Size size) {
-    _viewExistChecker(viewId, () => _ffiBridge.setSize(viewId, size: size), dialogSupports: true);
-  }
-
-  @override
-  void setTitle(int viewId, String title) {
-    _viewExistChecker(viewId, () => _ffiBridge.setTitle(viewId, title: title), dialogSupports: true);
-  }
-
-  @override
-  void setTitleBarStyle(
-    int viewId,
-    TitleBarStyle style, {
-    bool closeVisibility = true,
-    bool maximizeVisibility = true,
-    bool minimizeVisibility = true,
-  }) {
-    _viewExistChecker(
-      viewId,
-      () => _ffiBridge.setTitleBarStyle(
-        viewId,
-        style: style,
-        closeVisibility: closeVisibility,
-        maximizeVisibility: maximizeVisibility,
-        minimizeVisibility: minimizeVisibility,
-      ),
-      dialogSupports: true,
-    );
-  }
-
-  @override
-  void setVisibleOnAllWorkspaces(int viewId, bool visible, {bool visibleOnFullScreen = false}) {
-    if (!Platform.isMacOS) return;
-
-    _viewExistChecker(
-      viewId,
-      () => _ffiBridge.setVisibleOnAllWorkspaces(viewId, visible, visibleOnFullScreen: visibleOnFullScreen),
-      dialogSupports: true,
-    );
-  }
-
-  @override
-  void show(int viewId) {
-    _viewExistChecker(viewId, () => _ffiBridge.show(viewId), dialogSupports: true);
-  }
-
-  @override
-  void startDragging(int viewId) {
-    _viewExistChecker(viewId, () => _ffiBridge.startDragging(viewId), dialogSupports: true);
-  }
-
-  @override
-  void startResizing(int viewId, ResizeEdge edge) {
-    if (Platform.isMacOS) return;
-    _viewExistChecker(viewId, () => _ffiBridge.startResizing(viewId, edge), dialogSupports: true);
-  }
-
-  @override
-  void unmaximize(int viewId) {
-    _viewExistChecker(viewId, () => _ffiBridge.unmaximize(viewId));
   }
 
   @override

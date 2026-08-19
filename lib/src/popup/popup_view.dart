@@ -319,7 +319,7 @@ class _PopupViewState extends State<PopupView> {
 
     if (!_isShown && _realViewId != null) {
       _isShown = true;
-      globalRootState.manager.show(_realViewId!);
+      globalRootState.proxies.state.show(_realViewId!);
     }
   }
 
