@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:meta/meta.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
+import 'package:multiview_desktop/src/impl/cascade_close_service_impl.dart';
 import 'package:multiview_desktop/src/lifecycle/create_view_error.dart';
 import 'package:multiview_desktop/src/lifecycle/view_animator.dart';
 import 'package:multiview_desktop/src/lifecycle/view_close_host.dart';
@@ -23,7 +24,7 @@ export 'view_options_applier.dart' show ViewOptionsApplier;
 
 /// Central hub for native view lifecycle: open owners, close service, first-frame barrier.
 ///
-/// Intended to replace inline logic in `_ViewsManagerImpl` once wired in.
+/// Intended to replace inline logic in `_ViewsManagerImpl`.
 @internal
 class LifecycleViewsController {
   LifecycleViewsController({
@@ -34,7 +35,13 @@ class LifecycleViewsController {
     required bool Function(int parentId) hasPendingDialogCreate,
     required bool Function(int parentId) hasModalDialog,
     ViewAnimator? viewAnimator,
-    ViewCloseService? closeService,
+    ViewCloseService? closeServiceOverride,
+    CascadeCloseService? cascadeCloseService,
+    void Function(int viewId, dynamic dialogRes)? onDialogCloseResult,
+    void Function(int viewId)? onPopupDestroyed,
+    VoidCallback? onBeforeCloseApp,
+    VoidCallback? onCloseAppAborted,
+    VoidCallback? onBeforeForceCloseApp,
   })  : viewAnimator = viewAnimator ?? const ViewAnimator(),
         _closeHost = closeHost,
         _registerDialog = registerDialog,
@@ -46,11 +53,17 @@ class LifecycleViewsController {
     modelessDialogOwner = ModelessDialogOwner(this);
     modalDialogOwner = ModalDialogOwner(this);
     popupOwner = PopupOwner(this);
-    closeService = closeService ??
+    closeService = closeServiceOverride ??
         ViewCloseService(
           lifecycle: this,
           closeHost: closeHost,
           resolveOwner: ownerFor,
+          cascadeCloseService: cascadeCloseService,
+          onDialogCloseResult: onDialogCloseResult,
+          onPopupDestroyed: onPopupDestroyed,
+          onBeforeCloseApp: onBeforeCloseApp,
+          onCloseAppAborted: onCloseAppAborted,
+          onBeforeForceCloseApp: onBeforeForceCloseApp,
         );
   }
 

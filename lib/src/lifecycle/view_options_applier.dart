@@ -43,9 +43,9 @@ class ViewOptionsApplier {
       _ffi.setTitleBarStyle(
         viewId,
         style: opts.titleBarStyle!,
-        closeVisibility: opts.windowButtonVisibility ?? true,
-        maximizeVisibility: opts.windowButtonVisibility ?? true,
-        minimizeVisibility: opts.windowButtonVisibility ?? true,
+        closeVisibility: opts.windowButtonVisibility!,
+        maximizeVisibility: opts.windowButtonVisibility!,
+        minimizeVisibility: opts.windowButtonVisibility!,
       );
     }
     if (opts.alwaysOnTop != null) {
@@ -82,7 +82,7 @@ class ViewOptionsApplier {
       _ffi.setTitleBarStyle(
         viewId,
         style: opts.titleBarStyle!,
-        closeVisibility: opts.windowButtonVisibility ?? true,
+        closeVisibility: opts.windowButtonVisibility!,
         minimizeVisibility: false,
         maximizeVisibility: false,
       );

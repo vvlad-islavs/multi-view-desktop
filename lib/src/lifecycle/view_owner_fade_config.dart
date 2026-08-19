@@ -11,6 +11,7 @@ class ViewOwnerFadeConfig {
     this.openDuration = const Duration(milliseconds: 500),
     this.closeDuration = const Duration(milliseconds: 500),
     this.curve = Curves.easeIn,
+    this.fps = 120,
   });
 
   static const none = ViewOwnerFadeConfig();
@@ -31,4 +32,5 @@ class ViewOwnerFadeConfig {
   final Duration openDuration;
   final Duration closeDuration;
   final Curve curve;
+  final int fps;
 }

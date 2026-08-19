@@ -134,8 +134,7 @@ class DialogOwner extends ViewOwnerBase {
           ffi.completeModalDialogCreate(viewId);
         }
       } else {
-        await fadeIn(viewId);
-        ffi.show(viewId);
+        showWithFadeIn(viewId);
       }
     }
 

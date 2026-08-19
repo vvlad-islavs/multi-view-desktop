@@ -26,7 +26,10 @@ class ViewCloseHost {
     required this.onMacosHideInsteadOfClose,
     required this.hasLiveFlutterView,
     required this.onMacosRestoreSaveLastWindowPolicy,
+    required this.invoke,
   });
+
+  final T? Function<T>(int viewId, T Function() func, {bool dialogSupports}) invoke;
 
   final bool Function(int viewId) isWindow;
   final bool Function(int viewId) isDialog;

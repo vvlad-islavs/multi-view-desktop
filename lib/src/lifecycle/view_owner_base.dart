@@ -34,6 +34,7 @@ abstract class ViewOwnerBase {
       onValue: (value) => ffi.setOpacity(viewId, value),
       duration: fade.openDuration,
       curve: fade.curve,
+      fps: fade.fps,
     );
   }
 
@@ -46,6 +47,7 @@ abstract class ViewOwnerBase {
       to: 0,
       duration: fade.closeDuration,
       curve: fade.curve,
+      fps: fade.fps,
     );
   }
 
@@ -68,11 +70,26 @@ abstract class ViewOwnerBase {
         : ViewCreateCompleter.window(viewId, parentId: parentId);
   }
 
-  void scheduleShowAfterFirstFrame(int viewId) {
-    waitFirstFrame(viewId).then((_) async {
-      await fadeIn(viewId);
+  /// Shows the window and runs open fade in parallel (opacity 0 → 1).
+  void showWithFadeIn(int viewId) {
+    if (!fade.fadeInOnOpen) {
       ffi.show(viewId);
-    });
+      return;
+    }
+    ffi.setOpacity(viewId, 0);
+    ffi.show(viewId);
+    unawaited(
+      host.viewAnimator.animate(
+        onValue: (value) => ffi.setOpacity(viewId, value),
+        duration: fade.openDuration,
+        curve: fade.curve,
+        fps: fade.fps,
+      ),
+    );
+  }
+
+  void scheduleShowAfterFirstFrame(int viewId) {
+    waitFirstFrame(viewId).then((_) => showWithFadeIn(viewId));
   }
 
   int createNativeWindow({

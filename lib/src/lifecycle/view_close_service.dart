@@ -2,10 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 
-// ignore: depend_on_referenced_packages
-import 'package:meta/meta.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
 import 'package:multiview_desktop/src/impl/cascade_close_service_impl.dart';
@@ -67,6 +64,8 @@ class ViewCloseService {
   }
 
   Future<void> handleLastCloseStep(int viewId) async {
+    final isModalDialog = closeHost.isModalDialog(viewId);
+
     await resolveOwner(viewId)?.close(viewId);
 
     closeHost.destroyPopupsByParent(viewId);
@@ -74,7 +73,7 @@ class ViewCloseService {
     closeHost.disposeView(viewId);
 
     ffi.setConfirmClose(viewId, isConfirm: true);
-    if (closeHost.isModalDialog(viewId)) {
+    if (isModalDialog) {
       ffi.destroyModalDialog(viewId);
     } else {
       ffi.forceCloseView(viewId);
@@ -101,25 +100,19 @@ class ViewCloseService {
   }
 
   void closeView<T>(int viewId, {T? dialogRes}) {
-    if (!_managedLive(viewId)) return;
-
     if (closeHost.isDialog(viewId)) {
       onDialogCloseResult?.call(viewId, dialogRes);
-      _runNative(() => ffi.destroyModalDialog(viewId));
+      closeHost.invoke<void>(viewId, () => ffi.destroyModalDialog(viewId), dialogSupports: true);
       closeHost.disposeView(viewId);
       return;
     }
 
-    _runNative(() => ffi.softCloseWindow(viewId));
+    closeHost.invoke<void>(viewId, () => ffi.softCloseWindow(viewId));
   }
 
   void destroyPopup(int viewId) {
     if (!closeHost.isPopup(viewId)) return;
-    try {
-      _runNative(() => ffi.destroyModalDialog(viewId));
-    } on PlatformException catch (e) {
-      if (e.code != 'NO_WINDOW') rethrow;
-    }
+    closeHost.invoke<void>(viewId, () => ffi.destroyModalDialog(viewId), dialogSupports: true);
     onPopupDestroyed?.call(viewId);
   }
 
@@ -170,11 +163,12 @@ class ViewCloseService {
     final descendants = closeHost.descendantWindowIdsDeepestFirst(rootId).toList()..sort();
 
     for (final id in descendants.reversed) {
-      final closed = await _closeManaged(id, () {
+      final wait = closeHost.invoke<Future<bool>>(id, () {
         cascadeCloseService.attachWindow(id);
         ffi.softCloseWindow(id);
         return cascadeCloseService.waitWindow(id);
       });
+      final closed = wait == null ? false : await wait;
       if (!closed) return;
     }
 
@@ -182,18 +176,19 @@ class ViewCloseService {
       return;
     }
 
-    _preConfirmCloseCallable(rootId, dialogSupported: true);
+    closeHost.invoke<void>(rootId, () => _preConfirmCloseCallable(rootId), dialogSupports: true);
   }
 
   Future<void> _removeSecondaryViewsForce(int rootId, {int loopCycle = 1, int maxLoopCycles = 10}) async {
     cascadeCloseService.clear();
     final descendants = closeHost.descendantWindowIdsDeepestFirst(rootId).toList()..sort();
     for (final id in descendants.reversed) {
-      final closed = await _closeManaged(id, () {
+      final wait = closeHost.invoke<Future<bool>>(id, () {
         cascadeCloseService.attachWindow(id);
         ffi.forceCloseView(id);
         return cascadeCloseService.waitWindow(id);
       });
+      final closed = wait == null ? false : await wait;
       if (!closed) return;
     }
 
@@ -202,18 +197,19 @@ class ViewCloseService {
       return;
     }
 
-    _preConfirmCloseCallable(rootId, dialogSupported: true);
+    closeHost.invoke<void>(rootId, () => _preConfirmCloseCallable(rootId), dialogSupports: true);
   }
 
   Future<void> _destroyAllViewsForce(int rootId, {int loopCycle = 1, int maxLoopCycles = 10}) async {
     cascadeCloseService.clear();
     final descendants = closeHost.descendantWindowIdsDeepestFirst(rootId).toList()..sort();
     for (final id in descendants.reversed) {
-      final closed = await _closeManaged(id, () {
+      final wait = closeHost.invoke<Future<bool>>(id, () {
         cascadeCloseService.attachWindow(id);
         ffi.forceCloseView(id);
         return cascadeCloseService.waitWindow(id);
       });
+      final closed = wait == null ? false : await wait;
       if (!closed) return;
     }
 
@@ -222,12 +218,10 @@ class ViewCloseService {
       return;
     }
 
-    _preConfirmCloseCallable(rootId, isForce: true, dialogSupported: true);
+    closeHost.invoke<void>(rootId, () => _preConfirmCloseCallable(rootId, isForce: true), dialogSupports: true);
   }
 
-  void _preConfirmCloseCallable(int viewId, {bool isForce = false, bool dialogSupported = false}) {
-    if (!_managedLive(viewId, dialogSupported: dialogSupported)) return;
-
+  void _preConfirmCloseCallable(int viewId, {bool isForce = false}) {
     ffi.setPreConfirmClose(viewId, true);
 
     if (isForce) {
@@ -243,29 +237,6 @@ class ViewCloseService {
     }
 
     ffi.softCloseWindow(viewId);
-  }
-
-  Future<bool> _closeManaged(int viewId, Future<bool> Function() closeAction) async {
-    if (!_managedLive(viewId, dialogSupported: true)) return false;
-    return closeAction();
-  }
-
-  bool _managedLive(int viewId, {bool dialogSupported = false}) {
-    if (dialogSupported) {
-      if (!closeHost.isManaged(viewId)) return false;
-    } else if (!closeHost.isWindow(viewId)) {
-      return false;
-    }
-    return closeHost.hasLiveFlutterView(viewId);
-  }
-
-  T? _runNative<T>(T Function() action) {
-    try {
-      return action();
-    } on PlatformException catch (e) {
-      if (e.code == 'NO_WINDOW') return null;
-      rethrow;
-    }
   }
 
   int? get _anchorId => anchorViewId;

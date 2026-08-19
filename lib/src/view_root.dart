@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 import 'package:collection/collection.dart';
 
 import 'package:flutter/foundation.dart';
@@ -22,22 +21,8 @@ import 'view_shell_brightness_sync.dart';
 import 'utils/calc_window_position.dart';
 import 'utils/mapped_value_notifier.dart';
 import 'view_manager/view_manager_proxies.dart';
-
-enum _CreateViewError {
-  timeout(code: -1),
-  forceClose(code: -2),
-  unhandled(code: null);
-
-  final int? code;
-
-  String message(int token) => switch (this) {
-    _CreateViewError.timeout => 'Failed to create dialog window, tokenId: $token. Error: timeout',
-    _CreateViewError.forceClose => 'Failed to create dialog window, tokenId: $token. Error: force close',
-    _CreateViewError.unhandled => 'Failed to create dialog window, tokenId: $token. Unhandled error',
-  };
-
-  const _CreateViewError({required this.code});
-}
+import 'lifecycle/lifecycle_views_controller.dart';
+import 'lifecycle/create_view_error.dart';
 
 // ---------------------------------------------------------------------------
 // Per-window registration (widget tree + optional parent link).
@@ -383,38 +368,6 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
 // ViewsManager impl
 // ---------------------------------------------------------------------------
 
-class _CreateCompleter<T> {
-  final Completer<T?> completer;
-  final int token;
-  final bool isDialog;
-  final int? parentId;
-
-  const _CreateCompleter({
-    required this.completer,
-    required this.token,
-    required this.isDialog,
-    required this.parentId,
-  });
-
-  factory _CreateCompleter.window(int token, {int? parentId}) {
-    return _CreateCompleter(completer: Completer<T?>(), token: token, isDialog: false, parentId: parentId);
-  }
-
-  // factory _CreateCompleter.popup(int token, {required int parentId}) {
-  //   return _CreateCompleter(completer: Completer<T?>(), token: token, isDialog: false, parentId: parentId);
-  // }
-
-  factory _CreateCompleter.dialog(int token, {required int parentId}) {
-    return _CreateCompleter(completer: Completer<T?>(), token: token, isDialog: true, parentId: parentId);
-  }
-
-  void complete([T? resId]) => completer.complete(resId);
-
-  bool get isCompleted => completer.isCompleted;
-
-  Future<T?> get future => completer.future;
-}
-
 /// Default `ViewsManager`: native channel, window registry, listeners, and close modes.
 class _ViewsManagerImpl implements ViewsManager {
   final CascadeCloseService cascadeCloseService;
@@ -429,6 +382,38 @@ class _ViewsManagerImpl implements ViewsManager {
   _ViewsManagerImpl({required this.config, required this.cascadeCloseService, required this.communicator}) {
     _ffiBridge.setMethodCallHandler(_onStaticCall);
     closeMode = config.generalParams.closeMode;
+    _closeHost = ViewCloseHost(
+      isWindow: (id) => _windows.containsKey(id),
+      isDialog: (id) => _dialogs.containsKey(id),
+      isModalDialog: (id) => _dialogs[id]?.isModal ?? false,
+      isPopup: (id) => _popups.containsKey(id),
+      windowParentId: (id) => _windows[id]?.parentId,
+      dialogParentId: (id) => _dialogs[id]?.parentId,
+      directChildWindowIds: _directChildIds,
+      directDialogChildIds: _directDialogChildIds,
+      rootWindowIds: ({excludingId}) => _rootWindowIds(excludingId: excludingId),
+      disposeView: _disposeView,
+      destroyPopupsByParent: _destroyPopupsByParent,
+      removeAllDialogsByParent: _removeAllDialogsByParent,
+      anchorCandidatesExcluding: ({excludingViewId}) => _anchorCandidates(excludingViewId: excludingViewId),
+      isAnchorView: (id) => id == _realAnchorId,
+      enableDynamicAnchor: config.generalParams.enableDynamicAnchor,
+      isLastMacosRootView: _isLastMacosRootView,
+      onMacosHideInsteadOfClose: (viewId) {
+        _destroyPopupsByParent(viewId);
+        _removeAllDialogsByParent(viewId);
+        _ffiBridge.hide(viewId);
+        _ffiBridge.setPreConfirmClose(viewId, false);
+        cascadeCloseService.completeWindow(viewId);
+      },
+      hasLiveFlutterView: _hasLiveFlutterView,
+      onMacosRestoreSaveLastWindowPolicy: () {
+        _saveLastWindowToReopen = config.macosParams.saveLastWindowToReopen;
+        applyNativeLifecyclePolicy();
+      },
+      invoke: <T>(int viewId, T Function() func, {bool dialogSupports = false}) =>
+          _viewExistChecker<T>(viewId, func, dialogSupports: dialogSupports),
+    );
     _nativeHost = ViewNativeHost(
       ffi: _ffiBridge,
       invoke: _viewExistChecker,
@@ -442,8 +427,42 @@ class _ViewsManagerImpl implements ViewsManager {
       windowViewIds: () => _windows.keys,
     );
     _proxies = ViewManagerProxies(_nativeHost);
+    _lifecycle = LifecycleViewsController(
+      ffiBridge: _ffiBridge,
+      closeHost: _closeHost,
+      cascadeCloseService: cascadeCloseService,
+      registerDialog: (parentId, {required dialogId, required isModal}) {
+        _modalStateService.registerDialog(parentId, dialogId: dialogId, isModal: isModal);
+      },
+      hideAppFromTaskbar: (hide, {viewId}) => _proxies.taskbar.hideAppFromTaskbar(hide, viewId: viewId),
+      hasPendingDialogCreate: (parentId) => _lifecycle.createCompleters.values.any(
+        (e) => !e.isCompleted && e.isDialog && e.parentId == parentId,
+      ),
+      hasModalDialog: (parentId) =>
+          _modalStateService.getNotifier(parentId).value.firstWhereOrNull((e) => e.isModal) != null,
+      onDialogCloseResult: (viewId, res) => _dialogsResults[viewId] = res,
+      onPopupDestroyed: _unregisterPopup,
+      onBeforeCloseApp: () {
+        _saveLastWindowToReopen = false;
+        applyNativeLifecyclePolicy();
+      },
+      onCloseAppAborted: () {
+        if (Platform.isMacOS) {
+          _saveLastWindowToReopen = config.macosParams.saveLastWindowToReopen;
+          applyNativeLifecyclePolicy();
+        }
+      },
+      onBeforeForceCloseApp: () {
+        _saveLastWindowToReopen = false;
+        applyNativeLifecyclePolicy();
+      },
+    );
+    _lifecycle.closeService.closeMode = closeMode;
+    _lifecycle.closeService.anchorViewId = _realAnchorId;
   }
 
+  late final ViewCloseHost _closeHost;
+  late final LifecycleViewsController _lifecycle;
   late final ViewNativeHost _nativeHost;
   late final ViewManagerProxies _proxies;
 
@@ -486,18 +505,12 @@ class _ViewsManagerImpl implements ViewsManager {
   @override
   int realToShiftedId(int viewId) => _realToShifted(viewId);
 
-  // token -> widget, entries waiting for the native "viewCreated" event.
-  int _nextToken = 0;
-
   // id shift after hot restart
   int _hotRestartShift = 0;
 
   final Map<int, ValueNotifier<List<DialogInfo>>> _dialogModalPublicNotifiers = {};
 
   final Map<int, dynamic> _dialogsResults = {};
-
-  // token -> Completer<int?> for pending views.
-  final Map<int, _CreateCompleter<int?>> _createCompleters = {};
 
   // viewId -> listener list.
   final Map<int, ObserverList<WindowListenerCallbacks>> _listeners = {};
@@ -580,15 +593,12 @@ class _ViewsManagerImpl implements ViewsManager {
       throw Exception('Failed to create new window, tokenId: 0000. Error: $e, stack: $st');
     }
 
-    if (_CreateViewError.values.map((e) => e.code).contains(newViewId)) {
-      final error = _CreateViewError.values.firstWhere(
-        (e) => e.code == newViewId,
-        orElse: () => _CreateViewError.unhandled,
-      );
-      if (error == _CreateViewError.forceClose) {
+    if (CreateViewError.isErrorCode(newViewId)) {
+      final error = CreateViewError.fromCode(newViewId);
+      if (error == CreateViewError.forceClose) {
         // do nothing
       }
-      throw Exception(error.message(0000));
+      throw Exception(error.message(0));
     }
 
     return newViewId;
@@ -679,6 +689,7 @@ class _ViewsManagerImpl implements ViewsManager {
     if (!config.generalParams.enableDynamicAnchor && !force) return;
     final previousShifted = _realAnchorId != null ? _realToShifted(_realAnchorId!) : null;
     _realAnchorId = viewId;
+    _lifecycle.closeService.anchorViewId = viewId;
     final newShifted = viewId != null ? _realToShifted(viewId) : null;
     if (previousShifted != newShifted) {
       _notifyObservers((o) => o.onAnchorChanged(previousShifted, newShifted));
@@ -741,19 +752,6 @@ class _ViewsManagerImpl implements ViewsManager {
   List<int> _directDialogChildIds(int parentId) =>
       _dialogs.entries.where((e) => e.value.parentId == parentId).map((e) => e.key).toList();
 
-  List<int> _descendantIdsDeepestFirst(int rootId) {
-    final result = <int>[];
-    void walk(int id) {
-      for (final child in _directChildIds(id)) {
-        walk(child);
-        result.add(child);
-      }
-    }
-
-    walk(rootId);
-    return result;
-  }
-
   List<int> _rootWindowIds({int? excludingId}) =>
       _windows.entries.where((e) => e.value.parentId == null && e.key != excludingId).map((e) => e.key).toList();
 
@@ -774,14 +772,12 @@ class _ViewsManagerImpl implements ViewsManager {
     } else if (eventName == 'preconfirm-close') {
       final int? viewId = call.arguments['viewId'] as int?;
       if (viewId != null) {
-        // debugPrint('preconfirm: $viewId');
-        unawaited(_handlePreConfirmClose(viewId));
+        unawaited(_lifecycle.closeService.handeFirstCloseStep(viewId));
       }
     } else if (eventName == 'confirm-close') {
       final int? viewId = call.arguments['viewId'] as int?;
       if (viewId != null) {
-        // debugPrint('confirm: $viewId');
-        _onConfirmClose(viewId);
+        unawaited(_lifecycle.closeService.handleLastCloseStep(viewId));
       }
     } else if (eventName == 'applicationShouldTerminateRequest') {
       unawaited(_macosOnShouldAppTerminate());
@@ -807,123 +803,6 @@ class _ViewsManagerImpl implements ViewsManager {
       _ffiBridge.closeIsolateLocal();
     }
     _ffiBridge.replyToApplicationShouldTerminate(confirmTerminate);
-  }
-
-  void _onConfirmClose(int viewId) async {
-    final isDialog = _dialogs.containsKey(viewId);
-    final isModalDialog = isDialog && (_dialogs[viewId]?.isModal ?? false);
-
-    await fadeWindowOpacity(
-      viewId: viewId,
-      // setOpacity: (id, value) => _ffiBridge.setOpacity(id, value),
-      curve: Curves.easeIn,
-      fps: 120,
-      duration: Duration(milliseconds: 500),
-      reverse: true,
-    );
-    _destroyPopupsByParent(viewId);
-    _removeAllDialogsByParent(viewId);
-    _disposeView(viewId);
-
-    _ffiBridge.setConfirmClose(viewId, isConfirm: true);
-    debugPrint('dfbdfbd');
-    if (isModalDialog) {
-      _ffiBridge.destroyModalDialog(viewId);
-    } else {
-      _ffiBridge.forceCloseView(viewId);
-    }
-    cascadeCloseService.completeWindow(viewId);
-  }
-
-  /// Runs before `isPreventClose` / `isConfirmClose`; subtree closes per `closeMode`.
-  Future<void> _handlePreConfirmClose(int viewId) async {
-    final nextAnchorCandidates = _anchorCandidates(excludingViewId: viewId)..sort();
-    // debugPrint('nextAnchorCandidates: $nextAnchorCandidates');
-    if (viewId == _realAnchorId && nextAnchorCandidates.isNotEmpty && !config.generalParams.enableDynamicAnchor) {
-      for (final candidate in nextAnchorCandidates.reversed) {
-        cascadeCloseService.abort(candidate);
-        cascadeCloseService.attachWindow(candidate);
-        await _closeSubtreeByMode(candidate, closeMode);
-        final closed = await cascadeCloseService.waitWindow(candidate);
-        if (!closed) {
-          return;
-        }
-      }
-    }
-    // debugPrint('close $viewId subtree');
-
-    await _closeSubtreeByMode(viewId, closeMode);
-  }
-
-  Future<void> _closeSubtreeByMode(int rootId, CloseMode mode) async {
-    if (_hasPendingCreatingViews()) {
-      await _waitAllCreatingViews();
-    }
-
-    switch (mode) {
-      case CloseMode.none:
-        _removeViewsNone(rootId);
-        break;
-      case CloseMode.softCascade:
-        await _removeViewsCascade(rootId);
-        break;
-      case CloseMode.forceSecondary:
-        await _removeSecondaryViewsForce(rootId);
-        break;
-      case CloseMode.destroy:
-        await _destroyAllViewsForce(rootId);
-        break;
-    }
-  }
-
-  /// Aborts the cascade close that is waiting on `viewId`.
-  ///
-  /// Completing the completer with `false` causes the cascade loop to `return`
-  /// early, leaving the main window open. All other pending completers are
-  /// also cleared so that a later independent close of those windows does not
-  /// unexpectedly resume the (already aborted) cascade.
-  void _cancelCascade(int viewId) {
-    final parentsRecurs = [..._parentsId(viewId), ..._dialogParentIds(viewId), viewId];
-    for (final parent in parentsRecurs) {
-      _ffiBridge.setPreConfirmClose(parent, false);
-      cascadeCloseService.abort(parent);
-    }
-  }
-
-  int? _directParentId(int childId) {
-    final entry = _windows[childId];
-    return entry?.parentId;
-  }
-
-  List<int> _parentsId(int childId) {
-    final result = <int>[];
-    void walk(int id) {
-      final parent = _directParentId(id);
-      if (parent == null) return;
-      result.add(parent);
-      walk(parent);
-    }
-
-    walk(childId);
-    return result;
-  }
-
-  int? _directDialogParentId(int childId) {
-    final entry = _dialogs[childId];
-    return entry?.parentId;
-  }
-
-  List<int> _dialogParentIds(int childId) {
-    final result = <int>[];
-    void walk(int id) {
-      final parent = _directDialogParentId(id);
-      if (parent == null) return;
-      result.add(parent);
-      walk(parent);
-    }
-
-    walk(childId);
-    return result;
   }
 
   // --------------------------------------------------------------------------
@@ -978,36 +857,11 @@ class _ViewsManagerImpl implements ViewsManager {
 
   void _handleOnWindowClose(FutureOr<bool> futureOr, int viewId) async {
     final res = await futureOr;
-    if (!res) {
-      _cancelCascade(viewId);
-    }
+    await _lifecycle.closeService.handleWindowCloseListenerResult(res, viewId);
   }
 
   bool _isLastMacosRootView(int id) =>
       ((_anchorCandidates(excludingViewId: id).isEmpty) && _saveLastWindowToReopen && _realAnchorId == id);
-
-  void _preConfirmCloseCallable(int viewId, {bool isForce = false}) {
-    _ffiBridge.setPreConfirmClose(viewId, true);
-
-    if (isForce) {
-      _saveLastWindowToReopen = false;
-      applyNativeLifecyclePolicy();
-      _ffiBridge.forceCloseView(viewId);
-    } else {
-      if (Platform.isMacOS) {
-        // Hide the anchor instead of closing it when macOS dock restore is enabled and taskbar callback is null.
-        if (_isLastMacosRootView(viewId)) {
-          _destroyPopupsByParent(viewId);
-          _removeAllDialogsByParent(viewId);
-          _ffiBridge.hide(viewId);
-          _ffiBridge.setPreConfirmClose(viewId, false);
-          cascadeCloseService.completeWindow(viewId);
-          return;
-        }
-      }
-      _ffiBridge.softCloseWindow(viewId);
-    }
-  }
 
   bool _removeAllDialogsByParent(int parentId) {
     final allDialogs = _directDialogChildIds(parentId)..sort();
@@ -1017,85 +871,6 @@ class _ViewsManagerImpl implements ViewsManager {
       _disposeView(dialogId);
     }
     return true;
-  }
-
-  void _removeViewsNone(int rootId) {
-    _preConfirmCloseCallable(rootId);
-  }
-
-  Future<void> _removeViewsCascade(int rootId) async {
-    final descendants = _descendantIdsDeepestFirst(rootId).toList()..sort();
-
-    // debugPrint('cascade for $rootId');
-    for (final id in descendants.reversed) {
-      final wait = _viewExistChecker<Future<bool>>(id, () {
-        cascadeCloseService.attachWindow(id);
-        _ffiBridge.softCloseWindow(id);
-        return cascadeCloseService.waitWindow(id);
-      });
-      final closed = wait == null ? false : await wait;
-      if (!closed) return;
-    }
-
-    // checks views created while doing close cycle
-    final descendantsAfter = _descendantIdsDeepestFirst(rootId).toList()..sort();
-    if (descendantsAfter.isNotEmpty) {
-      // do nothing because softClose cycle
-      return;
-    }
-
-    _viewExistChecker(rootId, () => _preConfirmCloseCallable(rootId), dialogSupports: true);
-  }
-
-  Future<void> _removeSecondaryViewsForce(int rootId, {int loopCycle = 1, int maxLoopCycles = 10}) async {
-    cascadeCloseService.clear();
-    final descendants = _descendantIdsDeepestFirst(rootId).toList()..sort();
-    for (final id in descendants.reversed) {
-      final wait = _viewExistChecker<Future<bool>>(id, () {
-        cascadeCloseService.attachWindow(id);
-        _ffiBridge.forceCloseView(id);
-        return cascadeCloseService.waitWindow(id);
-      });
-      final closed = wait == null ? false : await wait;
-      if (!closed) return;
-    }
-
-    // checks views created while doing close cycle
-    if (loopCycle < maxLoopCycles) {
-      final descendantsAfter = _descendantIdsDeepestFirst(rootId).toList()..sort();
-      if (descendantsAfter.isNotEmpty) {
-        // repeat cycle because forceClose cycle
-        unawaited(_removeSecondaryViewsForce(rootId, loopCycle: loopCycle + 1));
-        return;
-      }
-    }
-    _viewExistChecker(rootId, () => _preConfirmCloseCallable(rootId), dialogSupports: true);
-  }
-
-  Future<void> _destroyAllViewsForce(int rootId, {int loopCycle = 1, int maxLoopCycles = 10}) async {
-    cascadeCloseService.clear();
-    final descendants = _descendantIdsDeepestFirst(rootId).toList()..sort();
-    for (final id in descendants.reversed) {
-      final wait = _viewExistChecker<Future<bool>>(id, () {
-        cascadeCloseService.attachWindow(id);
-        _ffiBridge.forceCloseView(id);
-        return cascadeCloseService.waitWindow(id);
-      });
-      final closed = wait == null ? false : await wait;
-      if (!closed) return;
-    }
-
-    // checks views created while doing close cycle
-    if (loopCycle < maxLoopCycles) {
-      final descendantsAfter = _descendantIdsDeepestFirst(rootId).toList()..sort();
-      if (descendantsAfter.isNotEmpty) {
-        // repeat cycle because forceClose cycle
-        unawaited(_destroyAllViewsForce(rootId, loopCycle: loopCycle + 1));
-        return;
-      }
-    }
-
-    _viewExistChecker(rootId, () => _preConfirmCloseCallable(rootId, isForce: true), dialogSupports: true);
   }
 
   Future<void> removeOrphanViewsForceAfterRestart(List<int> ids) async {
@@ -1108,76 +883,8 @@ class _ViewsManagerImpl implements ViewsManager {
     }
   }
 
-  void applyOptions(int viewId, {required WindowOptions opts}) => _applyOptions(viewId, opts);
-
-  void _applyOptions(int viewId, WindowOptions opts) {
-    if (opts.size != null) {
-      _ffiBridge.setSize(viewId, size: opts.size!);
-    }
-    if (opts.alignment != null) {
-      _ffiBridge.setAlignment(viewId, alignment: opts.alignment!);
-    }
-    if (opts.backgroundColor != null) {
-      _ffiBridge.setBackgroundColor(viewId, color: opts.backgroundColor!);
-    }
-    if (opts.minimumSize != null) {
-      _ffiBridge.setMinSize(viewId, size: opts.minimumSize!);
-    }
-    if (opts.maximumSize != null) {
-      _ffiBridge.setMaxSize(viewId, size: opts.maximumSize!);
-    }
-    if (opts.title != null) _ffiBridge.setTitle(viewId, title: opts.title!);
-    if (opts.titleBarStyle != null) {
-      _ffiBridge.setTitleBarStyle(
-        viewId,
-        style: opts.titleBarStyle!,
-        closeVisibility: opts.windowButtonVisibility!,
-        maximizeVisibility: opts.windowButtonVisibility!,
-        minimizeVisibility: opts.windowButtonVisibility!,
-      );
-    }
-    if (opts.alwaysOnTop != null) {
-      _ffiBridge.setAlwaysOnTop(viewId, isAlwaysOnTop: opts.alwaysOnTop!);
-    }
-    if (opts.fullScreen != null) {
-      _ffiBridge.setFullScreen(viewId, isFullScreen: opts.fullScreen!);
-    }
-    if (opts.hideAppFromTaskbar ?? false) {
-      _proxies.taskbar.hideAppFromTaskbar(true);
-    }
-  }
-
-  void _applyDialogOptions(int viewId, DialogOptions opts) {
-    if (!Platform.isWindows) {
-      if (opts.size != null) {
-        _ffiBridge.setSize(viewId, size: opts.size!);
-      }
-    }
-    if (opts.backgroundColor != null) {
-      _ffiBridge.setBackgroundColor(viewId, color: opts.backgroundColor!);
-    }
-    if (opts.minimumSize != null) {
-      _ffiBridge.setMinSize(viewId, size: opts.minimumSize!);
-    }
-    if (opts.maximumSize != null) {
-      _ffiBridge.setMaxSize(viewId, size: opts.maximumSize!);
-    }
-    if (opts.isResizable != null) {
-      _ffiBridge.setResizable(viewId, opts.isResizable!);
-    }
-    if (opts.title != null) _ffiBridge.setTitle(viewId, title: opts.title!);
-    if (opts.titleBarStyle != null) {
-      _ffiBridge.setTitleBarStyle(
-        viewId,
-        style: opts.titleBarStyle!,
-        closeVisibility: opts.windowButtonVisibility!,
-        minimizeVisibility: false,
-        maximizeVisibility: false,
-      );
-    }
-    if (opts.alwaysOnTop != null) {
-      _ffiBridge.setAlwaysOnTop(viewId, isAlwaysOnTop: opts.alwaysOnTop!);
-    }
+  void applyOptions(int viewId, {required WindowOptions opts}) {
+    _lifecycle.optionsApplier.applyWindow(viewId, opts);
   }
 
   void _addWindow(int viewId, _WindowEntry entry) {
@@ -1269,7 +976,10 @@ class _ViewsManagerImpl implements ViewsManager {
 
     final comparedOpts = _compareGlobalAndNewOpts(preferred: newOpts, global: config.globalWindowOptions);
 
-    return _createWindow(opts: comparedOpts, parentId: parent, onCreated: onCreated);
+    if (parent == null) {
+      return _lifecycle.openWindow(options: comparedOpts, onCreated: onCreated);
+    }
+    return _lifecycle.openChildWindow(parentId: parent, options: comparedOpts, onCreated: onCreated);
   }
 
   @override
@@ -1282,20 +992,19 @@ class _ViewsManagerImpl implements ViewsManager {
       throw ArgumentError.value(parentRealId, 'Parent error', 'Parent window is not registered');
     }
 
-    if (_createCompleters.values.any((e) => !e.completer.isCompleted && e.isDialog && e.parentId == parentRealId)) {
+    if (_lifecycle.hasPendingDialogCreate(parentRealId)) {
       throw Exception('Create error: "Create dialog" was called while another dialog is creating in the same window');
     }
 
     final comparedOpts = _compareDialogGlobalAndNewOpts(preferred: newOpts, global: config.globalDialogOptions);
-    if (comparedOpts.modal == true) {
-      final hasModal = _modalStateService.getNotifier(parentRealId).value.firstWhereOrNull((e) => e.isModal) != null;
-      if (hasModal) {
-        throw Exception('Create error: One window can has only one modal dialog');
-      }
+    if (comparedOpts.modal == true && _lifecycle.hasModalDialog(parentRealId)) {
+      throw Exception('Create error: One window can has only one modal dialog');
     }
-    final dialogId = await _createDialog(opts: comparedOpts, parentId: parentRealId, onCreated: onCreated);
 
-    return dialogId;
+    if (comparedOpts.modal ?? false) {
+      return _lifecycle.openModalDialog(parentId: parentRealId, options: comparedOpts, onCreated: onCreated);
+    }
+    return _lifecycle.openModelessDialog(parentId: parentRealId, options: comparedOpts, onCreated: onCreated);
   }
 
   @override
@@ -1304,39 +1013,18 @@ class _ViewsManagerImpl implements ViewsManager {
       throw ArgumentError.value(parentRealId, 'Parent error', 'Parent window is not registered');
     }
 
-    int? newViewId;
-    try {
-      newViewId = _ffiBridge.createPopupWindow(token: 0000, parentId: parentRealId, windowSize: size);
-    } catch (e, st) {
-      throw Exception('Failed to create popup window, tokenId: 0000. Error: $e, stack: $st');
-    }
-
-    if (_CreateViewError.values.map((e) => e.code).contains(newViewId)) {
-      final error = _CreateViewError.values.firstWhere(
-        (e) => e.code == newViewId,
-        orElse: () => _CreateViewError.unhandled,
-      );
-      throw Exception(error.message(0000));
-    }
-
-    _popups[newViewId] = _PopupEntry(parentId: parentRealId);
-    _ffiBridge.setPreConfirmClose(newViewId, true);
-    _ffiBridge.setPreventClose(newViewId, isPreventClose: false);
-    _ffiBridge.setConfirmClose(newViewId, isConfirm: true);
-    // will be shown after positioned
-    // _ffiBridge.show(newViewId);
-    return newViewId;
+    return _lifecycle.openPopup(
+      parentId: parentRealId,
+      size: size,
+      onCreated: (viewId) {
+        _popups[viewId] = _PopupEntry(parentId: parentRealId);
+      },
+    );
   }
 
   @override
   void destroyPopup(int viewId) {
-    if (!_popups.containsKey(viewId)) return;
-    try {
-      _ffiBridge.destroyModalDialog(viewId);
-    } on PlatformException catch (e) {
-      if (e.code != 'NO_WINDOW') rethrow;
-    }
-    _unregisterPopup(viewId);
+    _lifecycle.closeService.destroyPopup(viewId);
   }
 
   @override
@@ -1357,122 +1045,6 @@ class _ViewsManagerImpl implements ViewsManager {
     for (final id in ids) {
       destroyPopup(id);
     }
-  }
-
-  Future<void> _createComplete(int token, int newViewId) async {
-    _createCompleters[token]?.complete(newViewId);
-    _ffiBridge.setPreConfirmClose(newViewId, false);
-  }
-
-  bool _hasPendingCreatingViews({List<int> excludeTokens = const []}) {
-    return _createCompleters.entries.any((e) => !excludeTokens.contains(e.key) && !e.value.isCompleted);
-  }
-
-  /// `excludeTokens` - current view tokens, so don't wait yourself
-  Future<void> _waitAllCreatingViews({List<int> excludeTokens = const []}) async {
-    if (!_hasPendingCreatingViews(excludeTokens: excludeTokens)) return;
-    try {
-      for (final key in _createCompleters.keys.toList()..sort()) {
-        if (excludeTokens.contains(key)) continue;
-
-        final completer = _createCompleters[key];
-        if (!(completer?.isCompleted ?? true)) {
-          await completer?.future;
-        }
-      }
-    } catch (_) {
-      // error in _createCompleters map is non-critical, do nothing
-    }
-  }
-
-  Future<int?> _waitCompleter(int token, {int timeoutMs = 10000}) async {
-    return await _createCompleters[token]?.future.timeout(
-      Duration(milliseconds: timeoutMs),
-      onTimeout: () {
-        _createCompleters[token]?.complete(_CreateViewError.timeout.code);
-        return _CreateViewError.timeout.code;
-      },
-    );
-  }
-
-  int _createWindow({required WindowOptions opts, int? parentId, required void Function(int) onCreated}) {
-    Offset? pos;
-    final windowSize = Size(opts.size?.width ?? 800.0, opts.size?.height ?? 600.0);
-    if (opts.alignment != null) {
-      pos = calcWindowPosition(windowSize, opts.alignment!);
-    }
-    int? newViewId;
-    try {
-      newViewId = _ffiBridge.createWindow(
-        token: 0000,
-        title: opts.title ?? '',
-        titleBarStyleStr: opts.titleBarStyle?.name ?? 'normal',
-        windowButtonVisibility: opts.windowButtonVisibility ?? true,
-        windowSize: windowSize,
-        pos: pos,
-        parentId: parentId,
-      );
-      if (parentId != null) {
-        _ffiBridge.setPreConfirmClose(parentId, false);
-      }
-    } catch (e, st) {
-      throw Exception('Failed to create new window, tokenId: 0000. Error: $e, stack: $st');
-    }
-
-    if (_CreateViewError.values.map((e) => e.code).contains(newViewId)) {
-      final error = _CreateViewError.values.firstWhere(
-        (e) => e.code == newViewId,
-        orElse: () => _CreateViewError.unhandled,
-      );
-      throw Exception(error.message(0000));
-    }
-
-    _applyOptions(newViewId, opts);
-
-    onCreated(newViewId);
-    _createCompleters[newViewId] = _CreateCompleter.window(newViewId, parentId: parentId);
-
-    _waitCompleter(newViewId).then((_) {
-      fadeWindowOpacity(
-        viewId: newViewId!,
-        curve: Curves.easeIn,
-        fps: 120,
-        duration: Duration(milliseconds: 500),
-      );
-      _ffiBridge.show(newViewId);
-    });
-
-    return newViewId;
-  }
-
-  Future<void> fadeWindowOpacity({
-    required int viewId,
-    Duration duration = const Duration(milliseconds: 180),
-    Curve curve = Curves.easeOutCubic,
-    int fps = 60,
-    bool reverse = false,
-  }) async {
-    final completer = Completer<void>();
-    final from = reverse ? 1.0 : 0.0;
-    final to = reverse ? 0.0 : 1.0;
-    _proxies.appearance.setOpacity(viewId, from);
-    final totalMs = duration.inMilliseconds.clamp(1, 60000);
-    final tickMs = math.max(1, (1000 / fps).round());
-    final start = DateTime.now();
-    Timer? timer;
-    timer = Timer.periodic(Duration(milliseconds: tickMs), (_) {
-      final elapsed = DateTime.now().difference(start).inMilliseconds;
-      final progress = (elapsed / totalMs).clamp(0.0, 1.0); // всегда валидно
-      final eased = curve.transform(progress);
-      final value = from + (to - from) * eased;
-      _proxies.appearance.setOpacity(viewId, value);
-      if (progress >= 1.0) {
-        timer?.cancel();
-        _proxies.appearance.setOpacity(viewId, to);
-        if (!completer.isCompleted) completer.complete();
-      }
-    });
-    return await completer.future;
   }
 
   WindowOptions _compareGlobalAndNewOpts({WindowOptions? preferred, required WindowOptions global}) {
@@ -1509,92 +1081,7 @@ class _ViewsManagerImpl implements ViewsManager {
     );
   }
 
-  void firstFrameCbComplete(int viewId) {
-    _createCompleters[viewId]?.complete();
-    _createCompleters.remove(viewId);
-  }
-
-  /// Creates a native dialog and waits for the `viewCreated` event.
-  ///
-  /// Modal dialogs block the parent at the OS level (macOS sheet, Windows owner
-  /// chain, Linux transient + input lock). Modeless dialogs are positioned over
-  /// the parent and do not block it natively.
-  Future<int> _createDialog({
-    required DialogOptions opts,
-    required int parentId,
-    required void Function(int) onCreated,
-  }) async {
-    final int modalFinishedToken = _nextToken++;
-    _createCompleters[modalFinishedToken] = _CreateCompleter.dialog(modalFinishedToken, parentId: parentId);
-
-    // wait all other creating views
-    await _waitAllCreatingViews(excludeTokens: [modalFinishedToken]);
-
-    final windowSize = Size(opts.size?.width ?? 400.0, opts.size?.height ?? 300.0);
-
-    int? newViewId;
-    try {
-      final modal = opts.modal ?? false;
-      Offset? pos;
-      if (!modal) {
-        final parentBounds = _ffiBridge.getBounds(parentId);
-        pos = calcWindowPositionByParent(Alignment.center, windowSize: windowSize, parentBounds: parentBounds);
-        // Native sheet - positioned by the OS; no Dart-side alignment needed.
-      }
-      newViewId = _ffiBridge.createDialog(
-        token: 0000,
-        title: opts.title ?? '',
-        titleBarStyleStr: opts.titleBarStyle?.name ?? 'normal',
-        windowButtonVisibility: opts.windowButtonVisibility ?? true,
-        windowSize: windowSize,
-        isModal: modal,
-        pos: pos,
-        parentId: parentId,
-      );
-    } catch (e, st) {
-      _createCompleters[modalFinishedToken]?.complete(_CreateViewError.unhandled.code);
-      _createCompleters.remove(modalFinishedToken);
-
-      throw Exception('Failed to create dialog window, tokenId: 0000. Error: $e, stack: $st');
-    }
-
-    if (_CreateViewError.values.map((e) => e.code).contains(newViewId)) {
-      final error = _CreateViewError.values.firstWhere(
-        (e) => e.code == newViewId,
-        orElse: () => _CreateViewError.unhandled,
-      );
-      throw Exception(error.message(modalFinishedToken));
-    }
-    _modalStateService.registerDialog(parentId, dialogId: newViewId, isModal: opts.modal ?? false);
-    _applyDialogOptions(newViewId, opts);
-    onCreated(newViewId);
-
-    _createCompleters[newViewId] = _CreateCompleter.dialog(newViewId, parentId: parentId);
-
-    await _waitCompleter(newViewId);
-
-    if (opts.showOnInit == true || opts.showOnInit == null) {
-      if (_dialogs[newViewId]?.isModal ?? false) {
-        // delay so modal shows correct
-        await Future.delayed(Duration(milliseconds: 35));
-        if (Platform.isMacOS) {
-          _ffiBridge.completeModalDialogCreate(newViewId);
-        }
-      } else {
-        fadeWindowOpacity(
-          viewId: newViewId,
-          curve: Curves.easeIn,
-          fps: 120,
-          duration: Duration(milliseconds: 250),
-        );
-        _ffiBridge.show(newViewId);
-      }
-    }
-
-    _createCompleters[modalFinishedToken]?.complete();
-    _createCompleters.remove(modalFinishedToken);
-    return newViewId;
-  }
+  void firstFrameCbComplete(int viewId) => _lifecycle.firstFrameCbComplete(viewId);
 
   @override
   void addListener(int viewId, WindowListenerCallbacks listener) {
@@ -1631,7 +1118,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   void cancelCascadeClose(int viewId) {
-    _cancelCascade(viewId);
+    _lifecycle.closeService.cancelCascade(viewId);
   }
 
   @override
@@ -1642,13 +1129,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   void closeView<T>(int viewId, {T? dialogRes}) {
-    if (_dialogs.containsKey(viewId)) {
-      _dialogsResults[viewId] = dialogRes;
-      _viewExistChecker(viewId, () => _ffiBridge.destroyModalDialog(viewId), dialogSupports: true);
-      _disposeView(viewId);
-    } else {
-      _viewExistChecker(viewId, () => _ffiBridge.softCloseWindow(viewId));
-    }
+    _lifecycle.closeService.closeView<T>(viewId, dialogRes: dialogRes);
   }
 
   @override
@@ -1657,36 +1138,13 @@ class _ViewsManagerImpl implements ViewsManager {
   @override
   void setAppCloseMode(CloseMode closeMode) {
     this.closeMode = closeMode;
+    _lifecycle.closeService.closeMode = closeMode;
     applyNativeLifecyclePolicy();
   }
 
   @override
-  Future<bool> closeApp({CloseMode? closeMode}) async {
-    final mode = closeMode ?? config.generalParams.closeMode;
-    return await _closeApp(mode);
-  }
-
-  /// Closes every registered window (all roots and their subtrees).
-  /// if all views successfully closed by mode `mode` return `true` else `false`
-  Future<bool> _closeApp(CloseMode mode) async {
-    final allRoots = _rootWindowIds()..sort();
-
-    _saveLastWindowToReopen = false;
-    applyNativeLifecyclePolicy();
-    for (final root in allRoots.reversed) {
-      cascadeCloseService.attachWindow(root);
-      unawaited(_closeSubtreeByMode(root, mode));
-      final closed = await cascadeCloseService.waitWindow(root);
-      if (!closed) {
-        if (Platform.isMacOS) {
-          _saveLastWindowToReopen = config.macosParams.saveLastWindowToReopen;
-          applyNativeLifecyclePolicy();
-        }
-        return false;
-      }
-    }
-
-    return true;
+  Future<bool> closeApp({CloseMode? closeMode}) {
+    return _lifecycle.closeService.closeApp(mode: closeMode ?? config.generalParams.closeMode);
   }
 
   T? _viewExistChecker<T>(int viewId, Function() func, {bool dialogSupports = false}) {
