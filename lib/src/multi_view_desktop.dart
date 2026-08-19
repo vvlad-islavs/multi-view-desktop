@@ -104,9 +104,10 @@ class MultiViewDesktop {
     BuildContext? parent,
   }) {
     final parentId = parent == null ? null : _getRealId(parent);
+
     final realId = _manager.createWindow(
       newOpts: options,
-      onCreated: (int newRealId) async {
+      onCreated: (int newRealId) {
         globalRootState.addWindowView(
           newRealId,
           (context) => child(context, _manager.realToShiftedId(newRealId)),
@@ -132,10 +133,11 @@ class MultiViewDesktop {
   }) async {
     final parentRealId = _getRealId(parentContext);
     final completer = Completer<T>();
+
     await _manager.createDialog(
       newOpts: options,
       parentRealId: parentRealId,
-      onCreated: (int newRealId) async {
+      onCreated: (int newRealId) {
         globalRootState.addDialogView(
           newRealId,
           (context) => child(context, _manager.realToShiftedId(newRealId)),

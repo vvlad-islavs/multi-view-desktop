@@ -110,6 +110,7 @@ abstract class FfiBridge {
 
   late final _createWindowN = _lib!.lookupFunction<_CreateWinN, _CreateWinD>('mvd_create_window');
   late final _createDialogN = _lib!.lookupFunction<_CreateDlgN, _CreateDlgD>('mvd_create_modal_dialog');
+  late final _completeModalDialogN = _lib!.lookupFunction<_V1N, _V1D>('mvd_complete_modal_dialog');
   late final _createPopupN = _lib!.lookupFunction<_CreatePopN, _CreatePopD>('mvd_create_popup');
   late final _checkExistN = _lib!.lookupFunction<_I1N, _I1D>('mvd_check_exist');
   late final _setAnchorN = _lib!.lookupFunction<_V1N, _V1D>('mvd_set_anchor_view_id');
@@ -269,7 +270,7 @@ abstract class FfiBridge {
 
   // Create — native returns the new Flutter view id, or -1 on failure.
 
-  int createWindowRequest({
+  int createWindow({
     required int token,
     required String title,
     required String titleBarStyleStr,
@@ -293,7 +294,7 @@ abstract class FfiBridge {
     );
   }
 
-  int createModalDialogRequest({
+  int createDialog({
     required int token,
     required String title,
     required String titleBarStyleStr,
@@ -322,6 +323,11 @@ abstract class FfiBridge {
   int createPopupWindow({required int token, required int parentId, required Size windowSize}) {
     if (!_supported) return _kNoViewId;
     return _createPopupN(token, parentId, windowSize.width, windowSize.height);
+  }
+
+  void completeModalDialogCreate(int viewId) {
+    if (!_supported) return;
+    _completeModalDialogN(viewId);
   }
 
   void setAlignment(int viewId, {required Alignment alignment}) {
@@ -670,16 +676,16 @@ abstract class FfiBridge {
     setMinimizable(viewId, true);
     setMaximizable(viewId, true);
     setClosable(viewId, true);
-    setAlwaysOnTop(viewId, isAlwaysOnTop: config.globalOptions.alwaysOnTop ?? false);
+    setAlwaysOnTop(viewId, isAlwaysOnTop: config.globalWindowOptions.alwaysOnTop ?? false);
     setOpacity(viewId, 1);
     setAspectRatio(viewId, 0);
     setIgnoreMouseEvents(viewId, false);
     setTitleBarStyle(
       viewId,
-      style: config.globalOptions.titleBarStyle ?? TitleBarStyle.normal,
-      closeVisibility: config.globalOptions.windowButtonVisibility ?? false,
-      minimizeVisibility: config.globalOptions.windowButtonVisibility ?? false,
-      maximizeVisibility: config.globalOptions.windowButtonVisibility ?? false,
+      style: config.globalWindowOptions.titleBarStyle ?? TitleBarStyle.normal,
+      closeVisibility: config.globalWindowOptions.windowButtonVisibility ?? false,
+      minimizeVisibility: config.globalWindowOptions.windowButtonVisibility ?? false,
+      maximizeVisibility: config.globalWindowOptions.windowButtonVisibility ?? false,
     );
   }
 }

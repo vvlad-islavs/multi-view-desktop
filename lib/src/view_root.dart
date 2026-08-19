@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:collection/collection.dart';
 
 import 'package:flutter/foundation.dart';
@@ -342,6 +343,9 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
                   viewId: id,
                   child: Builder(
                     builder: (context) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        _viewsManagerImpl.firstFrameCbComplete(id);
+                      });
                       final content = entry.value.widgetBuilder(context);
                       if (id == _viewsManagerImpl.mainRealViewId) {
                         return MainAppShellCapture(registry: _appShellRegistry, child: content);
@@ -388,9 +392,9 @@ class _CreateCompleter<T> {
     required this.parentId,
   });
 
-  // factory _CreateCompleter.window(int token, {int? parentId}) {
-  //   return _CreateCompleter(completer: Completer<T?>(), token: token, isDialog: false, parentId: parentId);
-  // }
+  factory _CreateCompleter.window(int token, {int? parentId}) {
+    return _CreateCompleter(completer: Completer<T?>(), token: token, isDialog: false, parentId: parentId);
+  }
 
   // factory _CreateCompleter.popup(int token, {required int parentId}) {
   //   return _CreateCompleter(completer: Completer<T?>(), token: token, isDialog: false, parentId: parentId);
@@ -475,8 +479,6 @@ class _ViewsManagerImpl implements ViewsManager {
   // token -> Completer<int?> for pending views.
   final Map<int, _CreateCompleter<int?>> _createCompleters = {};
 
-  final Map<int, int> _childCreatePending = {};
-
   // viewId -> listener list.
   final Map<int, ObserverList<WindowListenerCallbacks>> _listeners = {};
 
@@ -537,7 +539,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   int _createNextMainWindowAfterRestart(Widget Function(BuildContext) homeBuilder) {
-    final opts = config.globalOptions;
+    final opts = config.globalWindowOptions;
 
     Offset? pos;
     final windowSize = Size(opts.size?.width ?? 800.0, opts.size?.height ?? 600.0);
@@ -546,7 +548,7 @@ class _ViewsManagerImpl implements ViewsManager {
     }
     int? newViewId;
     try {
-      newViewId = _ffiBridge.createWindowRequest(
+      newViewId = _ffiBridge.createWindow(
         token: 0000,
         title: opts.title ?? '',
         titleBarStyleStr: opts.titleBarStyle?.name ?? 'normal',
@@ -574,7 +576,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
   void _applyOptionsToInitialAnchor() {
     if (realAnchorId == null) return;
-    applyOptions(realAnchorId!, opts: config.globalOptions);
+    applyOptions(realAnchorId!, opts: config.globalWindowOptions);
     _ffiBridge.show(realAnchorId!);
   }
 
@@ -746,13 +748,7 @@ class _ViewsManagerImpl implements ViewsManager {
         _unregisterPopup(viewId);
       }
     } else if (eventName == 'viewCreated') {
-      final int viewId = call.arguments['viewId'] as int;
-      final int token = call.arguments['token'] as int;
-      final maybeParentId = _childCreatePending[token];
-      _createComplete(token, viewId);
-      if (maybeParentId == null) return;
-      _childCreatePending.remove(token);
-      _ffiBridge.setPreConfirmClose(maybeParentId, false);
+      // do nothing. Create now is sync
     } else if (eventName == 'taskbar-callback') {
       config.macosParams.onTaskbarTap?.call();
     } else if (eventName == 'preconfirm-close') {
@@ -793,15 +789,24 @@ class _ViewsManagerImpl implements ViewsManager {
     _ffiBridge.replyToApplicationShouldTerminate(confirmTerminate);
   }
 
-  void _onConfirmClose(int viewId) {
+  void _onConfirmClose(int viewId) async {
     final isDialog = _dialogs.containsKey(viewId);
     final isModalDialog = isDialog && (_dialogs[viewId]?.isModal ?? false);
+
+    await fadeWindowOpacity(
+      viewId: viewId,
+      // setOpacity: (id, value) => _ffiBridge.setOpacity(id, value),
+      curve: Curves.easeIn,
+      fps: 120,
+      duration: Duration(milliseconds: 500),
+      reverse: true,
+    );
     _destroyPopupsByParent(viewId);
     _removeAllDialogsByParent(viewId);
-
     _disposeView(viewId);
 
     _ffiBridge.setConfirmClose(viewId, isConfirm: true);
+    debugPrint('dfbdfbd');
     if (isModalDialog) {
       _ffiBridge.destroyModalDialog(viewId);
     } else {
@@ -1131,9 +1136,6 @@ class _ViewsManagerImpl implements ViewsManager {
     if (opts.backgroundColor != null) {
       _ffiBridge.setBackgroundColor(viewId, color: opts.backgroundColor!);
     }
-    if (opts.showOnInit == true || opts.showOnInit == null) {
-      _ffiBridge.show(viewId);
-    }
     if (opts.minimumSize != null) {
       _ffiBridge.setMinSize(viewId, size: opts.minimumSize!);
     }
@@ -1245,7 +1247,7 @@ class _ViewsManagerImpl implements ViewsManager {
       throw ArgumentError.value(parent, 'Parent error', 'Parent window is not registered');
     }
 
-    final comparedOpts = _compareGlobalAndNewOpts(preferred: newOpts, global: config.globalOptions);
+    final comparedOpts = _compareGlobalAndNewOpts(preferred: newOpts, global: config.globalWindowOptions);
 
     return _createWindow(opts: comparedOpts, parentId: parent, onCreated: onCreated);
   }
@@ -1386,7 +1388,7 @@ class _ViewsManagerImpl implements ViewsManager {
     }
     int? newViewId;
     try {
-      newViewId = _ffiBridge.createWindowRequest(
+      newViewId = _ffiBridge.createWindow(
         token: 0000,
         title: opts.title ?? '',
         titleBarStyleStr: opts.titleBarStyle?.name ?? 'normal',
@@ -1413,8 +1415,49 @@ class _ViewsManagerImpl implements ViewsManager {
     _applyOptions(newViewId, opts);
 
     onCreated(newViewId);
+    _createCompleters[newViewId] = _CreateCompleter.window(newViewId, parentId: parentId);
+
+    _waitCompleter(newViewId).then((_) {
+      fadeWindowOpacity(
+        viewId: newViewId!,
+        curve: Curves.easeIn,
+        fps: 120,
+        duration: Duration(milliseconds: 500),
+      );
+      _ffiBridge.show(newViewId);
+    });
 
     return newViewId;
+  }
+
+  Future<void> fadeWindowOpacity({
+    required int viewId,
+    Duration duration = const Duration(milliseconds: 180),
+    Curve curve = Curves.easeOutCubic,
+    int fps = 60,
+    bool reverse = false,
+  }) async {
+    final completer = Completer<void>();
+    final from = reverse ? 1.0 : 0.0;
+    final to = reverse ? 0.0 : 1.0;
+    setOpacity(viewId, from);
+    final totalMs = duration.inMilliseconds.clamp(1, 60000);
+    final tickMs = math.max(1, (1000 / fps).round());
+    final start = DateTime.now();
+    Timer? timer;
+    timer = Timer.periodic(Duration(milliseconds: tickMs), (_) {
+      final elapsed = DateTime.now().difference(start).inMilliseconds;
+      final progress = (elapsed / totalMs).clamp(0.0, 1.0); // всегда валидно
+      final eased = curve.transform(progress);
+      final value = from + (to - from) * eased;
+      setOpacity(viewId, value);
+      if (progress >= 1.0) {
+        timer?.cancel();
+        setOpacity(viewId, to);
+        if (!completer.isCompleted) completer.complete();
+      }
+    });
+    return await completer.future;
   }
 
   WindowOptions _compareGlobalAndNewOpts({WindowOptions? preferred, required WindowOptions global}) {
@@ -1451,6 +1494,11 @@ class _ViewsManagerImpl implements ViewsManager {
     );
   }
 
+  void firstFrameCbComplete(int viewId) {
+    _createCompleters[viewId]?.complete();
+    _createCompleters.remove(viewId);
+  }
+
   /// Creates a native dialog and waits for the `viewCreated` event.
   ///
   /// Modal dialogs block the parent at the OS level (macOS sheet, Windows owner
@@ -1461,18 +1509,15 @@ class _ViewsManagerImpl implements ViewsManager {
     required int parentId,
     required void Function(int) onCreated,
   }) async {
-    final int token = _nextToken++;
-    _createCompleters[token] = _CreateCompleter.dialog(token, parentId: parentId);
     final int modalFinishedToken = _nextToken++;
-    _createCompleters[modalFinishedToken] = _CreateCompleter.dialog(token, parentId: parentId);
+    _createCompleters[modalFinishedToken] = _CreateCompleter.dialog(modalFinishedToken, parentId: parentId);
 
     // wait all other creating views
-    await _waitAllCreatingViews(excludeTokens: [token, modalFinishedToken]);
-
-    _childCreatePending.putIfAbsent(token, () => parentId);
+    await _waitAllCreatingViews(excludeTokens: [modalFinishedToken]);
 
     final windowSize = Size(opts.size?.width ?? 400.0, opts.size?.height ?? 300.0);
 
+    int? newViewId;
     try {
       final modal = opts.modal ?? false;
       Offset? pos;
@@ -1481,8 +1526,8 @@ class _ViewsManagerImpl implements ViewsManager {
         pos = calcWindowPositionByParent(Alignment.center, windowSize: windowSize, parentBounds: parentBounds);
         // Native sheet - positioned by the OS; no Dart-side alignment needed.
       }
-      _ffiBridge.createModalDialogRequest(
-        token: token,
+      newViewId = _ffiBridge.createDialog(
+        token: 0000,
         title: opts.title ?? '',
         titleBarStyleStr: opts.titleBarStyle?.name ?? 'normal',
         windowButtonVisibility: opts.windowButtonVisibility ?? true,
@@ -1495,34 +1540,42 @@ class _ViewsManagerImpl implements ViewsManager {
       _createCompleters[modalFinishedToken]?.complete(_CreateViewError.unhandled.code);
       _createCompleters.remove(modalFinishedToken);
 
-      _createCompleters[token]?.complete(_CreateViewError.unhandled.code);
-      _createCompleters.remove(token);
-      throw Exception('Failed to create dialog window, tokenId: $token. Error: $e, stack: $st');
+      throw Exception('Failed to create dialog window, tokenId: 0000. Error: $e, stack: $st');
     }
-
-    final newViewId = await _waitCompleter(token);
-
-    _createCompleters.remove(token);
-    _childCreatePending.remove(token);
 
     if (_CreateViewError.values.map((e) => e.code).contains(newViewId)) {
       final error = _CreateViewError.values.firstWhere(
         (e) => e.code == newViewId,
         orElse: () => _CreateViewError.unhandled,
       );
-      throw Exception(error.message(token));
+      throw Exception(error.message(modalFinishedToken));
     }
-
-    _modalStateService.registerDialog(parentId, dialogId: newViewId!, isModal: opts.modal ?? false);
-
+    _modalStateService.registerDialog(parentId, dialogId: newViewId, isModal: opts.modal ?? false);
     _applyDialogOptions(newViewId, opts);
-
     onCreated(newViewId);
 
-    if (opts.modal == true) {
-      // delay so modal shows correct
-      await Future.delayed(Duration(milliseconds: 35));
+    _createCompleters[newViewId] = _CreateCompleter.dialog(newViewId, parentId: parentId);
+
+    await _waitCompleter(newViewId);
+
+    if (opts.showOnInit == true || opts.showOnInit == null) {
+      if (_dialogs[newViewId]?.isModal ?? false) {
+        // delay so modal shows correct
+        await Future.delayed(Duration(milliseconds: 35));
+        if (Platform.isMacOS) {
+          _ffiBridge.completeModalDialogCreate(newViewId);
+        }
+      } else {
+        fadeWindowOpacity(
+          viewId: newViewId,
+          curve: Curves.easeIn,
+          fps: 120,
+          duration: Duration(milliseconds: 250),
+        );
+        _ffiBridge.show(newViewId);
+      }
     }
+
     _createCompleters[modalFinishedToken]?.complete();
     _createCompleters.remove(modalFinishedToken);
     return newViewId;

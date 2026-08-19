@@ -138,6 +138,11 @@ public func mvdCreateModalDialog(
     return impl().createModalDialogWindow(args: args, result: noop)
 }
 
+@_cdecl("mvd_complete_modal_dialog")
+public func mvdCompleteModalDialog(_ viewId: Int64) {
+    impl().completeModalDialogCreate(args: ["viewId": viewId], result: noop)
+}
+
 @_cdecl("mvd_create_popup")
 public func mvdCreatePopup(_ token: Int64, _ parentId: Int64, _ w: Double, _ h: Double) -> Int64 {
     return impl().createPopupWindow(args: [
@@ -257,7 +262,9 @@ public func mvdGetDisplayRect(_ x: Double, _ y: Double, _ w: Double, _ h: Double
 public func mvdSetSize(_ viewId: Int64, _ w: Double, _ h: Double) {
     guard let window = win(viewId) else { return }
     var f = window.frame
+    let topLeft = f.topLeft
     f.size = NSSize(width: CGFloat(w), height: CGFloat(h))
+    f.topLeft = topLeft
     window.setFrame(f, display: true)
 }
 

@@ -7,6 +7,7 @@ import 'utils/calc_window_position.dart';
 // MethodChannel method names (must match native MultiviewDesktopImpl).
 const String kMethodCreateWindow = 'createWindow';
 const String kMethodCreateModalDialog = 'createModalDialog';
+const String kMethodCompleteModalDialogCreate = 'completeModalDialogCreate';
 const String kMethodCreatePopupWindow = 'createPopupWindow';
 const String kMethodSetSize = 'setSize';
 const String kMethodSetPopupBounds = 'setPopupBounds';
@@ -144,6 +145,11 @@ class NativeChannel {
       'parentId': parentId,
     });
     return id ?? -1;
+  }
+
+  /// Attaches a modal dialog as a sheet after its first Flutter frame (macOS only).
+  Future<void> completeModalDialogCreate(int viewId) async {
+    await _staticChannel.invokeMethod<void>(kMethodCompleteModalDialogCreate, _args(viewId));
   }
 
   /// Creates a borderless popup attached to `parentId` and returns the new view id.
@@ -569,16 +575,16 @@ class NativeChannel {
       setMinimizable(viewId, true),
       setMaximizable(viewId, true),
       setClosable(viewId, true),
-      setAlwaysOnTop(viewId, isAlwaysOnTop: config.globalOptions.alwaysOnTop ?? false),
+      setAlwaysOnTop(viewId, isAlwaysOnTop: config.globalWindowOptions.alwaysOnTop ?? false),
       setOpacity(viewId, 1.0),
       setAspectRatio(viewId, 0),
       setIgnoreMouseEvents(viewId, false),
       setTitleBarStyle(
         viewId,
-        style: config.globalOptions.titleBarStyle ?? TitleBarStyle.normal,
-        closeVisibility: config.globalOptions.windowButtonVisibility ?? false,
-        minimizeVisibility: config.globalOptions.windowButtonVisibility ?? false,
-        maximizeVisibility: config.globalOptions.windowButtonVisibility ?? false,
+        style: config.globalWindowOptions.titleBarStyle ?? TitleBarStyle.normal,
+        closeVisibility: config.globalWindowOptions.windowButtonVisibility ?? false,
+        minimizeVisibility: config.globalWindowOptions.windowButtonVisibility ?? false,
+        maximizeVisibility: config.globalWindowOptions.windowButtonVisibility ?? false,
       ),
     ]);
   }

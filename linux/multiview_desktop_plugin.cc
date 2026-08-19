@@ -914,6 +914,8 @@ static void method_cb(FlMethodChannel*, FlMethodCall* method_call, gpointer) {
           has_pos ? static_cast<int>(double_from_map(pos, "y", 0)) : 0);
       response = ok_int(view_id);
     }
+  } else if (g_strcmp0(method, "completeModalDialogCreate") == 0) {
+    response = ok_null();
   } else if (g_strcmp0(method, "createPopupWindow") == 0) {
     const int64_t parent_id = int64_from_map(args, "parentId");
     if (MvdLinuxWindow::Find(parent_id) == nullptr) {

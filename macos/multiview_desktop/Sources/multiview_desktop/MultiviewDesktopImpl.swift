@@ -376,6 +376,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             result(windows[viewId] != nil)
         case "createWindow":
             createSecondaryWindow(args: args, result: result)
+        case "completeModalDialogCreate":
+            completeModalDialogCreate(args: args, result: result)
         case "createModalDialog":
             createModalDialogWindow(args: args, result: result)
         case "createPopupWindow":
@@ -481,7 +483,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         registerWindow(newWindow, viewId: viewId)
 
         NSApp.activate(ignoringOtherApps: true)
-        newWindow.makeKeyAndOrderFront(nil)
+//        newWindow.makeKeyAndOrderFront(nil)
 
         DispatchQueue.main.async { [weak self] in
             self?.emitOnEvent("viewCreated", viewId: viewId, arg: Int64(token))
@@ -518,8 +520,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             return -1
         }
 
-        let width  = args["width"]  as? CGFloat ?? 400
-        let height = args["height"] as? CGFloat ?? 300
+        let width  = args["width"]  as? Double ?? 400
+        let height = args["height"] as? Double ?? 300
         let title  = args["title"]  as? String  ?? ""
         let modal  = args["modal"]  as? Bool  ?? false
         let position = args["position"] as? [String: Any]
@@ -556,7 +558,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         registerWindow(newWindow, viewId: viewId)
 
         if modal {
-            parentWindow.beginSheet(newWindow)
+//            parentWindow.beginSheet(newWindow)
             sheetParents[viewId] = parentWindow
         } else {
             if let position,
@@ -577,6 +579,29 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
         result(NSNumber(value: viewId))
         return viewId
+    }
+
+    func completeModalDialogCreate(args: [String: Any], result: FlutterResult) {
+        let viewId = int64(from: args, key: "viewId")
+
+        guard let viewWindow = windows[viewId] else {
+            result(FlutterError(
+                code: "NO_WINDOW",
+                message: "No window for viewId \(viewId)",
+                details: nil
+            ))
+            return
+        }
+        guard let parentWindow = sheetParents[viewId] else {
+            result(FlutterError(
+                code: "NO_PARENT",
+                message: "No parent sheet registered for viewId \(viewId)",
+                details: nil
+            ))
+            return
+        }
+        parentWindow.beginSheet(viewWindow)
+        result(nil)
     }
 
     // MARK: - Popup window
@@ -1076,10 +1101,12 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
         case "setSize":
             var f = window.frame
+            let topLeft = f.topLeft
             f.size = NSSize(
                 width: args?["width"] as? CGFloat ?? f.width,
                 height: args?["height"] as? CGFloat ?? f.height
             )
+            f.topLeft = topLeft
             window.setFrame(f, display: true)
             result(nil)
 

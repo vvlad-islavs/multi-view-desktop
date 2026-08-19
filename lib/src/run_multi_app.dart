@@ -2,12 +2,10 @@ import 'package:flutter/widgets.dart';
 import 'package:meta/meta.dart';
 
 import 'multi_view_desktop.dart';
-import 'title_bar_style.dart';
 import 'view_root.dart' show createMultiViewRoot;
 import 'window_observer.dart';
 import 'taskbar_menu_item.dart';
 import 'window_options.dart';
-import 'app_shell/view_shell_overrides.dart';
 
 /// Entry point for a multiview_desktop application.
 ///
@@ -45,7 +43,7 @@ class MultiAppConfig {
 
   /// Default `WindowOptions` merged into every new window. Per-window options
   /// passed to `openWindow` override these fields.
-  final WindowOptions globalOptions;
+  final WindowOptions globalWindowOptions;
 
   /// Default `DialogOptions` merged into every `openDialog` call.
   final DialogOptions globalDialogOptions;
@@ -63,10 +61,11 @@ class MultiAppConfig {
   MultiAppConfig._({
     required this.generalParams,
     required this.macosParams,
-    this.globalOptions = const WindowOptions(),
-    this.globalDialogOptions = const DialogOptions(),
+    WindowOptions? globalWindowOptions,
+    DialogOptions? globalDialogOptions,
     this.observers = const [],
-  });
+  }) : globalWindowOptions = globalWindowOptions ?? WindowOptions(),
+       globalDialogOptions = globalDialogOptions ?? DialogOptions();
 
   /// Creates configuration for `runMultiApp`.
   ///
@@ -83,8 +82,8 @@ class MultiAppConfig {
     DialogOptions? globalDialogOptions,
     List<WindowObserver>? observers,
   }) => MultiAppConfig._(
-    globalOptions: globalWindowOptions ?? WindowOptions(),
-    globalDialogOptions: globalDialogOptions ?? DialogOptions(),
+    globalWindowOptions: globalWindowOptions,
+    globalDialogOptions: globalDialogOptions,
     generalParams: generalParams ?? MultiPlatformParams.defaultParams(),
     macosParams: macosParams ?? MacosPlatformParams.defaultParams(),
     observers: observers ?? const [],
@@ -200,73 +199,6 @@ int openWindow(
   WindowOptions? options,
   BuildContext? parentContext,
 }) => MultiViewDesktop.addWindow(childBuilder, options: options, parent: parentContext);
-
-/// Configuration for a dialog opened via `openDialog`.
-///
-/// Dialogs differ from regular windows:
-/// - They always require a parent (`openDialog` needs `parentContext`).
-/// - They close automatically when the parent closes, regardless of `CloseMode`.
-/// - Full-screen mode is not available.
-/// - They are hidden from the taskbar and Mission Control on creation.
-/// - They are centered over the parent at creation time.
-///
-/// Set `modal` to true to block the parent at the OS level while the dialog is
-/// open. Add `DialogModalLayer` in the parent for a visual scrim in Flutter.
-class DialogOptions {
-  const DialogOptions({
-    this.size,
-    this.minimumSize,
-    this.maximumSize,
-    this.isResizable,
-    this.title,
-    this.modal,
-    this.titleBarStyle,
-    this.windowButtonVisibility,
-    this.backgroundColor,
-    this.alwaysOnTop,
-    this.showOnInit,
-    this.shellOverrides,
-  });
-
-  /// Initial content size in logical pixels.
-  final Size? size;
-
-  /// Minimum size enforced by the native window.
-  final Size? minimumSize;
-
-  /// Maximum size enforced by the native window.
-  final Size? maximumSize;
-
-  /// Whether the user can resize the dialog by dragging edges.
-  final bool? isResizable;
-
-  /// Native window title string.
-  final String? title;
-
-  /// When true, the parent window is blocked at the OS level while this dialog
-  /// is open (macOS sheet, Windows owner chain, Linux transient and input lock).
-  /// `DialogModalLayer` in the parent adds a Flutter scrim; the scrim alone does
-  /// not block OS input.
-  final bool? modal;
-
-  /// Title bar appearance. `TitleBarStyle.hidden` removes native chrome.
-  final TitleBarStyle? titleBarStyle;
-
-  /// Visibility of caption buttons when the title bar is hidden.
-  final bool? windowButtonVisibility;
-
-  /// Background color behind the Flutter view.
-  final Color? backgroundColor;
-
-  /// Whether the window stays above other application windows.
-  final bool? alwaysOnTop;
-
-  /// Whether the window is shown right after creation. Defaults to true.
-  final bool? showOnInit;
-
-  /// Per-view shell overrides. See `WindowOptions.shellOverrides`.
-  final ViewShellOverrides? shellOverrides;
-}
 
 /// Opens a dialog window tied to `parentContext`.
 ///

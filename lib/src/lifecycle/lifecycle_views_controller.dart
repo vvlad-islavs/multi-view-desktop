@@ -1,0 +1,185 @@
+import 'dart:async';
+import 'dart:ui' show Size;
+
+import 'package:flutter/material.dart';
+// ignore: depend_on_referenced_packages
+import 'package:meta/meta.dart';
+import 'package:multiview_desktop/multiview_desktop.dart';
+import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
+import 'package:multiview_desktop/src/lifecycle/create_view_error.dart';
+import 'package:multiview_desktop/src/lifecycle/view_animator.dart';
+import 'package:multiview_desktop/src/lifecycle/view_close_host.dart';
+import 'package:multiview_desktop/src/lifecycle/view_close_service.dart';
+import 'package:multiview_desktop/src/lifecycle/view_create_completer.dart';
+import 'package:multiview_desktop/src/lifecycle/view_options_applier.dart';
+import 'package:multiview_desktop/src/lifecycle/view_owner_base.dart';
+import 'package:multiview_desktop/src/lifecycle/view_owners.dart';
+
+export 'view_animator.dart' show ViewAnimator;
+export 'view_close_host.dart' show ViewCloseHost;
+export 'view_close_service.dart' show ViewCloseService;
+export 'view_owner_base.dart' show ViewCreatedCallback;
+export 'view_options_applier.dart' show ViewOptionsApplier;
+
+/// Central hub for native view lifecycle: open owners, close service, first-frame barrier.
+///
+/// Intended to replace inline logic in `_ViewsManagerImpl` once wired in.
+@internal
+class LifecycleViewsController {
+  LifecycleViewsController({
+    required this.ffiBridge,
+    required ViewCloseHost closeHost,
+    required void Function(int parentId, {required int dialogId, required bool isModal}) registerDialog,
+    required this.hideAppFromTaskbar,
+    required bool Function(int parentId) hasPendingDialogCreate,
+    required bool Function(int parentId) hasModalDialog,
+    ViewAnimator? viewAnimator,
+    ViewCloseService? closeService,
+  })  : viewAnimator = viewAnimator ?? const ViewAnimator(),
+        _closeHost = closeHost,
+        _registerDialog = registerDialog,
+        _hasPendingDialogCreate = hasPendingDialogCreate,
+        _hasModalDialog = hasModalDialog {
+    optionsApplier = ViewOptionsApplier(ffi: ffiBridge, hideAppFromTaskbar: hideAppFromTaskbar);
+    windowOwner = WindowOwner(this);
+    childWindowOwner = ChildWindowOwner(this);
+    modelessDialogOwner = ModelessDialogOwner(this);
+    modalDialogOwner = ModalDialogOwner(this);
+    popupOwner = PopupOwner(this);
+    closeService = closeService ??
+        ViewCloseService(
+          lifecycle: this,
+          closeHost: closeHost,
+          resolveOwner: ownerFor,
+        );
+  }
+
+  final FfiBridge ffiBridge;
+  final ViewAnimator viewAnimator;
+  final ViewCloseHost _closeHost;
+  final void Function(bool hide, {int? viewId}) hideAppFromTaskbar;
+
+  final void Function(int parentId, {required int dialogId, required bool isModal}) _registerDialog;
+  final bool Function(int parentId) _hasPendingDialogCreate;
+  final bool Function(int parentId) _hasModalDialog;
+
+  /// Pending views keyed by viewId or auxiliary dialog-create token.
+  final Map<int, ViewCreateCompleter<int?>> createCompleters = {};
+  int _nextToken = 0;
+
+  late final ViewOptionsApplier optionsApplier;
+  late final ViewCloseService closeService;
+
+  late final WindowOwner windowOwner;
+  late final ChildWindowOwner childWindowOwner;
+  late final ModelessDialogOwner modelessDialogOwner;
+  late final ModalDialogOwner modalDialogOwner;
+  late final PopupOwner popupOwner;
+
+  ViewOwnerBase? ownerFor(int viewId) {
+    if (_closeHost.isPopup(viewId)) return popupOwner;
+    if (_closeHost.isDialog(viewId)) {
+      return _closeHost.isModalDialog(viewId) ? modalDialogOwner : modelessDialogOwner;
+    }
+    if (_closeHost.isWindow(viewId)) {
+      return _closeHost.windowParentId(viewId) == null ? windowOwner : childWindowOwner;
+    }
+    return null;
+  }
+
+  int allocateToken() => _nextToken++;
+
+  void registerDialog(int parentId, {required int dialogId, required bool isModal}) {
+    _registerDialog(parentId, dialogId: dialogId, isModal: isModal);
+  }
+
+  bool isWindowRegistered(int viewId) => _closeHost.isWindow(viewId);
+
+  bool isViewRegistered(int viewId) => _closeHost.isManaged(viewId);
+
+  bool hasPendingDialogCreate(int parentId) => _hasPendingDialogCreate(parentId);
+
+  bool hasModalDialog(int parentId) => _hasModalDialog(parentId);
+
+  void applyWindowOptions(int viewId, WindowOptions opts) => optionsApplier.applyWindow(viewId, opts);
+
+  void applyDialogOptions(int viewId, DialogOptions opts) => optionsApplier.applyDialog(viewId, opts);
+
+  // ---------------------------------------------------------------------------
+  // Typed open API.
+  // ---------------------------------------------------------------------------
+
+  int openWindow({
+    WindowOptions? options,
+    required ViewCreatedCallback onCreated,
+  }) =>
+      windowOwner.open(options: options, onCreated: onCreated);
+
+  int openChildWindow({
+    required int parentId,
+    WindowOptions? options,
+    required ViewCreatedCallback onCreated,
+  }) =>
+      childWindowOwner.open(parentId: parentId, options: options, onCreated: onCreated);
+
+  Future<int> openModelessDialog({
+    required int parentId,
+    DialogOptions? options,
+    required ViewCreatedCallback onCreated,
+  }) =>
+      modelessDialogOwner.open(parentId: parentId, options: options, onCreated: onCreated);
+
+  Future<int> openModalDialog({
+    required int parentId,
+    DialogOptions? options,
+    required ViewCreatedCallback onCreated,
+  }) =>
+      modalDialogOwner.open(parentId: parentId, options: options, onCreated: onCreated);
+
+  int openPopup({
+    required int parentId,
+    required Size size,
+    required ViewCreatedCallback onCreated,
+  }) =>
+      popupOwner.open(parentId: parentId, size: size, onCreated: onCreated);
+
+  // ---------------------------------------------------------------------------
+  // First-frame barrier (call from ViewRoot post-frame callback).
+  // ---------------------------------------------------------------------------
+
+  void firstFrameCbComplete(int viewId) {
+    createCompleters[viewId]?.complete();
+    createCompleters.remove(viewId);
+  }
+
+  bool hasPendingCreates({List<int> excludeTokens = const []}) {
+    return createCompleters.entries.any(
+      (e) => !excludeTokens.contains(e.key) && !e.value.isCompleted,
+    );
+  }
+
+  Future<void> waitAllCreatingViews({List<int> excludeTokens = const []}) async {
+    if (!hasPendingCreates(excludeTokens: excludeTokens)) return;
+    try {
+      for (final key in createCompleters.keys.toList()..sort()) {
+        if (excludeTokens.contains(key)) continue;
+        final completer = createCompleters[key];
+        if (!(completer?.isCompleted ?? true)) {
+          await completer?.future;
+        }
+      }
+    } catch (_) {
+      // Non-critical: parallel create failure is surfaced by the caller.
+    }
+  }
+
+  Future<int?> waitFirstFrame(int viewId, {int timeoutMs = 10000}) async {
+    return createCompleters[viewId]?.future.timeout(
+      Duration(milliseconds: timeoutMs),
+      onTimeout: () {
+        createCompleters[viewId]?.complete(CreateViewError.timeout.code);
+        return CreateViewError.timeout.code;
+      },
+    );
+  }
+}

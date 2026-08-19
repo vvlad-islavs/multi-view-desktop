@@ -391,6 +391,10 @@ namespace multi_view_desktop {
             result->Success(flutter::EncodableValue(impl.CreateModalDialogWindow(args)));
             return;
         }
+        if (method == "completeModalDialogCreate") {
+            result->Success();
+            return;
+        }
         if (method == "createPopupWindow") {
             result->Success(flutter::EncodableValue(impl.CreatePopupWindow(args)));
             return;

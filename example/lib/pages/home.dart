@@ -191,6 +191,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
       return true;
     }
 
+    // close all other dialogs
     final allDialogs = DialogScope.of(context).value;
     debugPrint('allDialog UI: $allDialogs');
     if (allDialogs.isNotEmpty) {
@@ -224,7 +225,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
         showOnInit: true,
       ),
     );
-    MultiViewDesktop.fromId(entry.id).focus();
+    // MultiViewDesktop.fromId(entry.id).focus();
 
     final accept = await entry.result;
     if (!mounted) return true;
@@ -416,9 +417,14 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   ),
                   PopupView(
                     controller: _popupController,
+                    positioner: PopupPositioner(
+                      parentAnchor: PopupPositionerAnchor.bottomLeft,
+                      childAnchor: PopupPositionerAnchor.top,
+                    ),
                     builder: (ctx) {
                       return SizedBox(
-                        height: 200,
+                        height: 300,
+                        width: 900,
                         child: Material(
                           elevation: 8,
                           borderRadius: BorderRadius.circular(8),
@@ -699,7 +705,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     width: 180,
                     child: Slider(
                       value: _opacity,
-                      min: 0.2,
+                      min: 0.0,
                       max: 1.0,
                       divisions: 8,
                       onChanged: (v) {

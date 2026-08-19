@@ -89,6 +89,8 @@ FLUTTER_PLUGIN_EXPORT int64_t mvd_create_modal_dialog(
                                 static_cast<int>(x), static_cast<int>(y));
 }
 
+FLUTTER_PLUGIN_EXPORT void mvd_complete_modal_dialog(int64_t) {}
+
 FLUTTER_PLUGIN_EXPORT int64_t mvd_create_popup(int64_t token, int64_t parent_id,
                                             double w, double h) {
   return mvd_linux_queue_create_popup(token, parent_id, static_cast<int>(w),
