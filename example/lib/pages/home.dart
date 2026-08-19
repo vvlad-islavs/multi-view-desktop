@@ -65,18 +65,16 @@ class _HomePageState extends State<HomePage> with WindowListener {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _refreshState();
       final parentContext = ParentWindowScope.of(context).parentContext;
       final currMvd = MultiViewDesktop.of(context);
       final windowInfo = currMvd.getWindowInfo();
-      unawaited(
-        currMvd.setTitle(
-          parentContext != null && parentContext.mounted
-              ? '${windowInfo.isDialog ? 'Dialog' : 'Window'} $currentId, parent: ${MultiViewDesktop.getIdByContext(parentContext)}'
-              : 'Window $currentId',
-        ),
+      currMvd.setTitle(
+        parentContext != null && parentContext.mounted
+            ? '${windowInfo.isDialog ? 'Dialog' : 'Window'} $currentId, parent: ${MultiViewDesktop.getIdByContext(parentContext)}'
+            : 'Window $currentId',
       );
       MultiViewDesktop.allWindowIdsNotifier.addListener(_viewListener);
 
@@ -109,30 +107,30 @@ class _HomePageState extends State<HomePage> with WindowListener {
     super.dispose();
   }
 
-  Future<T?> _safeFuture<T>(Future<T> Function() future) async {
+  T? _safe<T>(T Function() get) {
     if (!mounted) return null;
-    return future();
+    return get();
   }
 
-  Future<void> _refreshState() async {
+  void _refreshState() {
     if (!mounted) return;
     final win = MultiViewDesktop.of(context);
-    final hideTaskbar = await _safeFuture(win.isHideAppTabFromTaskbar);
-    final fs = await _safeFuture(win.isFullScreen);
-    final max = await _safeFuture(win.isMaximized);
-    final top = await _safeFuture(win.isAlwaysOnTop);
-    final res = await _safeFuture(win.isResizable);
-    final mov = await _safeFuture(win.isMovable);
-    final mini = await _safeFuture(win.isMinimizable);
-    final maxi = await _safeFuture(win.isMaximizable);
-    final clos = await _safeFuture(win.isClosable);
-    final prev = await _safeFuture(win.isPreventClose);
-    final skip = await _safeFuture(win.macos.isHideFromCollection);
-    final op = await _safeFuture(win.getOpacity);
-    final visibleOnAllWorkspaces = await _safeFuture(win.macos.isVisibleOnAllWorkspaces);
-    final ignoreMouseEvents = await _safeFuture(win.isIgnoreMouseEvents);
-    final shadow = await _safeFuture(win.hasShadow);
-    final titleBarStyle = await _safeFuture(win.getTitleBarStyle);
+    final hideTaskbar = _safe(win.isHideAppTabFromTaskbar);
+    final fs = _safe(win.isFullScreen);
+    final max = _safe(win.isMaximized);
+    final top = _safe(win.isAlwaysOnTop);
+    final res = _safe(win.isResizable);
+    final mov = _safe(win.isMovable);
+    final mini = _safe(win.isMinimizable);
+    final maxi = _safe(win.isMaximizable);
+    final clos = _safe(win.isClosable);
+    final prev = _safe(win.isPreventClose);
+    final skip = _safe(win.macos.isHideFromCollection);
+    final op = _safe(win.getOpacity);
+    final visibleOnAllWorkspaces = _safe(win.macos.isVisibleOnAllWorkspaces);
+    final ignoreMouseEvents = _safe(win.isIgnoreMouseEvents);
+    final shadow = _safe(win.hasShadow);
+    final titleBarStyle = _safe(win.getTitleBarStyle);
     if (!mounted) return;
     setState(() {
       _isFullScreen = fs ?? _isFullScreen;
@@ -181,8 +179,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
   void onWindowLeaveFullScreen() => setState(() => _isFullScreen = false);
 
   @override
-  void onWindowClose() async {
-    if (!mounted) return;
+  Future<bool> onWindowClose() async {
+    if (!mounted) return true;
     final win = MultiViewDesktop.of(context);
     win.focus();
     // Show a confirmation dialog. can accept (remove preventClose and
@@ -190,7 +188,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
 
     if (_dialogKey.currentContext?.mounted ?? false) {
       _dialogKey.currentContext?.viewController.focus();
-      return;
+      return true;
     }
 
     final allDialogs = DialogScope.of(context).value;
@@ -198,7 +196,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
     if (allDialogs.isNotEmpty) {
       for (final dialog in allDialogs) {
         // if (dialog.isModal) {
-        await MultiViewDesktop.fromId(dialog.id).closeDialog();
+        MultiViewDesktop.fromId(dialog.id).closeDialog();
         // }
       }
     }
@@ -207,8 +205,6 @@ class _HomePageState extends State<HomePage> with WindowListener {
       // or only result after dialog close
       // final result = await context.openDialog<bool?>(
       (ctx, id) {
-        MultiViewDesktop.getIdByContext(context);
-        ctx.viewController.focus();
         return AlertViewDialog(
           key: _dialogKey,
           title: 'Close window?',
@@ -228,16 +224,19 @@ class _HomePageState extends State<HomePage> with WindowListener {
         showOnInit: true,
       ),
     );
+    MultiViewDesktop.fromId(entry.id).focus();
 
     final accept = await entry.result;
-    if (!mounted) return;
+    if (!mounted) return true;
     debugPrint('диалог завершен: $accept');
     if (accept == true) {
-      await win.setPreventClose(false);
-      await win.closeWindow();
+      win.setPreventClose(false);
+      win.closeWindow();
     } else {
-      await win.cancelCascadeClose();
+      // win.cancelCascadeClose();
     }
+
+    return accept == true;
   }
 
   // Helpers ------------------------------------------------------------------
@@ -249,12 +248,12 @@ class _HomePageState extends State<HomePage> with WindowListener {
     for (int i = 0; i < progressLimit; i += progressStep) {
       final progress = i / 100;
       debugPrint('Progress: $progress');
-      await MultiViewDesktop.setProgressBar(progress);
+      MultiViewDesktop.setProgressBar(progress);
       await Future.delayed(Duration(milliseconds: 100));
     }
     debugPrint('Progress completed');
     await Future.delayed(const Duration(milliseconds: 1000));
-    await MultiViewDesktop.setProgressBar(-1);
+    MultiViewDesktop.setProgressBar(-1);
   }
 
   void _log(String entry) => setState(() => _messageLog.insert(0, '[self] $entry'));
@@ -291,7 +290,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
     );
   }
 
-  Widget _switchTile(String title, bool value, Future<void> Function(bool) onChanged) {
+  Widget _switchTile(String title, bool value, FutureOr<void> Function(bool) onChanged) {
     return _tile(
       title,
       trailing: Switch(
@@ -318,14 +317,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
           appBar: _titleBarHidden
               ? null
               : AppBar(
-                  title: FutureBuilder(
-                    future: MultiViewDesktop.of(context).getTitle(),
-                    builder: (ctx, snap) {
-                      return snap.connectionState == ConnectionState.waiting
-                          ? SizedBox.shrink()
-                          : Text(snap.data ?? '');
-                    },
-                  ),
+                  title: Text(MultiViewDesktop.of(context).getTitle()),
                   backgroundColor: Theme.of(context).colorScheme.inversePrimary,
                 ),
           body: ListView(
@@ -352,10 +344,10 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   ListenableBuilder(
                     listenable: sharedConfig,
                     builder: (context, _) {
-                      return _switchTile('hideAppFromTaskbar', sharedConfig.isHideAppFromTaskbar, (v) async {
-                        await MultiViewDesktop.hideAppFromTaskbar(v);
-                        if (v) await MultiViewDesktop.of(context).focus();
-                        sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
+                      return _switchTile('hideAppFromTaskbar', sharedConfig.isHideAppFromTaskbar, (v) {
+                        MultiViewDesktop.hideAppFromTaskbar(v);
+                        if (v) MultiViewDesktop.of(context).focus();
+                        sharedConfig.isHideAppFromTaskbar = MultiViewDesktop.isHideAppFromTaskbar();
                       });
                     },
                   ),
@@ -368,7 +360,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                       onTap: () async {
                         final picked = await _showModePicker(context, sharedConfig.closeMode);
                         if (picked == null) return;
-                        await MultiViewDesktop.setCloseMode(picked);
+                        MultiViewDesktop.setCloseMode(picked);
                         sharedConfig.closeMode = MultiViewDesktop.getCloseMode();
                       },
                     );
@@ -383,7 +375,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                       onTap: () async {
                         final curr = currentId;
                         if (curr == null) return;
-                        await MultiViewDesktop.setAnchorId(curr);
+                        MultiViewDesktop.setAnchorId(curr);
                         sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
                       },
                     ),
@@ -588,8 +580,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 ),
                 _tile(
                   'getBounds',
-                  onTap: () async {
-                    final b = await MultiViewDesktop.of(context).getBounds();
+                  onTap: () {
+                    final b = MultiViewDesktop.of(context).getBounds();
                     if (!context.mounted) return;
                     _log(
                       'bounds: ${b.left.toInt()},${b.top.toInt()} '
@@ -603,8 +595,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
               // Title bar
               // ----------------------------------------------------------------
               _section('TITLE BAR', [
-                _switchTile('titleBarStyle hidden', _titleBarHidden, (v) async {
-                  await MultiViewDesktop.of(context).setTitleBarStyle(
+                _switchTile('titleBarStyle hidden', _titleBarHidden, (v) {
+                  MultiViewDesktop.of(context).setTitleBarStyle(
                     v ? TitleBarStyle.hidden : TitleBarStyle.normal,
                     closeVisibility: _titleBarButtonVisibility,
                     minimizeVisibility: _titleBarButtonVisibility && !windowInfo.isDialog,
@@ -612,8 +604,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   );
                 }),
                 if (windowInfo.isModal || Platform.isMacOS)
-                  _switchTile('titleBarButtonVisibility', _titleBarButtonVisibility, (v) async {
-                    await MultiViewDesktop.of(context).setTitleBarStyle(
+                  _switchTile('titleBarButtonVisibility', _titleBarButtonVisibility, (v) {
+                    MultiViewDesktop.of(context).setTitleBarStyle(
                       _titleBarHidden ? TitleBarStyle.hidden : TitleBarStyle.normal,
                       closeVisibility: v,
                       minimizeVisibility: v && !windowInfo.isDialog,
@@ -623,9 +615,9 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 _tile(
                   'setAsFrameless',
                   subtitle: 'Remove frame entirely',
-                  onTap: () async {
-                    await MultiViewDesktop.of(context).setAsFrameless();
-                    await _refreshState();
+                  onTap: () {
+                    MultiViewDesktop.of(context).setAsFrameless();
+                    _refreshState();
                   },
                 ),
               ]),
@@ -684,18 +676,14 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 ],
                 if (!windowInfo.isModal)
                   _switchTile('closable', _isClosable, (v) => MultiViewDesktop.of(context).setClosable(v)),
-                _switchTile('ignoreMouseEvents', _ignoreMouseEvents, (v) async {
+                _switchTile('ignoreMouseEvents', _ignoreMouseEvents, (v) {
                   final win = MultiViewDesktop.of(context);
-                  await win.setIgnoreMouseEvents(v, mouseMoveEvents: false);
+                  win.setIgnoreMouseEvents(v, mouseMoveEvents: false);
                   if (!v) return;
                   Future.delayed(Duration(seconds: 5), () => win.setIgnoreMouseEvents(false));
                 }),
                 if (!windowInfo.isDialog)
-                  _switchTile(
-                    'preventClose',
-                    _isPreventClose,
-                    (v) async => await MultiViewDesktop.of(context).setPreventClose(v),
-                  ),
+                  _switchTile('preventClose', _isPreventClose, (v) => MultiViewDesktop.of(context).setPreventClose(v)),
               ]),
 
               // ----------------------------------------------------------------

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import 'app_shell/app_shell_patch.dart';
@@ -27,7 +25,7 @@ class ViewShellBrightnessSync extends StatefulWidget {
 
   final AppShellRegistry registry;
   final ValueNotifier<ViewShellOverrides?> viewShellOverrides;
-  final Future<void> Function(Brightness brightness) onBrightnessChanged;
+  final void Function(Brightness brightness) onBrightnessChanged;
   final Widget child;
 
   @override
@@ -70,7 +68,7 @@ class _ViewShellBrightnessSyncState extends State<ViewShellBrightnessSync> with 
     final brightness = resolveViewShellBrightness(widget.registry, widget.viewShellOverrides.value);
     if (brightness == null || _lastSynced == brightness) return;
     _lastSynced = brightness;
-    unawaited(widget.onBrightnessChanged(brightness));
+    widget.onBrightnessChanged(brightness);
   }
 
   @override

@@ -17,8 +17,8 @@
 /// Control the current window via `MultiViewDesktop.of` or `MultiViewDesktop.fromId`:
 /// ```dart
 /// final win = MultiViewDesktop.of(context);
-/// await win.setTitle('Settings');
-/// await win.setTitleBarStyle(TitleBarStyle.hidden);
+/// win.setTitle('Settings');
+/// win.setTitleBarStyle(TitleBarStyle.hidden);
 /// ```
 ///
 /// See also `WindowListener`, `WindowCommunicator`, and `WindowOptions`.

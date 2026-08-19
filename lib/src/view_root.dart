@@ -9,7 +9,6 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
-import 'package:multiview_desktop/src/native_channel.dart';
 import 'package:multiview_desktop/src/view_scope.dart';
 import 'package:multiview_desktop/src/views_manager.dart';
 
@@ -99,7 +98,6 @@ class _PopupEntry {
 // ---------------------------------------------------------------------------
 
 _MultiViewRootState? _rootState;
-final NativeChannel _nativeChannel = NativeChannel();
 final FfiBridge _ffiBridge = FfiBridge.instance;
 bool _hasInitView = true;
 
@@ -114,16 +112,16 @@ _MultiViewRootState get globalRootState {
 
 int get _initPlatformId => !Platform.isMacOS ? 0 : 1;
 
-Future<Widget> createMultiViewRoot(
+Widget createMultiViewRoot(
   Widget Function(BuildContext, int) home,
   Widget Function(Widget)? scope,
   MultiAppConfig config,
-) async {
-  _hasInitView = await _nativeChannel.checkWindowExist(_initPlatformId) ?? true;
+) {
+  _hasInitView = _ffiBridge.checkWindowExist(_initPlatformId);
 
   // Reset native behavioral flags before the widget tree is built
   if (_hasInitView) {
-    await _nativeChannel.resetWindowToDefaults(_initPlatformId, config);
+    _ffiBridge.resetWindowToDefaults(_initPlatformId, config);
   }
 
   final mainRoot = _MultiViewRoot(homeBuilder: home, config: config);
@@ -190,7 +188,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     _initMainView();
   }
 
-  void _initMainView() async {
+  void _initMainView() {
     // Snapshot to avoid concurrent-modification errors on the live views set.
     final initial = WidgetsBinding.instance.platformDispatcher.views.toList();
     final excludeId = !Platform.isMacOS ? -1 : 0;
@@ -199,12 +197,12 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
 
     // After hot restart the lowest live view id may not be 1 (e.g. if view 1 was closed).
     live.sort((a, b) => a.viewId.compareTo(b.viewId));
-    await _viewsManagerImpl.registerInitialWindow(
+    _viewsManagerImpl.registerInitialWindow(
       viewId: live.first.viewId,
       homeBuilder: (context) => widget.homeBuilder(context, 1),
     );
-    unawaited(_viewsManagerImpl.applyNativeLifecyclePolicy());
-    unawaited(_viewsManagerImpl.applyInitialTaskbarMenu());
+    _viewsManagerImpl.applyNativeLifecyclePolicy();
+    _viewsManagerImpl.applyInitialTaskbarMenu();
     // Only for debug. Closes all windows from past session on hot restart
     if (!kReleaseMode) {
       final registered = _viewsManagerImpl.allRealWindowIds.toSet();
@@ -312,7 +310,7 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
   void _syncViewShellBrightness(int viewId, ViewShellOverrides? shellOverrides) {
     final brightness = resolveViewShellBrightness(_appShellRegistry, shellOverrides);
     if (brightness == null) return;
-    unawaited(_viewsManagerImpl.setBrightness(viewId, brightness));
+    _viewsManagerImpl.setBrightness(viewId, brightness);
   }
 
   // --------------------------------------------------------------------------
@@ -390,16 +388,16 @@ class _CreateCompleter<T> {
     required this.parentId,
   });
 
-  factory _CreateCompleter.window(int token, {int? parentId}) {
-    return _CreateCompleter(completer: Completer<T?>(), token: token, isDialog: false, parentId: parentId);
-  }
+  // factory _CreateCompleter.window(int token, {int? parentId}) {
+  //   return _CreateCompleter(completer: Completer<T?>(), token: token, isDialog: false, parentId: parentId);
+  // }
+
+  // factory _CreateCompleter.popup(int token, {required int parentId}) {
+  //   return _CreateCompleter(completer: Completer<T?>(), token: token, isDialog: false, parentId: parentId);
+  // }
 
   factory _CreateCompleter.dialog(int token, {required int parentId}) {
     return _CreateCompleter(completer: Completer<T?>(), token: token, isDialog: true, parentId: parentId);
-  }
-
-  factory _CreateCompleter.popup(int token, {required int parentId}) {
-    return _CreateCompleter(completer: Completer<T?>(), token: token, isDialog: false, parentId: parentId);
   }
 
   void complete([T? resId]) => completer.complete(resId);
@@ -422,7 +420,6 @@ class _ViewsManagerImpl implements ViewsManager {
 
   _ViewsManagerImpl({required this.config, required this.cascadeCloseService, required this.communicator}) {
     _ffiBridge.setMethodCallHandler(_onStaticCall);
-    _nativeChannel.setMethodCallHandler(_onStaticCall);
     closeMode = config.generalParams.closeMode;
   }
 
@@ -431,21 +428,21 @@ class _ViewsManagerImpl implements ViewsManager {
   List<VoidCallback?> _taskbarMenuCallbacks = [];
 
   /// Applies `MultiPlatformParams.menuItems` from startup config.
-  Future<void> applyInitialTaskbarMenu() async {
+  void applyInitialTaskbarMenu() {
     final items = config.generalParams.menuItems;
     if (items.isEmpty) return;
-    await setTaskbarMenu(items: items);
+    setTaskbarMenu(items: items);
   }
 
   /// Pushes lifecycle quit policy to the native embedder.
-  Future<void> applyNativeLifecyclePolicy() async {
+  void applyNativeLifecyclePolicy() {
     if (Platform.isMacOS) {
-      await _nativeChannel.setTerminateAfterLastWindowClosed(
+      _ffiBridge.setTerminateAfterLastWindowClosed(
         config.macosParams.closeAppAfterLastWindowClosed && !_saveLastWindowToReopen,
       );
-      await _nativeChannel.setHasTaskbarCallback(config.macosParams.onTaskbarTap != null);
+      _ffiBridge.setHasTaskbarCallback(config.macosParams.onTaskbarTap != null);
     } else if (Platform.isLinux) {
-      await _nativeChannel.setTerminateAfterLastWindowClosed(true);
+      _ffiBridge.setTerminateAfterLastWindowClosed(true);
     }
   }
 
@@ -524,35 +521,33 @@ class _ViewsManagerImpl implements ViewsManager {
 
   List<int> get allShiftedWindowIds => _windows.keys.map((e) => _realToShifted(e)).toList();
 
-  Future<void> registerInitialWindow({required int viewId, required Widget Function(BuildContext) homeBuilder}) async {
+  void registerInitialWindow({required int viewId, required Widget Function(BuildContext) homeBuilder}) {
     // Win & linux by default init from 0 id but macos from 1
     _hotRestartShift = !Platform.isMacOS ? -1 : 0;
     if (!_hasInitView) {
-      viewId = await _createNextMainWindowAfterRestart(homeBuilder);
+      viewId = _createNextMainWindowAfterRestart(homeBuilder);
     }
 
     _hotRestartShift = viewId - 1;
     _initRealId = viewId;
     _setAnchor(viewId, force: true);
-    await _applyOptionsToInitialAnchor();
+    _applyOptionsToInitialAnchor();
 
     globalRootState.addWindowView(viewId, homeBuilder, parentContext: null, parentId: null);
   }
 
-  Future<int> _createNextMainWindowAfterRestart(Widget Function(BuildContext) homeBuilder) async {
+  int _createNextMainWindowAfterRestart(Widget Function(BuildContext) homeBuilder) {
     final opts = config.globalOptions;
-    final int token = _nextToken++;
-    _createCompleters[token] = _CreateCompleter.window(token);
 
     Offset? pos;
     final windowSize = Size(opts.size?.width ?? 800.0, opts.size?.height ?? 600.0);
     if (opts.alignment != null) {
-      pos = await calcWindowPosition(windowSize, opts.alignment!);
+      pos = calcWindowPosition(windowSize, opts.alignment!);
     }
-
+    int? newViewId;
     try {
-      await _nativeChannel.createWindowRequest(
-        token: token,
+      newViewId = _ffiBridge.createWindowRequest(
+        token: 0000,
         title: opts.title ?? '',
         titleBarStyleStr: opts.titleBarStyle?.name ?? 'normal',
         windowButtonVisibility: opts.windowButtonVisibility ?? true,
@@ -560,11 +555,8 @@ class _ViewsManagerImpl implements ViewsManager {
         pos: pos,
       );
     } catch (e, st) {
-      throw Exception('Failed to create new window, tokenId: $token. Error: $e, stack: $st');
+      throw Exception('Failed to create new window, tokenId: 0000. Error: $e, stack: $st');
     }
-
-    final newViewId = await _waitCompleter(token);
-    _createCompleters.remove(token);
 
     if (_CreateViewError.values.map((e) => e.code).contains(newViewId)) {
       final error = _CreateViewError.values.firstWhere(
@@ -572,20 +564,18 @@ class _ViewsManagerImpl implements ViewsManager {
         orElse: () => _CreateViewError.unhandled,
       );
       if (error == _CreateViewError.forceClose) {
-        // if (newRealIdAndErrorCode.viewId != null) {
-        //   _nativeChannel.forceCloseView(newViewId);
-        // }
+        // do nothing
       }
-      throw Exception(error.message(token));
+      throw Exception(error.message(0000));
     }
 
-    return newViewId!;
+    return newViewId;
   }
 
-  Future<void> _applyOptionsToInitialAnchor() async {
+  void _applyOptionsToInitialAnchor() {
     if (realAnchorId == null) return;
-    await applyOptions(realAnchorId!, opts: config.globalOptions);
-    unawaited(_nativeChannel.show(realAnchorId!));
+    applyOptions(realAnchorId!, opts: config.globalOptions);
+    _ffiBridge.show(realAnchorId!);
   }
 
   void _updateHotRestartShiftBySecondary(int viewId) {
@@ -663,7 +653,7 @@ class _ViewsManagerImpl implements ViewsManager {
     }
   }
 
-  Future<void> _setAnchor(int? viewId, {bool force = false}) async {
+  void _setAnchor(int? viewId, {bool force = false}) {
     if (!config.generalParams.enableDynamicAnchor && !force) return;
     final previousShifted = _realAnchorId != null ? _realToShifted(_realAnchorId!) : null;
     _realAnchorId = viewId;
@@ -672,7 +662,7 @@ class _ViewsManagerImpl implements ViewsManager {
       _notifyObservers((o) => o.onAnchorChanged(previousShifted, newShifted));
     }
     if (viewId == null) return;
-    await _nativeChannel.setAnchorViewId(viewId);
+    _ffiBridge.setAnchorViewId(viewId);
   }
 
   /// When the anchor `FlutterView` disappears, pick another root window.
@@ -745,7 +735,7 @@ class _ViewsManagerImpl implements ViewsManager {
   List<int> _rootWindowIds({int? excludingId}) =>
       _windows.entries.where((e) => e.value.parentId == null && e.key != excludingId).map((e) => e.key).toList();
 
-  Future<dynamic> _onStaticCall(MethodCall call) async {
+  dynamic _onStaticCall(MethodCall call) {
     if (call.method != 'onEvent') return null;
 
     final String eventName = call.arguments['eventName'] as String;
@@ -762,20 +752,20 @@ class _ViewsManagerImpl implements ViewsManager {
       _createComplete(token, viewId);
       if (maybeParentId == null) return;
       _childCreatePending.remove(token);
-      await _nativeChannel.setPreConfirmClose(maybeParentId, false);
+      _ffiBridge.setPreConfirmClose(maybeParentId, false);
     } else if (eventName == 'taskbar-callback') {
       config.macosParams.onTaskbarTap?.call();
     } else if (eventName == 'preconfirm-close') {
       final int? viewId = call.arguments['viewId'] as int?;
       if (viewId != null) {
         // debugPrint('preconfirm: $viewId');
-        await _handlePreConfirmClose(viewId);
+        unawaited(_handlePreConfirmClose(viewId));
       }
     } else if (eventName == 'confirm-close') {
       final int? viewId = call.arguments['viewId'] as int?;
       if (viewId != null) {
         // debugPrint('confirm: $viewId');
-        await _onConfirmClose(viewId);
+        _onConfirmClose(viewId);
       }
     } else if (eventName == 'applicationShouldTerminateRequest') {
       unawaited(_macosOnShouldAppTerminate());
@@ -797,22 +787,25 @@ class _ViewsManagerImpl implements ViewsManager {
 
   Future<void> _macosOnShouldAppTerminate() async {
     final confirmTerminate = await config.macosParams.onTerminate?.call() ?? true;
-    await _nativeChannel.replyToApplicationShouldTerminate(confirmTerminate);
+    if (confirmTerminate) {
+      _ffiBridge.closeIsolateLocal();
+    }
+    _ffiBridge.replyToApplicationShouldTerminate(confirmTerminate);
   }
 
-  Future<void> _onConfirmClose(int viewId) async {
+  void _onConfirmClose(int viewId) {
     final isDialog = _dialogs.containsKey(viewId);
     final isModalDialog = isDialog && (_dialogs[viewId]?.isModal ?? false);
-    await _destroyPopupsByParent(viewId);
-    await _removeAllDialogsByParent(viewId);
+    _destroyPopupsByParent(viewId);
+    _removeAllDialogsByParent(viewId);
 
-    await _disposeView(viewId);
+    _disposeView(viewId);
 
-    await _nativeChannel.setConfirmClose(viewId, isConfirm: true);
+    _ffiBridge.setConfirmClose(viewId, isConfirm: true);
     if (isModalDialog) {
-      await _nativeChannel.destroyModalDialog(viewId);
+      _ffiBridge.destroyModalDialog(viewId);
     } else {
-      await _nativeChannel.forceCloseView(viewId);
+      _ffiBridge.forceCloseView(viewId);
     }
     cascadeCloseService.completeWindow(viewId);
   }
@@ -838,10 +831,13 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   Future<void> _closeSubtreeByMode(int rootId, CloseMode mode) async {
-    await _waitAllCreatingViews();
+    if (_hasPendingCreatingViews()) {
+      await _waitAllCreatingViews();
+    }
+
     switch (mode) {
       case CloseMode.none:
-        await _removeViewsNone(rootId);
+        _removeViewsNone(rootId);
         break;
       case CloseMode.softCascade:
         await _removeViewsCascade(rootId);
@@ -861,10 +857,10 @@ class _ViewsManagerImpl implements ViewsManager {
   /// early, leaving the main window open. All other pending completers are
   /// also cleared so that a later independent close of those windows does not
   /// unexpectedly resume the (already aborted) cascade.
-  Future<void> _cancelCascade(int viewId) async {
+  void _cancelCascade(int viewId) {
     final parentsRecurs = [..._parentsId(viewId), ..._dialogParentIds(viewId), viewId];
     for (final parent in parentsRecurs) {
-      await _nativeChannel.setPreConfirmClose(parent, false);
+      _ffiBridge.setPreConfirmClose(parent, false);
       cascadeCloseService.abort(parent);
     }
   }
@@ -920,11 +916,11 @@ class _ViewsManagerImpl implements ViewsManager {
     if (list == null) return;
     for (final l in List<WindowListenerCallbacks>.from(list)) {
       l.onWindowEvent(eventName);
-      _dispatchListenerEvent(l, eventName);
+      _dispatchListenerEvent(l, eventName, viewId);
     }
   }
 
-  void _dispatchListenerEvent(WindowListenerCallbacks listener, String eventName) {
+  void _dispatchListenerEvent(WindowListenerCallbacks listener, String eventName, int viewId) {
     switch (eventName) {
       case 'focus':
         listener.onWindowFocus();
@@ -951,47 +947,55 @@ class _ViewsManagerImpl implements ViewsManager {
       case 'leave-full-screen':
         listener.onWindowLeaveFullScreen();
       case 'close':
-        listener.onWindowClose();
+        _handleOnWindowClose(listener.onWindowClose(), viewId);
+    }
+  }
+
+  void _handleOnWindowClose(FutureOr<bool> futureOr, int viewId) async {
+    final res = await futureOr;
+    if (!res) {
+      _cancelCascade(viewId);
     }
   }
 
   bool _isLastMacosRootView(int id) =>
       ((_anchorCandidates(excludingViewId: id).isEmpty) && _saveLastWindowToReopen && _realAnchorId == id);
 
-  Future<void> _preConfirmCloseCallable(int viewId, {bool isForce = false}) async {
-    await _nativeChannel.setPreConfirmClose(viewId, true);
+  void _preConfirmCloseCallable(int viewId, {bool isForce = false}) {
+    _ffiBridge.setPreConfirmClose(viewId, true);
 
     if (isForce) {
       _saveLastWindowToReopen = false;
-      await applyNativeLifecyclePolicy();
-      await _nativeChannel.forceCloseView(viewId);
+      applyNativeLifecyclePolicy();
+      _ffiBridge.forceCloseView(viewId);
     } else {
       if (Platform.isMacOS) {
         // Hide the anchor instead of closing it when macOS dock restore is enabled and taskbar callback is null.
         if (_isLastMacosRootView(viewId)) {
-          await _removeAllDialogsByParent(viewId);
-          await _nativeChannel.hide(viewId);
-          await _nativeChannel.setPreConfirmClose(viewId, false);
+          _destroyPopupsByParent(viewId);
+          _removeAllDialogsByParent(viewId);
+          _ffiBridge.hide(viewId);
+          _ffiBridge.setPreConfirmClose(viewId, false);
           cascadeCloseService.completeWindow(viewId);
           return;
         }
       }
-      await _nativeChannel.softCloseWindow(viewId);
+      _ffiBridge.softCloseWindow(viewId);
     }
   }
 
-  Future<bool> _removeAllDialogsByParent(int parentId) async {
+  bool _removeAllDialogsByParent(int parentId) {
     final allDialogs = _directDialogChildIds(parentId)..sort();
     for (final dialogId in allDialogs.reversed) {
-      await _nativeChannel.destroyModalDialog(dialogId);
+      _ffiBridge.destroyModalDialog(dialogId);
 
-      await _disposeView(dialogId);
+      _disposeView(dialogId);
     }
     return true;
   }
 
-  Future<void> _removeViewsNone(int rootId) async {
-    await _preConfirmCloseCallable(rootId);
+  void _removeViewsNone(int rootId) {
+    _preConfirmCloseCallable(rootId);
   }
 
   Future<void> _removeViewsCascade(int rootId) async {
@@ -999,13 +1003,12 @@ class _ViewsManagerImpl implements ViewsManager {
 
     // debugPrint('cascade for $rootId');
     for (final id in descendants.reversed) {
-      final closed =
-          await _viewExistChecker<bool>(id, () async {
-            cascadeCloseService.attachWindow(id);
-            await _nativeChannel.softCloseWindow(id);
-            return await cascadeCloseService.waitWindow(id);
-          }) ??
-          false;
+      final wait = _viewExistChecker<Future<bool>>(id, () {
+        cascadeCloseService.attachWindow(id);
+        _ffiBridge.softCloseWindow(id);
+        return cascadeCloseService.waitWindow(id);
+      });
+      final closed = wait == null ? false : await wait;
       if (!closed) return;
     }
 
@@ -1016,20 +1019,19 @@ class _ViewsManagerImpl implements ViewsManager {
       return;
     }
 
-    await _viewExistChecker(rootId, () async => _preConfirmCloseCallable(rootId), dialogSupports: true);
+    _viewExistChecker(rootId, () => _preConfirmCloseCallable(rootId), dialogSupports: true);
   }
 
   Future<void> _removeSecondaryViewsForce(int rootId, {int loopCycle = 1, int maxLoopCycles = 10}) async {
     cascadeCloseService.clear();
     final descendants = _descendantIdsDeepestFirst(rootId).toList()..sort();
     for (final id in descendants.reversed) {
-      final closed =
-          await _viewExistChecker<bool>(id, () async {
-            cascadeCloseService.attachWindow(id);
-            await _nativeChannel.forceCloseView(id);
-            return await cascadeCloseService.waitWindow(id);
-          }) ??
-          false;
+      final wait = _viewExistChecker<Future<bool>>(id, () {
+        cascadeCloseService.attachWindow(id);
+        _ffiBridge.forceCloseView(id);
+        return cascadeCloseService.waitWindow(id);
+      });
+      final closed = wait == null ? false : await wait;
       if (!closed) return;
     }
 
@@ -1042,20 +1044,19 @@ class _ViewsManagerImpl implements ViewsManager {
         return;
       }
     }
-    await _viewExistChecker(rootId, () async => await _preConfirmCloseCallable(rootId), dialogSupports: true);
+    _viewExistChecker(rootId, () => _preConfirmCloseCallable(rootId), dialogSupports: true);
   }
 
   Future<void> _destroyAllViewsForce(int rootId, {int loopCycle = 1, int maxLoopCycles = 10}) async {
     cascadeCloseService.clear();
     final descendants = _descendantIdsDeepestFirst(rootId).toList()..sort();
     for (final id in descendants.reversed) {
-      final closed =
-          await _viewExistChecker<bool>(id, () async {
-            cascadeCloseService.attachWindow(id);
-            await _nativeChannel.forceCloseView(id);
-            return await cascadeCloseService.waitWindow(id);
-          }) ??
-          false;
+      final wait = _viewExistChecker<Future<bool>>(id, () {
+        cascadeCloseService.attachWindow(id);
+        _ffiBridge.forceCloseView(id);
+        return cascadeCloseService.waitWindow(id);
+      });
+      final closed = wait == null ? false : await wait;
       if (!closed) return;
     }
 
@@ -1069,44 +1070,40 @@ class _ViewsManagerImpl implements ViewsManager {
       }
     }
 
-    await _viewExistChecker(
-      rootId,
-      () async => await _preConfirmCloseCallable(rootId, isForce: true),
-      dialogSupports: true,
-    );
+    _viewExistChecker(rootId, () => _preConfirmCloseCallable(rootId, isForce: true), dialogSupports: true);
   }
 
   Future<void> removeOrphanViewsForceAfterRestart(List<int> ids) async {
     cascadeCloseService.clear();
     for (final id in ids) {
       try {
-        await _nativeChannel.forceCloseView(id);
-        await _nativeChannel.destroyModalDialog(id);
+        _ffiBridge.forceCloseView(id);
+        _ffiBridge.destroyModalDialog(id);
       } catch (_) {}
     }
   }
 
-  Future<void> applyOptions(int viewId, {required WindowOptions opts}) async => _applyOptions(viewId, opts);
+  void applyOptions(int viewId, {required WindowOptions opts}) => _applyOptions(viewId, opts);
 
-  Future<void> _applyOptions(int viewId, WindowOptions opts) async {
+  void _applyOptions(int viewId, WindowOptions opts) {
     if (opts.size != null) {
-      await _nativeChannel.setSize(viewId, size: opts.size!);
+      _ffiBridge.setSize(viewId, size: opts.size!);
     }
     if (opts.alignment != null) {
-      await _nativeChannel.setAlignment(viewId, alignment: opts.alignment!);
+      _ffiBridge.setAlignment(viewId, alignment: opts.alignment!);
     }
     if (opts.backgroundColor != null) {
-      await _nativeChannel.setBackgroundColor(viewId, color: opts.backgroundColor!);
+      _ffiBridge.setBackgroundColor(viewId, color: opts.backgroundColor!);
     }
     if (opts.minimumSize != null) {
-      await _nativeChannel.setMinSize(viewId, size: opts.minimumSize!);
+      _ffiBridge.setMinSize(viewId, size: opts.minimumSize!);
     }
     if (opts.maximumSize != null) {
-      await _nativeChannel.setMaxSize(viewId, size: opts.maximumSize!);
+      _ffiBridge.setMaxSize(viewId, size: opts.maximumSize!);
     }
-    if (opts.title != null) await _nativeChannel.setTitle(viewId, title: opts.title!);
+    if (opts.title != null) _ffiBridge.setTitle(viewId, title: opts.title!);
     if (opts.titleBarStyle != null) {
-      await _nativeChannel.setTitleBarStyle(
+      _ffiBridge.setTitleBarStyle(
         viewId,
         style: opts.titleBarStyle!,
         closeVisibility: opts.windowButtonVisibility!,
@@ -1115,40 +1112,40 @@ class _ViewsManagerImpl implements ViewsManager {
       );
     }
     if (opts.alwaysOnTop != null) {
-      await _nativeChannel.setAlwaysOnTop(viewId, isAlwaysOnTop: opts.alwaysOnTop!);
+      _ffiBridge.setAlwaysOnTop(viewId, isAlwaysOnTop: opts.alwaysOnTop!);
     }
     if (opts.fullScreen != null) {
-      await _nativeChannel.setFullScreen(viewId, isFullScreen: opts.fullScreen!);
+      _ffiBridge.setFullScreen(viewId, isFullScreen: opts.fullScreen!);
     }
     if (opts.hideAppFromTaskbar ?? false) {
-      await hideAppFromTaskbar(true);
+      hideAppFromTaskbar(true);
     }
   }
 
-  Future<void> _applyDialogOptions(int viewId, DialogOptions opts) async {
+  void _applyDialogOptions(int viewId, DialogOptions opts) {
     if (!Platform.isWindows) {
       if (opts.size != null) {
-        await _nativeChannel.setSize(viewId, size: opts.size!);
+        _ffiBridge.setSize(viewId, size: opts.size!);
       }
     }
     if (opts.backgroundColor != null) {
-      await _nativeChannel.setBackgroundColor(viewId, color: opts.backgroundColor!);
+      _ffiBridge.setBackgroundColor(viewId, color: opts.backgroundColor!);
     }
     if (opts.showOnInit == true || opts.showOnInit == null) {
-      await _nativeChannel.show(viewId);
+      _ffiBridge.show(viewId);
     }
     if (opts.minimumSize != null) {
-      await _nativeChannel.setMinSize(viewId, size: opts.minimumSize!);
+      _ffiBridge.setMinSize(viewId, size: opts.minimumSize!);
     }
     if (opts.maximumSize != null) {
-      await _nativeChannel.setMaxSize(viewId, size: opts.maximumSize!);
+      _ffiBridge.setMaxSize(viewId, size: opts.maximumSize!);
     }
     if (opts.isResizable != null) {
-      await _nativeChannel.setResizable(viewId, opts.isResizable!);
+      _ffiBridge.setResizable(viewId, opts.isResizable!);
     }
-    if (opts.title != null) await _nativeChannel.setTitle(viewId, title: opts.title!);
+    if (opts.title != null) _ffiBridge.setTitle(viewId, title: opts.title!);
     if (opts.titleBarStyle != null) {
-      await _nativeChannel.setTitleBarStyle(
+      _ffiBridge.setTitleBarStyle(
         viewId,
         style: opts.titleBarStyle!,
         closeVisibility: opts.windowButtonVisibility!,
@@ -1157,7 +1154,7 @@ class _ViewsManagerImpl implements ViewsManager {
       );
     }
     if (opts.alwaysOnTop != null) {
-      await _nativeChannel.setAlwaysOnTop(viewId, isAlwaysOnTop: opts.alwaysOnTop!);
+      _ffiBridge.setAlwaysOnTop(viewId, isAlwaysOnTop: opts.alwaysOnTop!);
     }
   }
 
@@ -1176,7 +1173,7 @@ class _ViewsManagerImpl implements ViewsManager {
     _windowsNotifier.value = _windows.entries.map((e) => _realToShifted(e.key)).toList()..sort();
   }
 
-  void _removeDialog(int dialogId) async {
+  void _removeDialog(int dialogId) {
     final dialog = _dialogs[dialogId];
     if (dialog == null) return;
     dialog.completeResult(_dialogsResults.remove(dialogId));
@@ -1203,7 +1200,7 @@ class _ViewsManagerImpl implements ViewsManager {
   @override
   ViewShellOverrides? getViewShellOverrides(int viewId) => _viewEntryFor(viewId)?.viewShellOverrides.value;
 
-  Future<void> _disposeView(int viewId) async {
+  void _disposeView(int viewId) {
     final entry = [..._windows.entries, ..._dialogs.entries].where((e) => e.key == viewId).firstOrNull;
     final shiftedViewId = _realToShifted(viewId);
     final isDialog = entry?.value is _DialogEntry;
@@ -1221,7 +1218,7 @@ class _ViewsManagerImpl implements ViewsManager {
     if (isDialog) {
       _modalStateService.unregisterDialog((entry?.value as _DialogEntry).parentId, realDialogId: viewId);
     }
-    await _destroyPopupsByParent(viewId);
+    _destroyPopupsByParent(viewId);
     // Clean up the modal notifier for this view (it may have been a parent itself).
     _modalStateService.disposeView(viewId);
     _dialogModalPublicNotifiers.remove(viewId)?.dispose();
@@ -1243,7 +1240,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  Future<int> createWindow({WindowOptions? newOpts, required Future<void> Function(int) onCreated, int? parent}) async {
+  int createWindow({WindowOptions? newOpts, required void Function(int) onCreated, int? parent}) {
     if (parent != null && !_windows.containsKey(parent)) {
       throw ArgumentError.value(parent, 'Parent error', 'Parent window is not registered');
     }
@@ -1257,7 +1254,7 @@ class _ViewsManagerImpl implements ViewsManager {
   Future<int> createDialog({
     DialogOptions? newOpts,
     required int parentRealId,
-    required Future<void> Function(int) onCreated,
+    required void Function(int) onCreated,
   }) async {
     if (!_windows.containsKey(parentRealId)) {
       throw ArgumentError.value(parentRealId, 'Parent error', 'Parent window is not registered');
@@ -1280,49 +1277,40 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  Future<int> createPopup({required int parentRealId, required Size size}) async {
+  int createPopup({required int parentRealId, required Size size}) {
     if (!_windows.containsKey(parentRealId) && !_dialogs.containsKey(parentRealId)) {
       throw ArgumentError.value(parentRealId, 'Parent error', 'Parent window is not registered');
     }
 
-    final int token = _nextToken++;
-    _createCompleters[token] = _CreateCompleter.popup(token, parentId: parentRealId);
-
-    await _waitAllCreatingViews(excludeTokens: [token]);
-
+    int? newViewId;
     try {
-      await _nativeChannel.createPopupWindowRequest(token: token, parentId: parentRealId, windowSize: size);
+      newViewId = _ffiBridge.createPopupWindow(token: 0000, parentId: parentRealId, windowSize: size);
     } catch (e, st) {
-      _createCompleters[token]?.complete(_CreateViewError.unhandled.code);
-      _createCompleters.remove(token);
-      throw Exception('Failed to create popup window, tokenId: $token. Error: $e, stack: $st');
+      throw Exception('Failed to create popup window, tokenId: 0000. Error: $e, stack: $st');
     }
-
-    final newViewId = await _waitCompleter(token);
-    _createCompleters.remove(token);
 
     if (_CreateViewError.values.map((e) => e.code).contains(newViewId)) {
       final error = _CreateViewError.values.firstWhere(
         (e) => e.code == newViewId,
         orElse: () => _CreateViewError.unhandled,
       );
-      throw Exception(error.message(token));
+      throw Exception(error.message(0000));
     }
 
-    _popups[newViewId!] = _PopupEntry(parentId: parentRealId);
-    await _nativeChannel.setPreConfirmClose(newViewId, true);
-    await _nativeChannel.setPreventClose(newViewId, isPreventClose: false);
-    await _nativeChannel.setConfirmClose(newViewId, isConfirm: true);
+    _popups[newViewId] = _PopupEntry(parentId: parentRealId);
+    _ffiBridge.setPreConfirmClose(newViewId, true);
+    _ffiBridge.setPreventClose(newViewId, isPreventClose: false);
+    _ffiBridge.setConfirmClose(newViewId, isConfirm: true);
     // will be shown after positioned
-    // await _nativeChannel.show(newViewId);
+    // _ffiBridge.show(newViewId);
     return newViewId;
   }
 
   @override
-  Future<void> destroyPopup(int viewId) async {
+  void destroyPopup(int viewId) {
     if (!_popups.containsKey(viewId)) return;
     try {
-      await _nativeChannel.destroyModalDialog(viewId);
+      _ffiBridge.destroyModalDialog(viewId);
     } on PlatformException catch (e) {
       if (e.code != 'NO_WINDOW') rethrow;
     }
@@ -1330,10 +1318,10 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  Future<bool> positionPopup(int viewId, Rect bounds) async {
+  bool positionPopup(int viewId, Rect bounds) {
     if (!_popups.containsKey(viewId) || !_hasLiveFlutterView(viewId)) return false;
     try {
-      return await _nativeChannel.setPopupBounds(viewId, bounds: bounds);
+      return _ffiBridge.setPopupBounds(viewId, bounds: bounds);
     } on PlatformException catch (e) {
       if (e.code != 'NO_WINDOW') rethrow;
     }
@@ -1347,33 +1335,36 @@ class _ViewsManagerImpl implements ViewsManager {
   List<int> _directPopupChildIds(int parentId) =>
       _popups.entries.where((e) => e.value.parentId == parentId).map((e) => e.key).toList();
 
-  Future<void> _destroyPopupsByParent(int parentId) async {
+  void _destroyPopupsByParent(int parentId) {
     final ids = _directPopupChildIds(parentId);
     for (final id in ids) {
-      await destroyPopup(id);
+      destroyPopup(id);
     }
   }
 
   Future<void> _createComplete(int token, int newViewId) async {
     _createCompleters[token]?.complete(newViewId);
-    await _nativeChannel.setPreConfirmClose(newViewId, false);
+    _ffiBridge.setPreConfirmClose(newViewId, false);
+  }
+
+  bool _hasPendingCreatingViews({List<int> excludeTokens = const []}) {
+    return _createCompleters.entries.any((e) => !excludeTokens.contains(e.key) && !e.value.isCompleted);
   }
 
   /// `excludeTokens` - current view tokens, so don't wait yourself
   Future<void> _waitAllCreatingViews({List<int> excludeTokens = const []}) async {
-    if (_createCompleters.entries.any((e) => !e.value.isCompleted)) {
-      try {
-        for (final key in _createCompleters.keys.toList()..sort()) {
-          if (excludeTokens.contains(key)) continue;
+    if (!_hasPendingCreatingViews(excludeTokens: excludeTokens)) return;
+    try {
+      for (final key in _createCompleters.keys.toList()..sort()) {
+        if (excludeTokens.contains(key)) continue;
 
-          final completer = _createCompleters[key];
-          if (!(completer?.isCompleted ?? true)) {
-            await completer?.future;
-          }
+        final completer = _createCompleters[key];
+        if (!(completer?.isCompleted ?? true)) {
+          await completer?.future;
         }
-      } catch (_) {
-        // error in _createCompleters map is non-critical, do nothing
       }
+    } catch (_) {
+      // error in _createCompleters map is non-critical, do nothing
     }
   }
 
@@ -1387,32 +1378,16 @@ class _ViewsManagerImpl implements ViewsManager {
     );
   }
 
-  Future<int> _createWindow({
-    required WindowOptions opts,
-    int? parentId,
-    required Future<void> Function(int) onCreated,
-  }) async {
-    final int token = _nextToken++;
-    _createCompleters[token] = _CreateCompleter.window(token, parentId: parentId);
-    final int windowFinishedToken = _nextToken++;
-    _createCompleters[windowFinishedToken] = _CreateCompleter.window(token, parentId: parentId);
-
-    // wait all other creating views
-    await _waitAllCreatingViews(excludeTokens: [token, windowFinishedToken]);
-
-    if (parentId != null) {
-      _childCreatePending.putIfAbsent(token, () => parentId);
-    }
-
+  int _createWindow({required WindowOptions opts, int? parentId, required void Function(int) onCreated}) {
     Offset? pos;
     final windowSize = Size(opts.size?.width ?? 800.0, opts.size?.height ?? 600.0);
     if (opts.alignment != null) {
-      pos = await calcWindowPosition(windowSize, opts.alignment!);
+      pos = calcWindowPosition(windowSize, opts.alignment!);
     }
-
+    int? newViewId;
     try {
-      await _nativeChannel.createWindowRequest(
-        token: token,
+      newViewId = _ffiBridge.createWindowRequest(
+        token: 0000,
         title: opts.title ?? '',
         titleBarStyleStr: opts.titleBarStyle?.name ?? 'normal',
         windowButtonVisibility: opts.windowButtonVisibility ?? true,
@@ -1420,19 +1395,11 @@ class _ViewsManagerImpl implements ViewsManager {
         pos: pos,
         parentId: parentId,
       );
+      if (parentId != null) {
+        _ffiBridge.setPreConfirmClose(parentId, false);
+      }
     } catch (e, st) {
-      _createCompleters[windowFinishedToken]?.complete(_CreateViewError.unhandled.code);
-      _createCompleters.remove(windowFinishedToken);
-
-      _createCompleters[token]?.complete(_CreateViewError.unhandled.code);
-      _createCompleters.remove(token);
-      throw Exception('Failed to create new window, tokenId: $token. Error: $e, stack: $st');
-    }
-
-    final newViewId = await _waitCompleter(token);
-    _createCompleters.remove(token);
-    if (parentId != null) {
-      _childCreatePending.remove(token);
+      throw Exception('Failed to create new window, tokenId: 0000. Error: $e, stack: $st');
     }
 
     if (_CreateViewError.values.map((e) => e.code).contains(newViewId)) {
@@ -1440,15 +1407,12 @@ class _ViewsManagerImpl implements ViewsManager {
         (e) => e.code == newViewId,
         orElse: () => _CreateViewError.unhandled,
       );
-      throw Exception(error.message(token));
+      throw Exception(error.message(0000));
     }
 
-    await _applyOptions(newViewId!, opts);
+    _applyOptions(newViewId, opts);
 
-    await onCreated(newViewId);
-
-    _createCompleters[windowFinishedToken]?.complete();
-    _createCompleters.remove(windowFinishedToken);
+    onCreated(newViewId);
 
     return newViewId;
   }
@@ -1495,7 +1459,7 @@ class _ViewsManagerImpl implements ViewsManager {
   Future<int> _createDialog({
     required DialogOptions opts,
     required int parentId,
-    required Future<void> Function(int) onCreated,
+    required void Function(int) onCreated,
   }) async {
     final int token = _nextToken++;
     _createCompleters[token] = _CreateCompleter.dialog(token, parentId: parentId);
@@ -1513,11 +1477,11 @@ class _ViewsManagerImpl implements ViewsManager {
       final modal = opts.modal ?? false;
       Offset? pos;
       if (!modal) {
-        final parentBounds = await _nativeChannel.getBounds(parentId);
-        pos = await calcWindowPositionByParent(Alignment.center, windowSize: windowSize, parentBounds: parentBounds);
+        final parentBounds = _ffiBridge.getBounds(parentId);
+        pos = calcWindowPositionByParent(Alignment.center, windowSize: windowSize, parentBounds: parentBounds);
         // Native sheet - positioned by the OS; no Dart-side alignment needed.
       }
-      await _nativeChannel.createModalDialogRequest(
+      _ffiBridge.createModalDialogRequest(
         token: token,
         title: opts.title ?? '',
         titleBarStyleStr: opts.titleBarStyle?.name ?? 'normal',
@@ -1551,9 +1515,9 @@ class _ViewsManagerImpl implements ViewsManager {
 
     _modalStateService.registerDialog(parentId, dialogId: newViewId!, isModal: opts.modal ?? false);
 
-    await _applyDialogOptions(newViewId, opts);
+    _applyDialogOptions(newViewId, opts);
 
-    await onCreated(newViewId);
+    onCreated(newViewId);
 
     if (opts.modal == true) {
       // delay so modal shows correct
@@ -1578,10 +1542,14 @@ class _ViewsManagerImpl implements ViewsManager {
   bool get isEnabledDynamicAnchor => config.generalParams.enableDynamicAnchor;
 
   @override
-  Future<void> setTaskbarMenu({required List<TaskbarMenuItem> items}) async {
+  void setTaskbarMenu({required List<TaskbarMenuItem> items}) {
     _taskbarMenuCallbacks = [for (final item in items) item.onPressed];
-    final encoded = [for (var i = 0; i < items.length; i++) await items[i].toJson(i)];
-    await _nativeChannel.setTaskbarMenu(encoded);
+    unawaited(_encodeAndSetTaskbarMenu(items));
+  }
+
+  Future<void> _encodeAndSetTaskbarMenu(List<TaskbarMenuItem> items) async {
+    final encoded = <Map<String, dynamic>>[for (var i = 0; i < items.length; i++) await items[i].toJson(i)];
+    _ffiBridge.setTaskbarMenu(encoded);
   }
 
   void _invokeTaskbarMenuCallback(int id) {
@@ -1590,12 +1558,12 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  Future<bool> setPublicAnchorId(int viewId) async {
+  bool setPublicAnchorId(int viewId) {
     if (config.generalParams.enableDynamicAnchor) return false;
 
     final realView = _shiftedToReal(viewId);
     if (_anchorCandidates().contains(realView)) {
-      await _setAnchor(realView, force: true);
+      _setAnchor(realView, force: true);
       return true;
     }
 
@@ -1610,18 +1578,18 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  Future<void> blur(int viewId) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.blur(viewId), dialogSupports: true);
+  void blur(int viewId) {
+    _viewExistChecker(viewId, () => _ffiBridge.blur(viewId), dialogSupports: true);
   }
 
   @override
-  Future<void> cancelCascadeClose(int viewId) async {
-    await _cancelCascade(viewId);
+  void cancelCascadeClose(int viewId) {
+    _cancelCascade(viewId);
   }
 
   @override
-  Future<void> center(int viewId) async {
-    await setAlignment(viewId, Alignment.center);
+  void center(int viewId) {
+    setAlignment(viewId, Alignment.center);
   }
 
   @override
@@ -1631,502 +1599,391 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  Future<void> closeView<T>(int viewId, {T? dialogRes}) async {
+  void closeView<T>(int viewId, {T? dialogRes}) {
     if (_dialogs.containsKey(viewId)) {
       _dialogsResults[viewId] = dialogRes;
-      await _viewExistChecker(
-        viewId,
-        () async => await _nativeChannel.destroyModalDialog(viewId),
-        dialogSupports: true,
-      );
-      await _disposeView(viewId);
+      _viewExistChecker(viewId, () => _ffiBridge.destroyModalDialog(viewId), dialogSupports: true);
+      _disposeView(viewId);
     } else {
-      await _viewExistChecker(viewId, () async => await _nativeChannel.softCloseWindow(viewId));
+      _viewExistChecker(viewId, () => _ffiBridge.softCloseWindow(viewId));
     }
   }
 
   @override
-  Future<void> focus(int viewId) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.focus(viewId), dialogSupports: true);
+  void focus(int viewId) {
+    _viewExistChecker(viewId, () => _ffiBridge.focus(viewId), dialogSupports: true);
   }
 
   @override
-  Future<Rect> getBounds(int viewId) async {
-    return await _viewExistChecker(viewId, () async => await _nativeChannel.getBounds(viewId), dialogSupports: true) ??
-        Rect.zero;
+  Rect getBounds(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.getBounds(viewId), dialogSupports: true) ?? Rect.zero;
   }
 
   @override
-  Future<double> getOpacity(int viewId) async {
-    return await _viewExistChecker(viewId, () async => await _nativeChannel.getOpacity(viewId), dialogSupports: true) ??
-        1;
+  double getOpacity(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.getOpacity(viewId), dialogSupports: true) ?? 1;
   }
 
   @override
-  Future<Offset> getPosition(int viewId) async {
-    return await _viewExistChecker(
-          viewId,
-          () async => await _nativeChannel.getPosition(viewId),
-          dialogSupports: true,
-        ) ??
-        Offset.zero;
+  Offset getPosition(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.getPosition(viewId), dialogSupports: true) ?? Offset.zero;
   }
 
   @override
-  Future<Size> getSize(int viewId) async {
-    return await _viewExistChecker(viewId, () async => await _nativeChannel.getSize(viewId), dialogSupports: true) ??
-        Size.zero;
+  Size getSize(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.getSize(viewId), dialogSupports: true) ?? Size.zero;
   }
 
   @override
-  Future<String> getTitle(int viewId) async {
-    return await _viewExistChecker(viewId, () async => await _nativeChannel.getTitle(viewId), dialogSupports: true) ??
-        '';
+  String getTitle(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.getTitle(viewId), dialogSupports: true) ?? '';
   }
 
   @override
-  Future<({TitleBarStyle? style, bool? closeVisibility, bool? maximizeVisibility, bool? minimizeVisibility})>
-  getTitleBarStyle(int viewId) async {
-    return await _viewExistChecker(
-          viewId,
-          () async => await _nativeChannel.getTitleBarStyle(viewId),
-          dialogSupports: true,
-        ) ??
+  ({TitleBarStyle? style, bool? closeVisibility, bool? maximizeVisibility, bool? minimizeVisibility}) getTitleBarStyle(
+    int viewId,
+  ) {
+    return _viewExistChecker(viewId, () => _ffiBridge.getTitleBarStyle(viewId), dialogSupports: true) ??
         (style: TitleBarStyle.normal, closeVisibility: true, maximizeVisibility: true, minimizeVisibility: true);
   }
 
   @override
-  Future<bool> hasShadow(int viewId) async {
-    return await _viewExistChecker(viewId, () async => await _nativeChannel.hasShadow(viewId), dialogSupports: true) ??
-        true;
+  bool hasShadow(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.hasShadow(viewId), dialogSupports: true) ?? true;
   }
 
   @override
-  Future<void> hide(int viewId) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.hide(viewId), dialogSupports: true);
+  void hide(int viewId) {
+    _viewExistChecker(viewId, () => _ffiBridge.hide(viewId), dialogSupports: true);
   }
 
   @override
-  Future<void> hideAppFromTaskbar(bool isHideAppFromTaskbar, {int? viewId}) async {
+  void hideAppFromTaskbar(bool isHideAppFromTaskbar, {int? viewId}) {
     if (Platform.isMacOS) {
       final id = _lifecycleViewId;
       if (id == null) return;
-      await _viewExistChecker(
+      _viewExistChecker(
         id,
-        () async => await _nativeChannel.hideAppFromTaskbar(id, isHideAppFromTaskbar: isHideAppFromTaskbar),
+        () => _ffiBridge.hideAppFromTaskbar(id, isHideAppFromTaskbar: isHideAppFromTaskbar),
         dialogSupports: true,
       );
     } else {
       if (viewId == null) {
         for (final view in windowEntries) {
-          await _viewExistChecker(
+          _viewExistChecker(
             view.key,
-            () async => await _nativeChannel.hideAppFromTaskbar(view.key, isHideAppFromTaskbar: isHideAppFromTaskbar),
+            () => _ffiBridge.hideAppFromTaskbar(view.key, isHideAppFromTaskbar: isHideAppFromTaskbar),
             dialogSupports: true,
           );
         }
         return;
       }
-      await _viewExistChecker(
+      _viewExistChecker(
         viewId,
-        () async => await _nativeChannel.hideAppFromTaskbar(viewId, isHideAppFromTaskbar: isHideAppFromTaskbar),
+        () => _ffiBridge.hideAppFromTaskbar(viewId, isHideAppFromTaskbar: isHideAppFromTaskbar),
         dialogSupports: true,
       );
     }
   }
 
   @override
-  Future<void> hideFromCollection(int viewId, bool isHideFromCollection) async {
+  void hideFromCollection(int viewId, bool isHideFromCollection) {
     if (!Platform.isMacOS) return;
-    await _viewExistChecker(
-      viewId,
-      () async => await _nativeChannel.hideFromCollection(viewId, isHideFromCollection),
-      dialogSupports: true,
-    );
+    _viewExistChecker(viewId, () => _ffiBridge.hideFromCollection(viewId, isHideFromCollection), dialogSupports: true);
   }
 
   @override
-  Future<bool> isAlwaysOnTop(int viewId) async {
-    return await _viewExistChecker(
-          viewId,
-          () async => await _nativeChannel.isAlwaysOnTop(viewId),
-          dialogSupports: true,
-        ) ??
-        false;
+  bool isAlwaysOnTop(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.isAlwaysOnTop(viewId), dialogSupports: true) ?? false;
   }
 
   @override
-  Future<bool> isClosable(int viewId) async {
-    return await _viewExistChecker(viewId, () async => await _nativeChannel.isClosable(viewId), dialogSupports: true) ??
-        true;
+  bool isClosable(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.isClosable(viewId), dialogSupports: true) ?? true;
   }
 
   @override
-  Future<bool> isFocused(int viewId) async {
-    return await _viewExistChecker(viewId, () async => await _nativeChannel.isFocused(viewId), dialogSupports: true) ??
-        true;
+  bool isFocused(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.isFocused(viewId), dialogSupports: true) ?? true;
   }
 
   @override
-  Future<bool> isOnActiveSpace(int viewId) async {
+  bool isOnActiveSpace(int viewId) {
     if (!Platform.isMacOS) return true;
-    return await _viewExistChecker(
-          viewId,
-          () async => await _nativeChannel.isOnActiveSpace(viewId),
-          dialogSupports: true,
-        ) ??
-        true;
+    return _viewExistChecker(viewId, () => _ffiBridge.isOnActiveSpace(viewId), dialogSupports: true) ?? true;
   }
 
   @override
-  Future<bool> isFullScreen(int viewId) async {
-    return await _viewExistChecker(viewId, () async => await _nativeChannel.isFullScreen(viewId)) ?? false;
+  bool isFullScreen(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.isFullScreen(viewId)) ?? false;
   }
 
   @override
-  Future<bool> isHideAppFromTaskbar() async {
+  bool isHideAppFromTaskbar() {
     if (Platform.isWindows || Platform.isLinux) {
-      return await _nativeChannel.isHideAppFromTaskbar();
+      return _ffiBridge.isHideAppFromTaskbar();
     }
     final id = _lifecycleViewId;
     if (id == null) return false;
-    return await _viewExistChecker(id, () async => await _nativeChannel.isHideAppFromTaskbar(), dialogSupports: true) ??
-        false;
+    return _viewExistChecker(id, () => _ffiBridge.isHideAppFromTaskbar(), dialogSupports: true) ?? false;
   }
 
   @override
-  Future<bool> isHideAppTabFromTaskbar(int viewId) async {
+  bool isHideAppTabFromTaskbar(int viewId) {
     if (!Platform.isWindows) {
       return isHideAppFromTaskbar();
     }
-    return await _viewExistChecker(
-          viewId,
-          () async => await _nativeChannel.isHideAppTabFromTaskbar(viewId),
-          dialogSupports: true,
-        ) ??
-        false;
+    return _viewExistChecker(viewId, () => _ffiBridge.isHideAppTabFromTaskbar(viewId), dialogSupports: true) ?? false;
   }
 
   @override
-  Future<bool> isHideFromCollection(int viewId) async {
+  bool isHideFromCollection(int viewId) {
     if (!Platform.isMacOS) return false;
-    return await _viewExistChecker(
-          viewId,
-          () async => await _nativeChannel.isHideFromCollection(viewId),
-          dialogSupports: true,
-        ) ??
-        false;
+    return _viewExistChecker(viewId, () => _ffiBridge.isHideFromCollection(viewId), dialogSupports: true) ?? false;
   }
 
   @override
-  Future<bool> isMaximizable(int viewId) async {
-    return await _viewExistChecker(viewId, () async => await _nativeChannel.isMaximizable(viewId)) ?? true;
+  bool isMaximizable(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.isMaximizable(viewId)) ?? true;
   }
 
   @override
-  Future<bool> isMaximized(int viewId) async {
-    return await _viewExistChecker(viewId, () async => await _nativeChannel.isMaximized(viewId)) ?? false;
+  bool isMaximized(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.isMaximized(viewId)) ?? false;
   }
 
   @override
-  Future<bool> isMinimizable(int viewId) async {
-    return await _viewExistChecker(viewId, () async => await _nativeChannel.isMinimizable(viewId)) ?? true;
+  bool isMinimizable(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.isMinimizable(viewId)) ?? true;
   }
 
   @override
-  Future<bool> isMinimized(int viewId) async {
-    return await _viewExistChecker(viewId, () async => await _nativeChannel.isMinimized(viewId)) ?? false;
+  bool isMinimized(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.isMinimized(viewId)) ?? false;
   }
 
   @override
-  Future<bool> isMovable(int viewId) async {
-    return await _viewExistChecker(viewId, () async => await _nativeChannel.isMovable(viewId), dialogSupports: true) ??
-        true;
+  bool isMovable(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.isMovable(viewId), dialogSupports: true) ?? true;
   }
 
   @override
-  Future<bool> isPreventClose(int viewId) async {
-    return await _viewExistChecker(viewId, () async => await _nativeChannel.isPreventClose(viewId)) ?? false;
+  bool isPreventClose(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.isPreventClose(viewId)) ?? false;
   }
 
   @override
-  Future<bool> isResizable(int viewId) async {
-    return await _viewExistChecker(
-          viewId,
-          () async => await _nativeChannel.isResizable(viewId),
-          dialogSupports: true,
-        ) ??
-        true;
+  bool isResizable(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.isResizable(viewId), dialogSupports: true) ?? true;
   }
 
   @override
-  Future<bool> isVisible(int viewId) async {
-    return await _viewExistChecker(viewId, () async => await _nativeChannel.isVisible(viewId), dialogSupports: true) ??
-        true;
+  bool isVisible(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.isVisible(viewId), dialogSupports: true) ?? true;
   }
 
   @override
-  Future<bool> isVisibleOnAllWorkspaces(int viewId) async {
-    return await _viewExistChecker(
-          viewId,
-          () async => await _nativeChannel.isVisibleOnAllWorkspaces(viewId),
-          dialogSupports: true,
-        ) ??
-        true;
+  bool isVisibleOnAllWorkspaces(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.isVisibleOnAllWorkspaces(viewId), dialogSupports: true) ?? true;
   }
 
   @override
-  Future<void> maximize(int viewId, {bool vertically = false}) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.maximize(viewId));
+  void maximize(int viewId, {bool vertically = false}) {
+    _viewExistChecker(viewId, () => _ffiBridge.maximize(viewId));
   }
 
   @override
-  Future<void> minimize(int viewId) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.minimize(viewId));
+  void minimize(int viewId) {
+    _viewExistChecker(viewId, () => _ffiBridge.minimize(viewId));
   }
 
   @override
-  Future<void> popUpWindowMenu(int viewId) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.popUpWindowMenu(viewId), dialogSupports: true);
+  void popUpWindowMenu(int viewId) {
+    _viewExistChecker(viewId, () => _ffiBridge.popUpWindowMenu(viewId), dialogSupports: true);
   }
 
   @override
-  Future<void> restore(int viewId) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.restore(viewId));
+  void restore(int viewId) {
+    _viewExistChecker(viewId, () => _ffiBridge.restore(viewId));
   }
 
   @override
-  Future<void> setAlignment(int viewId, Alignment alignment, {bool insideParent = false}) async {
+  void setAlignment(int viewId, Alignment alignment, {bool insideParent = false}) {
     final dialog = _dialogs[viewId];
     if (dialog != null && insideParent) {
-      final parentBounds = await _nativeChannel.getBounds(dialog.parentId);
-      final windowSize = await _nativeChannel.getSize(viewId);
-      final pos = await calcWindowPositionByParent(alignment, windowSize: windowSize, parentBounds: parentBounds);
-      await _viewExistChecker(
-        viewId,
-        () async => await _nativeChannel.setPosition(viewId, pos: pos),
-        dialogSupports: true,
-      );
+      final parentBounds = _ffiBridge.getBounds(dialog.parentId);
+      final windowSize = _ffiBridge.getSize(viewId);
+      final pos = calcWindowPositionByParent(alignment, windowSize: windowSize, parentBounds: parentBounds);
+      _viewExistChecker(viewId, () => _ffiBridge.setPosition(viewId, pos: pos), dialogSupports: true);
       return;
     }
-    await _viewExistChecker(
+    _viewExistChecker(
       viewId,
-      () async => await _nativeChannel.setAlignment(viewId, alignment: alignment),
+      () => _ffiBridge.setAlignment(viewId, alignment: alignment),
       dialogSupports: !(dialog?.isModal ?? false),
     );
   }
 
   @override
-  Future<void> setAlwaysOnTop(int viewId, bool isAlwaysOnTop) async {
-    await _viewExistChecker(
+  void setAlwaysOnTop(int viewId, bool isAlwaysOnTop) {
+    _viewExistChecker(
       viewId,
-      () async => await _nativeChannel.setAlwaysOnTop(viewId, isAlwaysOnTop: isAlwaysOnTop),
+      () => _ffiBridge.setAlwaysOnTop(viewId, isAlwaysOnTop: isAlwaysOnTop),
       dialogSupports: true,
     );
   }
 
   @override
-  Future<void> setAsFrameless(int viewId) async {
-    await _viewExistChecker(
+  void setAsFrameless(int viewId) {
+    _viewExistChecker(
       viewId,
-      () async => await _nativeChannel.setAsFrameless(viewId),
+      () => _ffiBridge.setAsFrameless(viewId),
       dialogSupports: !(_dialogs[viewId]?.isModal ?? true),
     );
   }
 
   @override
-  Future<void> setAspectRatio(int viewId, double ratio) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.setAspectRatio(viewId, ratio));
+  void setAspectRatio(int viewId, double ratio) {
+    _viewExistChecker(viewId, () => _ffiBridge.setAspectRatio(viewId, ratio));
   }
 
   @override
-  Future<void> setBackgroundColor(int viewId, Color color) async {
-    await _viewExistChecker(
-      viewId,
-      () async => await _nativeChannel.setBackgroundColor(viewId, color: color),
-      dialogSupports: true,
-    );
+  void setBackgroundColor(int viewId, Color color) {
+    _viewExistChecker(viewId, () => _ffiBridge.setBackgroundColor(viewId, color: color), dialogSupports: true);
   }
 
   @override
-  Future<void> setBadgeLabel(int viewId, String? label) async {
+  void setBadgeLabel(int viewId, String? label) {
     if (!Platform.isMacOS) return;
-    await _viewExistChecker(
-      viewId,
-      () async => await _nativeChannel.setBadgeLabel(viewId, label: label),
-      dialogSupports: true,
-    );
+    _viewExistChecker(viewId, () => _ffiBridge.setBadgeLabel(viewId, label: label), dialogSupports: true);
   }
 
   @override
-  Future<void> setBrightness(int viewId, Brightness brightness) async {
-    await _viewExistChecker(
-      viewId,
-      () async => await _nativeChannel.setBrightness(viewId, brightness),
-      dialogSupports: true,
-    );
+  void setBrightness(int viewId, Brightness brightness) {
+    _viewExistChecker(viewId, () => _ffiBridge.setBrightness(viewId, brightness), dialogSupports: true);
   }
 
   @override
-  Future<void> setGlobalBrightness(Brightness brightness) async {
+  void setGlobalBrightness(Brightness brightness) {
     final allViewIds = [..._dialogs.keys, ..._windows.keys]..sort();
     for (final viewId in allViewIds) {
-      await _viewExistChecker(
-        viewId,
-        () async => await _nativeChannel.setBrightness(viewId, brightness),
-        dialogSupports: true,
-      );
+      _viewExistChecker(viewId, () => _ffiBridge.setBrightness(viewId, brightness), dialogSupports: true);
     }
   }
 
   @override
-  Future<void> setClosable(int viewId, bool isClosable) async {
-    await _viewExistChecker(
-      viewId,
-      () async => await _nativeChannel.setClosable(viewId, isClosable),
-      dialogSupports: true,
-    );
+  void setClosable(int viewId, bool isClosable) {
+    _viewExistChecker(viewId, () => _ffiBridge.setClosable(viewId, isClosable), dialogSupports: true);
   }
 
   @override
   CloseMode getAppCloseMode() => closeMode;
 
   @override
-  Future<void> setAppCloseMode(CloseMode closeMode) async {
+  void setAppCloseMode(CloseMode closeMode) {
     this.closeMode = closeMode;
-    await applyNativeLifecyclePolicy();
+    applyNativeLifecyclePolicy();
   }
 
   @override
-  Future<void> setFullScreen(int viewId, bool isFullScreen) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.setFullScreen(viewId, isFullScreen: isFullScreen));
+  void setFullScreen(int viewId, bool isFullScreen) {
+    _viewExistChecker(viewId, () => _ffiBridge.setFullScreen(viewId, isFullScreen: isFullScreen));
   }
 
   @override
-  Future<void> setHasShadow(int viewId, bool value) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.setHasShadow(viewId, value), dialogSupports: true);
+  void setHasShadow(int viewId, bool value) {
+    _viewExistChecker(viewId, () => _ffiBridge.setHasShadow(viewId, value), dialogSupports: true);
   }
 
   @override
-  Future<void> setIgnoreMouseEvents(int viewId, bool ignore, {bool forward = false}) async {
-    await _viewExistChecker(
+  void setIgnoreMouseEvents(int viewId, bool ignore, {bool forward = false}) {
+    _viewExistChecker(
       viewId,
-      () async => await _nativeChannel.setIgnoreMouseEvents(viewId, ignore, forward: forward),
+      () => _ffiBridge.setIgnoreMouseEvents(viewId, ignore, forward: forward),
       dialogSupports: true,
     );
   }
 
   @override
-  Future<({bool mouseMoveEvents, bool ignore})> isIgnoreMouseEvents(int viewId) async {
-    return await _viewExistChecker(
-          viewId,
-          () async => await _nativeChannel.isIgnoreMouseEvents(viewId),
-          dialogSupports: true,
-        ) ??
+  ({bool mouseMoveEvents, bool ignore}) isIgnoreMouseEvents(int viewId) {
+    return _viewExistChecker(viewId, () => _ffiBridge.isIgnoreMouseEvents(viewId), dialogSupports: true) ??
         (mouseMoveEvents: false, ignore: false);
   }
 
   @override
-  Future<void> setMaximizable(int viewId, bool isMaximizable) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.setMaximizable(viewId, isMaximizable));
+  void setMaximizable(int viewId, bool isMaximizable) {
+    _viewExistChecker(viewId, () => _ffiBridge.setMaximizable(viewId, isMaximizable));
   }
 
   @override
-  Future<void> setMaximumSize(int viewId, Size size) async {
-    await _viewExistChecker(
-      viewId,
-      () async => await _nativeChannel.setMaxSize(viewId, size: size),
-      dialogSupports: true,
-    );
+  void setMaximumSize(int viewId, Size size) {
+    _viewExistChecker(viewId, () => _ffiBridge.setMaxSize(viewId, size: size), dialogSupports: true);
   }
 
   @override
-  Future<void> setMinimizable(int viewId, bool isMinimizable) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.setMinimizable(viewId, isMinimizable));
+  void setMinimizable(int viewId, bool isMinimizable) {
+    _viewExistChecker(viewId, () => _ffiBridge.setMinimizable(viewId, isMinimizable));
   }
 
   @override
-  Future<void> setMinimumSize(int viewId, Size size) async {
-    await _viewExistChecker(
-      viewId,
-      () async => await _nativeChannel.setMinSize(viewId, size: size),
-      dialogSupports: true,
-    );
+  void setMinimumSize(int viewId, Size size) {
+    _viewExistChecker(viewId, () => _ffiBridge.setMinSize(viewId, size: size), dialogSupports: true);
   }
 
   @override
-  Future<void> setMovable(int viewId, bool isMovable) async {
-    await _viewExistChecker(
-      viewId,
-      () async => await _nativeChannel.setMovable(viewId, isMovable),
-      dialogSupports: true,
-    );
+  void setMovable(int viewId, bool isMovable) {
+    _viewExistChecker(viewId, () => _ffiBridge.setMovable(viewId, isMovable), dialogSupports: true);
   }
 
   @override
-  Future<void> setOpacity(int viewId, double opacity) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.setOpacity(viewId, opacity), dialogSupports: true);
+  void setOpacity(int viewId, double opacity) {
+    _viewExistChecker(viewId, () => _ffiBridge.setOpacity(viewId, opacity), dialogSupports: true);
   }
 
   @override
-  Future<void> setPosition(int viewId, Offset position) async {
-    await _viewExistChecker(
-      viewId,
-      () async => await _nativeChannel.setPosition(viewId, pos: position),
-      dialogSupports: true,
-    );
+  void setPosition(int viewId, Offset position) {
+    _viewExistChecker(viewId, () => _ffiBridge.setPosition(viewId, pos: position), dialogSupports: true);
   }
 
   @override
-  Future<void> setPreventClose(int viewId, bool isPreventClose) async {
-    await _viewExistChecker(
-      viewId,
-      () async => await _nativeChannel.setPreventClose(viewId, isPreventClose: isPreventClose),
-    );
+  void setPreventClose(int viewId, bool isPreventClose) {
+    _viewExistChecker(viewId, () => _ffiBridge.setPreventClose(viewId, isPreventClose: isPreventClose));
   }
 
   @override
-  Future<void> setProgressBar(double progress) async {
+  void setProgressBar(double progress) {
     if (Platform.isLinux) return;
     final id = _lifecycleViewId;
     if (id == null) return;
-    await _viewExistChecker(id, () async => await _nativeChannel.setProgressBar(progress), dialogSupports: true);
+    _viewExistChecker(id, () => _ffiBridge.setProgressBar(progress), dialogSupports: true);
   }
 
   @override
-  Future<void> setResizable(int viewId, bool isResizable) async {
-    await _viewExistChecker(
-      viewId,
-      () async => await _nativeChannel.setResizable(viewId, isResizable),
-      dialogSupports: true,
-    );
+  void setResizable(int viewId, bool isResizable) {
+    _viewExistChecker(viewId, () => _ffiBridge.setResizable(viewId, isResizable), dialogSupports: true);
   }
 
   @override
-  Future<void> setSize(int viewId, Size size) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.setSize(viewId, size: size), dialogSupports: true);
+  void setSize(int viewId, Size size) {
+    _viewExistChecker(viewId, () => _ffiBridge.setSize(viewId, size: size), dialogSupports: true);
   }
 
   @override
-  Future<void> setTitle(int viewId, String title) async {
-    await _viewExistChecker(
-      viewId,
-      () async => await _nativeChannel.setTitle(viewId, title: title),
-      dialogSupports: true,
-    );
+  void setTitle(int viewId, String title) {
+    _viewExistChecker(viewId, () => _ffiBridge.setTitle(viewId, title: title), dialogSupports: true);
   }
 
   @override
-  Future<void> setTitleBarStyle(
+  void setTitleBarStyle(
     int viewId,
     TitleBarStyle style, {
     bool closeVisibility = true,
     bool maximizeVisibility = true,
     bool minimizeVisibility = true,
-  }) async {
-    await _viewExistChecker(
+  }) {
+    _viewExistChecker(
       viewId,
-      () async => await _nativeChannel.setTitleBarStyle(
+      () => _ffiBridge.setTitleBarStyle(
         viewId,
         style: style,
         closeVisibility: closeVisibility,
@@ -2138,36 +1995,35 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  Future<void> setVisibleOnAllWorkspaces(int viewId, bool visible, {bool visibleOnFullScreen = false}) async {
+  void setVisibleOnAllWorkspaces(int viewId, bool visible, {bool visibleOnFullScreen = false}) {
     if (!Platform.isMacOS) return;
 
-    await _viewExistChecker(
+    _viewExistChecker(
       viewId,
-      () async =>
-          await _nativeChannel.setVisibleOnAllWorkspaces(viewId, visible, visibleOnFullScreen: visibleOnFullScreen),
+      () => _ffiBridge.setVisibleOnAllWorkspaces(viewId, visible, visibleOnFullScreen: visibleOnFullScreen),
       dialogSupports: true,
     );
   }
 
   @override
-  Future<void> show(int viewId) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.show(viewId), dialogSupports: true);
+  void show(int viewId) {
+    _viewExistChecker(viewId, () => _ffiBridge.show(viewId), dialogSupports: true);
   }
 
   @override
-  Future<void> startDragging(int viewId) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.startDragging(viewId), dialogSupports: true);
+  void startDragging(int viewId) {
+    _viewExistChecker(viewId, () => _ffiBridge.startDragging(viewId), dialogSupports: true);
   }
 
   @override
-  Future<void> startResizing(int viewId, ResizeEdge edge) async {
+  void startResizing(int viewId, ResizeEdge edge) {
     if (Platform.isMacOS) return;
-    await _viewExistChecker(viewId, () async => await _nativeChannel.startResizing(viewId, edge), dialogSupports: true);
+    _viewExistChecker(viewId, () => _ffiBridge.startResizing(viewId, edge), dialogSupports: true);
   }
 
   @override
-  Future<void> unmaximize(int viewId) async {
-    await _viewExistChecker(viewId, () async => await _nativeChannel.unmaximize(viewId));
+  void unmaximize(int viewId) {
+    _viewExistChecker(viewId, () => _ffiBridge.unmaximize(viewId));
   }
 
   @override
@@ -2182,7 +2038,7 @@ class _ViewsManagerImpl implements ViewsManager {
     final allRoots = _rootWindowIds()..sort();
 
     _saveLastWindowToReopen = false;
-    await applyNativeLifecyclePolicy();
+    applyNativeLifecyclePolicy();
     for (final root in allRoots.reversed) {
       cascadeCloseService.attachWindow(root);
       unawaited(_closeSubtreeByMode(root, mode));
@@ -2190,7 +2046,7 @@ class _ViewsManagerImpl implements ViewsManager {
       if (!closed) {
         if (Platform.isMacOS) {
           _saveLastWindowToReopen = config.macosParams.saveLastWindowToReopen;
-          await applyNativeLifecyclePolicy();
+          applyNativeLifecyclePolicy();
         }
         return false;
       }
@@ -2199,7 +2055,7 @@ class _ViewsManagerImpl implements ViewsManager {
     return true;
   }
 
-  Future<T?> _viewExistChecker<T>(int viewId, Future<T> Function() func, {bool dialogSupports = false}) async {
+  T? _viewExistChecker<T>(int viewId, Function() func, {bool dialogSupports = false}) {
     final isManaged = _windows.containsKey(viewId) || _dialogs.containsKey(viewId) || _popups.containsKey(viewId);
     if (dialogSupports) {
       if (!isManaged) return null;
@@ -2209,7 +2065,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
     if (!_hasLiveFlutterView(viewId)) return null;
     try {
-      return await func();
+      return func();
     } on PlatformException catch (e) {
       // Race during cascade close: native window gone before didChangeMetrics.
       if (e.code == 'NO_WINDOW') return null;

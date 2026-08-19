@@ -105,14 +105,11 @@ class _WindowButtons extends StatelessWidget {
           foreground: foreground,
           onPressed: () {
             final win = MultiViewDesktop.of(context);
-            win.isMaximized().then((isMax) {
-              if (!context.mounted) return;
-              if (isMax) {
-                win.unmaximize();
-              } else {
-                win.maximize();
-              }
-            });
+            if (win.isMaximized()) {
+              win.unmaximize();
+            } else {
+              win.maximize();
+            }
           },
         ),
         _CaptionButton(

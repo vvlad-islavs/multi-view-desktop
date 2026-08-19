@@ -30,9 +30,9 @@ void runMultiApp({
   required Widget Function(BuildContext globalScopeContext, int publicId) home,
   Widget Function(Widget child)? globalScope,
   MultiAppConfig? config,
-}) async {
+}) {
   WidgetsFlutterBinding.ensureInitialized();
-  runWidget(await createMultiViewRoot(home, globalScope, config ?? MultiAppConfig._defaultConfig()));
+  runWidget(createMultiViewRoot(home, globalScope, config ?? MultiAppConfig._defaultConfig()));
 }
 
 /// Application-wide settings passed to `runMultiApp`.
@@ -195,7 +195,7 @@ enum CloseMode {
 ///   child: const Text('Open settings'),
 /// )
 /// ```
-Future<int> openWindow(
+int openWindow(
   Widget Function(BuildContext context, int publicId) childBuilder, {
   WindowOptions? options,
   BuildContext? parentContext,
@@ -290,7 +290,7 @@ class DialogOptions {
 ///   options: DialogOptions(title: 'Settings', modal: true),
 /// );
 /// // later, inside the dialog:
-/// await MultiViewDesktop.of(context).closeDialog('saved');
+/// MultiViewDesktop.of(context).closeDialog('saved');
 /// ```
 Future<T?> openDialog<T>(
   Widget Function(BuildContext context, int publicId) childBuilder, {
@@ -327,7 +327,7 @@ class DialogEntry<T> {
 ///   options: DialogOptions(title: 'Settings', modal: true),
 /// );
 /// // later, inside the dialog:
-/// await MultiViewDesktop.of(context).closeDialog('saved');
+/// MultiViewDesktop.of(context).closeDialog('saved');
 /// ```
 Future<DialogEntry<T?>> openDialogEntry<T>(
   Widget Function(BuildContext context, int publicId) childBuilder, {

@@ -4,9 +4,12 @@ import 'dart:io';
 import 'dart:ui' show Brightness, Color, Offset, Rect, Size;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show MethodCall;
+import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/resize_edge.dart';
 import 'package:multiview_desktop/src/title_bar_style.dart';
+import 'package:multiview_desktop/src/utils/calc_window_position.dart';
 
 // Native files: MvdFfiBridge.swift, mvd_ffi_bridge.cpp, mvd_ffi_bridge.cc
 // Symbol convention: mvd_<verb>_<noun>
@@ -46,12 +49,12 @@ typedef _I1D = int Function(int);
 typedef _D1N = Double Function(Int64);
 typedef _D1D = double Function(int);
 
-typedef _CreateWinN = Void Function(Int64, Double, Double, Int32, Int32, Double, Double, Int64);
-typedef _CreateWinD = void Function(int, double, double, int, int, double, double, int);
-typedef _CreateDlgN = Void Function(Int64, Int64, Double, Double, Int32, Int32, Int32, Double, Double);
-typedef _CreateDlgD = void Function(int, int, double, double, int, int, int, double, double);
-typedef _CreatePopN = Void Function(Int64, Int64, Double, Double);
-typedef _CreatePopD = void Function(int, int, double, double);
+typedef _CreateWinN = Int64 Function(Int64, Double, Double, Int32, Int32, Double, Double, Int64);
+typedef _CreateWinD = int Function(int, double, double, int, int, double, double, int);
+typedef _CreateDlgN = Int64 Function(Int64, Int64, Double, Double, Int32, Int32, Int32, Double, Double);
+typedef _CreateDlgD = int Function(int, int, double, double, int, int, int, double, double);
+typedef _CreatePopN = Int64 Function(Int64, Int64, Double, Double);
+typedef _CreatePopD = int Function(int, int, double, double);
 typedef _DispN = Void Function(Double, Double, Double, Double);
 typedef _DispD = void Function(double, double, double, double);
 typedef _ProgN = Void Function(Double);
@@ -186,7 +189,7 @@ abstract class FfiBridge {
   late final _setEventCallbackN = _lib!.lookupFunction<_SetEventCbN, _SetEventCbD>('mvd_set_event_callback');
 
   NativeCallable<_EventCbN>? _eventCallable;
-  Future<dynamic> Function(MethodCall)? _eventHandler;
+  dynamic Function(MethodCall)? _eventHandler;
 
   void _writeStr(Uint8List buf, String s) {
     final units = utf8.encode(s);
@@ -214,13 +217,33 @@ abstract class FfiBridge {
   }
 
   /// Native -> Dart events (`onEvent`). Same handler shape as [NativeChannel.setMethodCallHandler].
-  void setMethodCallHandler(Future<dynamic> Function(MethodCall) handler) {
+  void setMethodCallHandler(dynamic Function(MethodCall) handler) {
     _eventHandler = handler;
-    if (!_supported) return;
-    final previous = _eventCallable;
-    _eventCallable = NativeCallable<_EventCbN>.isolateLocal(_dispatchNativeEvent);
-    _setEventCallbackN(_eventCallable!.nativeFunction);
-    previous?.close();
+    _ensureEventCallable();
+  }
+
+  void _ensureEventCallable() {
+    if (!_supported || _eventCallable != null) return;
+    try {
+      _eventCallable = NativeCallable<_EventCbN>.isolateLocal(_dispatchNativeEvent);
+      _setEventCallbackN(_eventCallable!.nativeFunction);
+    } on ArgumentError {
+      _eventCallable?.close();
+      _eventCallable = null;
+    }
+  }
+
+  /// Drops the native event pointer before [NativeCallable.close].
+  ///
+  /// Closing first leaves a dangling C function in `_eventCb`; Cmd+Q then
+  /// crashes in `windowShouldClose` with "Callback invoked after it has been deleted".
+  void closeIsolateLocal() {
+    _eventHandler = null;
+    if (_supported) {
+      _setEventCallbackN(nullptr);
+    }
+    _eventCallable?.close();
+    _eventCallable = null;
   }
 
   void _dispatchNativeEvent(Pointer<Char> namePtr, int viewId, int arg) {
@@ -244,9 +267,9 @@ abstract class FfiBridge {
     return utf8.decode(bytes.asTypedList(n));
   }
 
-  // Create (fire-and-forget; completion still arrives via `viewCreated`)
+  // Create — native returns the new Flutter view id, or -1 on failure.
 
-  void createWindowRequest({
+  int createWindowRequest({
     required int token,
     required String title,
     required String titleBarStyleStr,
@@ -255,10 +278,10 @@ abstract class FfiBridge {
     required Offset? pos,
     int? parentId,
   }) {
-    if (!_supported) return;
+    if (!_supported) return _kNoViewId;
     _writeStr(_str, title);
     _writeStr(_str2, titleBarStyleStr);
-    _createWindowN(
+    return _createWindowN(
       token,
       windowSize.width,
       windowSize.height,
@@ -270,7 +293,7 @@ abstract class FfiBridge {
     );
   }
 
-  void createModalDialogRequest({
+  int createModalDialogRequest({
     required int token,
     required String title,
     required String titleBarStyleStr,
@@ -280,10 +303,10 @@ abstract class FfiBridge {
     required int parentId,
     required bool isModal,
   }) {
-    if (!_supported) return;
+    if (!_supported) return _kNoViewId;
     _writeStr(_str, title);
     _writeStr(_str2, titleBarStyleStr);
-    _createDialogN(
+    return _createDialogN(
       token,
       parentId,
       windowSize.width,
@@ -296,12 +319,34 @@ abstract class FfiBridge {
     );
   }
 
-  void createPopupWindowRequest({required int token, required int parentId, required Size windowSize}) {
-    if (!_supported) return;
-    _createPopupN(token, parentId, windowSize.width, windowSize.height);
+  int createPopupWindow({required int token, required int parentId, required Size windowSize}) {
+    if (!_supported) return _kNoViewId;
+    return _createPopupN(token, parentId, windowSize.width, windowSize.height);
   }
 
+  void setAlignment(int viewId, {required Alignment alignment}) {
+    final pos = _calculateOffFromAlign(viewId, alignment: alignment);
+    if (pos != null) {
+      setPosition(viewId, pos: pos);
+    }
+  }
+
+  Offset? _calculateOffFromAlign(int viewId, {required Alignment alignment}) {
+    final sizeResult = getBounds(viewId).size;
+    final windowSize = Size(sizeResult.width, sizeResult.height);
+    return calcWindowPosition(windowSize, alignment);
+  }
+
+  Size getSize(int viewId) => getBounds(viewId).size;
+
+  Offset getPosition(int viewId) => getBounds(viewId).topLeft;
+
   bool checkWindowExist(int viewId) => _b(_checkExistN, viewId);
+
+  void forceCloseView(int viewId) {
+    setPreventClose(viewId, isPreventClose: false);
+    softCloseWindow(viewId);
+  }
 
   void setAnchorViewId(int viewId) => _v(_setAnchorN, viewId);
 
@@ -355,13 +400,7 @@ abstract class FfiBridge {
 
   void setBackgroundColor(int viewId, {required Color color}) {
     if (!_supported) return;
-    _setBgN(
-      viewId,
-      (color.a * 255).round(),
-      (color.r * 255).round(),
-      (color.g * 255).round(),
-      (color.b * 255).round(),
-    );
+    _setBgN(viewId, (color.a * 255).round(), (color.r * 255).round(), (color.g * 255).round(), (color.b * 255).round());
   }
 
   void setTitle(int viewId, {required String title}) {
@@ -620,6 +659,28 @@ abstract class FfiBridge {
   void setHasTaskbarCallback(bool hasCallback) {
     if (!_supported) return;
     _setHasTaskbarCbN(hasCallback ? 1 : 0);
+  }
+
+  void resetWindowToDefaults(int viewId, MultiAppConfig config) {
+    setPreventClose(viewId, isPreventClose: false);
+    setPreConfirmClose(viewId, false);
+    setConfirmClose(viewId, isConfirm: false);
+    setResizable(viewId, true);
+    setMovable(viewId, true);
+    setMinimizable(viewId, true);
+    setMaximizable(viewId, true);
+    setClosable(viewId, true);
+    setAlwaysOnTop(viewId, isAlwaysOnTop: config.globalOptions.alwaysOnTop ?? false);
+    setOpacity(viewId, 1);
+    setAspectRatio(viewId, 0);
+    setIgnoreMouseEvents(viewId, false);
+    setTitleBarStyle(
+      viewId,
+      style: config.globalOptions.titleBarStyle ?? TitleBarStyle.normal,
+      closeVisibility: config.globalOptions.windowButtonVisibility ?? false,
+      minimizeVisibility: config.globalOptions.windowButtonVisibility ?? false,
+      maximizeVisibility: config.globalOptions.windowButtonVisibility ?? false,
+    );
   }
 }
 

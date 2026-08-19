@@ -9,8 +9,8 @@ import '../screen_retriever/screen_retriever.dart';
 const int _macTopRectInset = 38;
 
 @internal
-Future<Offset> calcWindowPosition(Size windowSize, Alignment alignment) async {
-  final currentDisplay = await _getCurrentDisplay();
+Offset calcWindowPosition(Size windowSize, Alignment alignment) {
+  final currentDisplay = _getCurrentDisplay();
   final num visibleWidth = currentDisplay.visibleSize?.width ?? currentDisplay.size.width;
   final num visibleHeight = currentDisplay.visibleSize?.height ?? currentDisplay.size.height;
   final num visibleStartX = currentDisplay.visiblePosition?.dx ?? 0;
@@ -36,14 +36,14 @@ int get _platformTopRectAddSize {
 }
 
 @internal
-Future<Offset> calcWindowPositionByParent(
+Offset calcWindowPositionByParent(
   Alignment alignment, {
   required Size windowSize,
   required Rect parentBounds,
-}) async {
+}) {
   const defaultMaxSidebarLinuxSize = 150;
   const defaultMaxTopbarLinuxSize = 100;
-  final currentDisplay = await _getCurrentDisplay();
+  final currentDisplay = _getCurrentDisplay();
   Offset currDisplayLinuxCorrectPos = Offset.zero;
   if (Platform.isLinux) {
     final dy = currentDisplay.visiblePosition?.dy ?? 0;
@@ -125,11 +125,11 @@ Offset calcPosition({
   return position;
 }
 
-Future<Display> _getCurrentDisplay() async {
+Display _getCurrentDisplay() {
   final screenRetriever = ScreenRetriever.instance;
-  final Display primaryDisplay = await screenRetriever.getPrimaryDisplay();
-  final List<Display> allDisplays = await screenRetriever.getAllDisplays();
-  final Offset cursorScreenPoint = await screenRetriever.getCursorScreenPoint();
+  final Display primaryDisplay = screenRetriever.getPrimaryDisplay();
+  final List<Display> allDisplays = screenRetriever.getAllDisplays();
+  final Offset cursorScreenPoint = screenRetriever.getCursorScreenPoint();
 
   return allDisplays.firstWhere(
     (display) => Rect.fromLTWH(

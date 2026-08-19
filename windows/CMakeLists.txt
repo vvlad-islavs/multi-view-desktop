@@ -11,6 +11,8 @@ add_library(${PLUGIN_NAME} SHARED
   "multi_view_desktop.h"
   "multi_view_desktop_plugin.cpp"
   "mvd_ffi_bridge.cpp"
+  "mvd_windows_screen.cpp"
+  "mvd_windows_screen.h"
   "mvd_windows_taskbar_menu.cpp"
   "mvd_windows_taskbar_menu.h"
 )

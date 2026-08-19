@@ -72,26 +72,26 @@ FLUTTER_PLUGIN_EXPORT char* mvd_str_buf_ptr() { return g_str_buf; }
 FLUTTER_PLUGIN_EXPORT char* mvd_str_buf2_ptr() { return g_str_buf2; }
 FLUTTER_PLUGIN_EXPORT int32_t* mvd_i32_buf_ptr() { return g_i32_buf; }
 
-FLUTTER_PLUGIN_EXPORT void mvd_create_window(int64_t token, double w, double h,
+FLUTTER_PLUGIN_EXPORT int64_t mvd_create_window(int64_t token, double w, double h,
                                              int32_t buttons, int32_t has_pos,
                                              double x, double y,
                                              int64_t) {
-  mvd_linux_queue_create_window(token, w, h, g_str_buf, g_str_buf2, buttons,
+  return mvd_linux_queue_create_window(token, w, h, g_str_buf, g_str_buf2, buttons,
                                 has_pos, x, y);
 }
 
-FLUTTER_PLUGIN_EXPORT void mvd_create_modal_dialog(
+FLUTTER_PLUGIN_EXPORT int64_t mvd_create_modal_dialog(
     int64_t token, int64_t parent_id, double w, double h, int32_t modal,
     int32_t buttons, int32_t has_pos, double x, double y) {
-  mvd_linux_queue_create_dialog(token, parent_id, static_cast<int>(w),
+  return mvd_linux_queue_create_dialog(token, parent_id, static_cast<int>(w),
                                 static_cast<int>(h), modal, g_str_buf,
                                 g_str_buf2, buttons, has_pos,
                                 static_cast<int>(x), static_cast<int>(y));
 }
 
-FLUTTER_PLUGIN_EXPORT void mvd_create_popup(int64_t token, int64_t parent_id,
+FLUTTER_PLUGIN_EXPORT int64_t mvd_create_popup(int64_t token, int64_t parent_id,
                                             double w, double h) {
-  mvd_linux_queue_create_popup(token, parent_id, static_cast<int>(w),
+  return mvd_linux_queue_create_popup(token, parent_id, static_cast<int>(w),
                                static_cast<int>(h));
 }
 

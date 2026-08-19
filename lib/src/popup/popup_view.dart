@@ -139,7 +139,7 @@ class _PopupViewState extends State<PopupView> {
     _tracker = null;
     final viewId = _realViewId;
     if (viewId != null) {
-      unawaited(globalRootState.manager.destroyPopup(viewId));
+      globalRootState.manager.destroyPopup(viewId);
     }
     super.dispose();
   }
@@ -168,14 +168,14 @@ class _PopupViewState extends State<PopupView> {
       _tracker = LocalElementPositionTracker(element: _anchorKey.currentContext ?? context);
       _anchorRect = _tracker?.getGlobalRect();
 
-      final viewId = await globalRootState.manager.createPopup(parentRealId: parentRealId, size: const Size(1, 1));
+      final viewId = globalRootState.manager.createPopup(parentRealId: parentRealId, size: const Size(1, 1));
       if (!mounted) {
-        await globalRootState.manager.destroyPopup(viewId);
+        globalRootState.manager.destroyPopup(viewId);
         return;
       }
       final flutterView = WidgetsBinding.instance.platformDispatcher.view(id: viewId);
       if (flutterView == null) {
-        await globalRootState.manager.destroyPopup(viewId);
+        globalRootState.manager.destroyPopup(viewId);
         return;
       }
       _realViewId = viewId;
@@ -266,7 +266,7 @@ class _PopupViewState extends State<PopupView> {
     _parentScrollDepth = 0;
     _parentScrolling = false;
     if (viewId != null) {
-      await globalRootState.manager.destroyPopup(viewId);
+      globalRootState.manager.destroyPopup(viewId);
     }
     if (mounted) setState(() {});
   }
@@ -319,7 +319,7 @@ class _PopupViewState extends State<PopupView> {
 
     if (!_isShown && _realViewId != null) {
       _isShown = true;
-      unawaited(globalRootState.manager.show(_realViewId!));
+      globalRootState.manager.show(_realViewId!);
     }
   }
 
@@ -366,7 +366,9 @@ class _ParentWindowListener implements WindowListenerCallbacks {
   void onWindowResized() => _onDirty();
 
   @override
-  void onWindowClose() {}
+  bool onWindowClose() {
+    return true;
+  }
 
   @override
   void onWindowFocus() {}

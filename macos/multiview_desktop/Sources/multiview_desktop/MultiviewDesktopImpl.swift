@@ -424,10 +424,11 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     // MARK: - Secondary window creation
 
-    func createSecondaryWindow(args: [String: Any], result: FlutterResult) {
+    @discardableResult
+    func createSecondaryWindow(args: [String: Any], result: FlutterResult) -> Int64 {
         guard let engine else {
             result(FlutterError(code: "NO_ENGINE", message: "Engine not available", details: nil))
-            return
+            return -1
         }
 
         let token = args["token"] as? Int ?? 0
@@ -486,7 +487,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             self?.emitOnEvent("viewCreated", viewId: viewId, arg: Int64(token))
         }
 
-        result(nil)
+        result(NSNumber(value: viewId))
+        return viewId
     }
 
     // MARK: - Modal dialog (sheet)
@@ -497,10 +499,11 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     /// and blocks all user input to it until the sheet is dismissed.  When the
     /// sheet window is closed through the normal soft-close cycle, `endSheet` is
     /// called automatically in `windowShouldClose` before the window is destroyed.
-    func createModalDialogWindow(args: [String: Any], result: FlutterResult) {
+    @discardableResult
+    func createModalDialogWindow(args: [String: Any], result: FlutterResult) -> Int64 {
         guard let engine else {
             result(FlutterError(code: "NO_ENGINE", message: "Engine not available", details: nil))
-            return
+            return -1
         }
 
         let token = args["token"] as? Int ?? 0
@@ -512,7 +515,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
                 message: "No parent window for viewId \(parentId)",
                 details: nil
             ))
-            return
+            return -1
         }
 
         let width  = args["width"]  as? CGFloat ?? 400
@@ -572,7 +575,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             self?.emitOnEvent("viewCreated", viewId: viewId, arg: Int64(token))
         }
 
-        result(nil)
+        result(NSNumber(value: viewId))
+        return viewId
     }
 
     // MARK: - Popup window
@@ -581,10 +585,11 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     ///
     /// Mirrors Flutter's `createPopupWindow`: never key, auxiliary collection
     /// behavior, transparent until Dart shows it.
-    func createPopupWindow(args: [String: Any], result: FlutterResult) {
+    @discardableResult
+    func createPopupWindow(args: [String: Any], result: FlutterResult) -> Int64 {
         guard let engine else {
             result(FlutterError(code: "NO_ENGINE", message: "Engine not available", details: nil))
-            return
+            return -1
         }
 
         let token = args["token"] as? Int ?? 0
@@ -596,7 +601,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
                 message: "No parent window for viewId \(parentId)",
                 details: nil
             ))
-            return
+            return -1
         }
 
         let width = args["width"] as? CGFloat ?? 240
@@ -644,7 +649,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             self?.emitOnEvent("viewCreated", viewId: viewId, arg: Int64(token))
         }
 
-        result(nil)
+        result(NSNumber(value: viewId))
+        return viewId
     }
 
     private var regularWindowCount: Int {
@@ -661,6 +667,19 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         window.close()
     }
 
+    /// Soft-close gate events must not call Dart synchronously from
+    /// `windowShouldClose` while the close button is in tracking mode — Flutter
+    /// microtasks (any `await` in the handler) do not run until tracking ends.
+    private func emitSoftCloseGate(_ eventName: String, viewId: Int64) {
+        if mvdFfiEventsAttached() {
+            DispatchQueue.main.async { [weak self] in
+                self?.emitOnEvent(eventName, viewId: viewId)
+            }
+            return
+        }
+        emitOnEvent(eventName, viewId: viewId)
+    }
+
     /// Emits the next soft-close event for [viewId].
     ///
     /// Returns `false` when an event was emitted and the window must stay open;
@@ -670,17 +689,17 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         let state = windowStates[viewId] ?? WindowState()
 
         if !state.isPreConfirm {
-            emitEvent("preconfirm-close", viewId: viewId)
+            emitSoftCloseGate("preconfirm-close", viewId: viewId)
             return false
         }
 
         if state.isPreventClose {
-            emitEvent("close", viewId: viewId)
+            emitSoftCloseGate("close", viewId: viewId)
             return false
         }
 
         if !state.isConfirmClose {
-            emitEvent("confirm-close", viewId: viewId)
+            emitSoftCloseGate("confirm-close", viewId: viewId)
             return false
         }
 
@@ -1369,7 +1388,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     /// Sends `onEvent` to Dart with [eventName] and optional [viewId] / extra [arg].
     func emitOnEvent(_ eventName: String, viewId: Int64 = -1, arg: Int64 = -1) {
-        if mvdFfiTryEmit(eventName, viewId: viewId, arg: arg) {
+        if mvdFfiEventsAttached() {
+            _ = mvdFfiTryEmit(eventName, viewId: viewId, arg: arg)
             return
         }
         var arguments: [String: Any] = ["eventName": eventName]

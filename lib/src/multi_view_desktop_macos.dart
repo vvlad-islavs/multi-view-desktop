@@ -17,34 +17,34 @@ class MultiViewDesktopMacos {
   final ViewsManager _manager;
 
   /// Returns whether the window is excluded from Mission Control / Exposé.
-  Future<bool> isHideFromCollection() async {
-    return await _manager.isHideFromCollection(_realId);
+  bool isHideFromCollection() {
+    return _manager.isHideFromCollection(_realId);
   }
 
   /// Hides or shows the window in Mission Control and Exposé.
-  Future<void> hideFromCollection(bool isHideFromCollection) async {
-    await _manager.hideFromCollection(_realId, isHideFromCollection);
+  void hideFromCollection(bool isHideFromCollection) {
+    _manager.hideFromCollection(_realId, isHideFromCollection);
   }
 
   /// Returns whether the window is pinned to all Spaces.
-  Future<bool> isVisibleOnAllWorkspaces() async {
-    return await _manager.isVisibleOnAllWorkspaces(_realId);
+  bool isVisibleOnAllWorkspaces() {
+    return _manager.isVisibleOnAllWorkspaces(_realId);
   }
 
   /// Pins or unpins the window across all Spaces.
-  Future<void> setVisibleOnAllWorkspaces(bool visible, {bool visibleOnFullScreen = false}) async {
-    await _manager.setVisibleOnAllWorkspaces(_realId, visible, visibleOnFullScreen: visibleOnFullScreen);
+  void setVisibleOnAllWorkspaces(bool visible, {bool visibleOnFullScreen = false}) {
+    _manager.setVisibleOnAllWorkspaces(_realId, visible, visibleOnFullScreen: visibleOnFullScreen);
   }
 
   /// Sets the dock icon badge label. Pass `null` or empty to clear.
-  Future<void> setBadgeLabel({String? label}) async {
-    await _manager.setBadgeLabel(_realId, label);
+  void setBadgeLabel({String? label}) {
+    _manager.setBadgeLabel(_realId, label);
   }
 
   /// Returns whether this window is on the currently active Mission Control Space.
   ///
   /// On Windows and Linux always returns `true`.
-  Future<bool> isOnActiveSpace() async {
-    return await _manager.isOnActiveSpace(_realId);
+  bool isOnActiveSpace() {
+    return _manager.isOnActiveSpace(_realId);
   }
 }

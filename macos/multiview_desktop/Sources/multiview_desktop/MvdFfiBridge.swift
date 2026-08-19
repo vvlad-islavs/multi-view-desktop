@@ -37,10 +37,20 @@ public typealias MvdEventCallback = @convention(c) (
 ) -> Void
 
 private var _eventCb: MvdEventCallback?
+/// True after Dart has installed an FFI event sink at least once.
+/// Used so teardown (`cb == nil`) does not fall back to MethodChannel.
+private var _eventCbInstalled = false
 
 @_cdecl("mvd_set_event_callback")
 public func mvdSetEventCallback(_ cb: MvdEventCallback?) {
     _eventCb = cb
+    if cb != nil {
+        _eventCbInstalled = true
+    }
+}
+
+func mvdFfiEventsAttached() -> Bool {
+    _eventCbInstalled
 }
 
 func mvdFfiTryEmit(_ name: String, viewId: Int64, arg: Int64) -> Bool {
@@ -95,7 +105,7 @@ public func mvdCreateWindow(
     _ token: Int64, _ w: Double, _ h: Double,
     _ buttons: Int32, _ hasPos: Int32, _ x: Double, _ y: Double,
     _ parentId: Int64
-) {
+) -> Int64 {
     var args: [String: Any] = [
         "token": Int(token),
         "width": w,
@@ -106,14 +116,14 @@ public func mvdCreateWindow(
     ]
     if hasPos != 0 { args["position"] = ["x": x, "y": y] }
     if parentId >= 0 { args["parentId"] = parentId }
-    impl().createSecondaryWindow(args: args, result: noop)
+    return impl().createSecondaryWindow(args: args, result: noop)
 }
 
 @_cdecl("mvd_create_modal_dialog")
 public func mvdCreateModalDialog(
     _ token: Int64, _ parentId: Int64, _ w: Double, _ h: Double,
     _ modal: Int32, _ buttons: Int32, _ hasPos: Int32, _ x: Double, _ y: Double
-) {
+) -> Int64 {
     var args: [String: Any] = [
         "token": Int(token),
         "parentId": parentId,
@@ -125,12 +135,12 @@ public func mvdCreateModalDialog(
         "windowButtonVisibility": buttons != 0,
     ]
     if hasPos != 0 { args["position"] = ["x": x, "y": y] }
-    impl().createModalDialogWindow(args: args, result: noop)
+    return impl().createModalDialogWindow(args: args, result: noop)
 }
 
 @_cdecl("mvd_create_popup")
-public func mvdCreatePopup(_ token: Int64, _ parentId: Int64, _ w: Double, _ h: Double) {
-    impl().createPopupWindow(args: [
+public func mvdCreatePopup(_ token: Int64, _ parentId: Int64, _ w: Double, _ h: Double) -> Int64 {
+    return impl().createPopupWindow(args: [
         "token": Int(token),
         "parentId": parentId,
         "width": w,

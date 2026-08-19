@@ -94,11 +94,11 @@ class DialogModalLayer extends StatelessWidget {
         }
         return GestureDetector(
           behavior: HitTestBehavior.translucent,
-          onTap: () async {
+          onTap: () {
             if (showBarrier && !anyIsModal) {
               final dialogsList = modalList.map((e)=> e.id).toList()..sort();
               for (final id in dialogsList){
-                await MultiViewDesktop.fromId(id).focus();
+                MultiViewDesktop.fromId(id).focus();
               }
             }
           },

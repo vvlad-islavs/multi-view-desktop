@@ -134,7 +134,7 @@ FLUTTER_PLUGIN_EXPORT char* mvd_str_buf_ptr() { return g_str_buf; }
 FLUTTER_PLUGIN_EXPORT char* mvd_str_buf2_ptr() { return g_str_buf2; }
 FLUTTER_PLUGIN_EXPORT int32_t* mvd_i32_buf_ptr() { return g_i32_buf; }
 
-FLUTTER_PLUGIN_EXPORT void mvd_create_window(int64_t token, double w, double h,
+FLUTTER_PLUGIN_EXPORT int64_t mvd_create_window(int64_t token, double w, double h,
                                              int32_t buttons, int32_t has_pos,
                                              double x, double y,
                                              int64_t parent_id) {
@@ -152,10 +152,10 @@ FLUTTER_PLUGIN_EXPORT void mvd_create_window(int64_t token, double w, double h,
   if (parent_id >= 0) {
     args[EV("parentId")] = EV(parent_id);
   }
-  multi_view_desktop::MultiViewDesktop::Instance().CreateSecondaryWindow(args);
+  return multi_view_desktop::MultiViewDesktop::Instance().CreateSecondaryWindow(args);
 }
 
-FLUTTER_PLUGIN_EXPORT void mvd_create_modal_dialog(
+FLUTTER_PLUGIN_EXPORT int64_t mvd_create_modal_dialog(
     int64_t token, int64_t parent_id, double w, double h, int32_t modal,
     int32_t buttons, int32_t has_pos, double x, double y) {
   EM args = {
@@ -171,10 +171,10 @@ FLUTTER_PLUGIN_EXPORT void mvd_create_modal_dialog(
   if (has_pos) {
     args[EV("position")] = EV(EM{{EV("x"), EV(x)}, {EV("y"), EV(y)}});
   }
-  multi_view_desktop::MultiViewDesktop::Instance().CreateModalDialogWindow(args);
+  return multi_view_desktop::MultiViewDesktop::Instance().CreateModalDialogWindow(args);
 }
 
-FLUTTER_PLUGIN_EXPORT void mvd_create_popup(int64_t token, int64_t parent_id,
+FLUTTER_PLUGIN_EXPORT int64_t mvd_create_popup(int64_t token, int64_t parent_id,
                                             double w, double h) {
   EM args = {
       {EV("token"), EV(token)},
@@ -182,7 +182,7 @@ FLUTTER_PLUGIN_EXPORT void mvd_create_popup(int64_t token, int64_t parent_id,
       {EV("width"), EV(w)},
       {EV("height"), EV(h)},
   };
-  multi_view_desktop::MultiViewDesktop::Instance().CreatePopupWindow(args);
+  return multi_view_desktop::MultiViewDesktop::Instance().CreatePopupWindow(args);
 }
 
 FLUTTER_PLUGIN_EXPORT int32_t mvd_check_exist(int64_t view_id) {

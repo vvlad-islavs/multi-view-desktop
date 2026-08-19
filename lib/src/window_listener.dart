@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 
 import 'multi_view_desktop.dart';
@@ -12,7 +14,9 @@ abstract interface class WindowListenerCallbacks {
   ///
   /// Fires instead of destroying the window when `MultiViewDesktop.setPreventClose`
   /// is true. Call `MultiViewDesktop.closeWindow` after your confirmation logic.
-  void onWindowClose();
+  ///
+  /// if return `true` - continue cascade close cycle, else abort
+  FutureOr<bool> onWindowClose();
 
   /// Called when this window gains keyboard focus.
   void onWindowFocus();
@@ -99,14 +103,16 @@ mixin WindowListener<T extends StatefulWidget> on State<T> implements WindowList
   }
 
   void _mvdUnregisterWindowListener() {
-    if(_mvdRegisteredViewId == null) return;
+    if (_mvdRegisteredViewId == null) return;
 
     MultiViewDesktop.removeListenerForView(_mvdRegisteredViewId!, this);
     _mvdRegisteredViewId = null;
   }
 
   @override
-  void onWindowClose() {}
+  FutureOr<bool> onWindowClose() {
+    return true;
+  }
 
   @override
   void onWindowFocus() {}

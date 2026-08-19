@@ -62,9 +62,9 @@ class MultiViewDesktop {
   int64_t ViewIdForHwnd(HWND hwnd) const;
   void DestroyEntry(int64_t view_id);
 
-  void CreateSecondaryWindow(const flutter::EncodableMap& args);
-  void CreateModalDialogWindow(const flutter::EncodableMap& args);
-  void CreatePopupWindow(const flutter::EncodableMap& args);
+  int64_t CreateSecondaryWindow(const flutter::EncodableMap& args);
+  int64_t CreateModalDialogWindow(const flutter::EncodableMap& args);
+  int64_t CreatePopupWindow(const flutter::EncodableMap& args);
 
   void EmitEvent(const std::string& event_name, int64_t view_id, int64_t arg = -1);
   void EmitTaskbarMenuItemSelected(int menu_item_id);

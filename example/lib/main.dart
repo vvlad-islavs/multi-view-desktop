@@ -30,7 +30,7 @@ void main() {
       ),
       macosParams: MacosPlatformParams(
         // closeAppAfterLastWindowClosed: false,
-        saveLastWindowToReopen: true,
+        saveLastWindowToReopen: false,
         onTerminate: () async {
           // do something before terminate
           // for example soft close instead of destroy
@@ -48,7 +48,7 @@ void main() {
             // when saveLastWindowToReopen == true last window hides instead of close and stay in stack
             // so you should to detect it
             final lastView = allWindows.isNotEmpty ? MultiViewDesktop.fromId(allWindows.first) : null;
-            if (!(await lastView?.isVisible() ?? true)) {
+            if (!(lastView?.isVisible() ?? true)) {
               // if saveLastWindowToReopen == true and last window is hide, a tap on taskbar will be open last view and focus it.
               // don't focus secondly at this time else focus may be broken, so just return
               return;
@@ -62,7 +62,7 @@ void main() {
           int idWithFocus = -1;
           for (final id in allWindows) {
             final mvd = MultiViewDesktop.fromId(id);
-            if (await mvd.isFocused()) {
+            if (mvd.isFocused()) {
               idWithFocus = id;
               break;
             }
@@ -71,7 +71,7 @@ void main() {
           if (allWindows.length == 1 && idWithFocus != -1) {
             return;
           }
-          await MultiViewDesktop.fromId(nextFocusId).focus();
+          MultiViewDesktop.fromId(nextFocusId).focus();
           return;
         },
       ),
@@ -158,12 +158,12 @@ class _MainWindowRootState extends State<MainWindowRoot> {
     //   MultiViewDesktop.of(context).setBrightness(mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
     // });
 
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await MultiViewDesktop.setGlobalBrightness(
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      MultiViewDesktop.setGlobalBrightness(
         themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light,
       );
 
-      sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
+      sharedConfig.isHideAppFromTaskbar = MultiViewDesktop.isHideAppFromTaskbar();
       sharedConfig.closeMode = MultiViewDesktop.getCloseMode();
       sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
     });

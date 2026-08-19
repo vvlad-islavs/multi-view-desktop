@@ -655,9 +655,9 @@ std::string MultiViewDesktop::StringFromMap(const flutter::EncodableMap &args,
     return fallback;
 }
 
-void MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &args) {
+int64_t MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &args) {
     if (!engine_) {
-        return;
+        return -1;
     }
 
     const int token = static_cast<int>(Int64FromMap(args, "token"));
@@ -678,7 +678,7 @@ void MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &args) 
     HWND host_hwnd =
             CreateHostTopLevelWindow(wide_title, client_width, client_height);
     if (!host_hwnd) {
-        return;
+        return -1;
     }
 
     FlutterDesktopViewControllerProperties properties = {
@@ -689,7 +689,7 @@ void MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &args) 
             FlutterDesktopEngineCreateViewController(engine_, &properties);
     if (!view_controller) {
         DestroyWindow(host_hwnd);
-        return;
+        return -1;
     }
 
     const int64_t flutter_view_id =
@@ -735,12 +735,13 @@ void MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &args) 
     FlutterDesktopViewControllerForceRedraw(view_controller);
 
     EmitEvent("viewCreated", flutter_view_id, token);
+    return flutter_view_id;
 }
 
-void MultiViewDesktop::CreateModalDialogWindow(
+int64_t MultiViewDesktop::CreateModalDialogWindow(
         const flutter::EncodableMap &args) {
     if (!engine_) {
-        return;
+        return -1;
     }
 
     const int token = static_cast<int>(Int64FromMap(args, "token"));
@@ -755,7 +756,7 @@ void MultiViewDesktop::CreateModalDialogWindow(
 
     MultiViewDesktop *parent = FindByViewId(parent_id);
     if (is_modal && parent == nullptr) {
-        return;
+        return -1;
     }
 
     const double scale = DefaultMonitorScaleFactor();
@@ -771,7 +772,7 @@ void MultiViewDesktop::CreateModalDialogWindow(
             wide_title, client_width, client_height, is_modal, show_close_button,
             parent_hwnd);
     if (!host_hwnd) {
-        return;
+        return -1;
     }
 
     FlutterDesktopViewControllerProperties properties = {
@@ -782,7 +783,7 @@ void MultiViewDesktop::CreateModalDialogWindow(
             FlutterDesktopEngineCreateViewController(engine_, &properties);
     if (!view_controller) {
         DestroyWindow(host_hwnd);
-        return;
+        return -1;
     }
 
     const int64_t flutter_view_id =
@@ -856,11 +857,12 @@ void MultiViewDesktop::CreateModalDialogWindow(
     }
 
     EmitEvent("viewCreated", flutter_view_id, token);
+    return flutter_view_id;
 }
 
-void MultiViewDesktop::CreatePopupWindow(const flutter::EncodableMap &args) {
+int64_t MultiViewDesktop::CreatePopupWindow(const flutter::EncodableMap &args) {
     if (!engine_) {
-        return;
+        return -1;
     }
 
     const int token = static_cast<int>(Int64FromMap(args, "token"));
@@ -870,7 +872,7 @@ void MultiViewDesktop::CreatePopupWindow(const flutter::EncodableMap &args) {
 
     MultiViewDesktop *parent = FindByViewId(parent_id);
     if (parent == nullptr) {
-        return;
+        return -1;
     }
 
     const double scale = DefaultMonitorScaleFactor();
@@ -881,7 +883,7 @@ void MultiViewDesktop::CreatePopupWindow(const flutter::EncodableMap &args) {
     HWND host_hwnd =
             CreatePopupHostWindow(client_width, client_height, parent_hwnd);
     if (!host_hwnd) {
-        return;
+        return -1;
     }
 
     FlutterDesktopViewControllerProperties properties = {
@@ -892,7 +894,7 @@ void MultiViewDesktop::CreatePopupWindow(const flutter::EncodableMap &args) {
             FlutterDesktopEngineCreateViewController(engine_, &properties);
     if (!view_controller) {
         DestroyWindow(host_hwnd);
-        return;
+        return -1;
     }
 
     const int64_t flutter_view_id =
@@ -918,6 +920,7 @@ void MultiViewDesktop::CreatePopupWindow(const flutter::EncodableMap &args) {
     FlutterDesktopViewControllerForceRedraw(view_controller);
 
     EmitEvent("viewCreated", flutter_view_id, token);
+    return flutter_view_id;
 }
 
 HWND MultiViewDesktop::GetMainWindow() {

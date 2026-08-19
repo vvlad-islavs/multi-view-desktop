@@ -95,8 +95,8 @@ class NativeChannel {
   void setMethodCallHandler(Future<dynamic> Function(MethodCall) handler) =>
       _staticChannel.setMethodCallHandler(handler);
 
-  /// Creates a window; finished when native sends `viewCreated`.
-  Future<void> createWindowRequest({
+  /// Creates a window and returns the new Flutter view id.
+  Future<int> createWindowRequest({
     required int token,
     required String title,
     required String titleBarStyleStr,
@@ -105,7 +105,7 @@ class NativeChannel {
     required Offset? pos,
     int? parentId,
   }) async {
-    await _staticChannel.invokeMethod<void>(kMethodCreateWindow, {
+    final id = await _staticChannel.invokeMethod<int>(kMethodCreateWindow, {
       'token': token,
       'width': windowSize.width,
       'height': windowSize.height,
@@ -115,14 +115,14 @@ class NativeChannel {
       'windowButtonVisibility': windowButtonVisibility,
       'parentId': ?parentId,
     });
+    return id ?? -1;
   }
 
-  /// Creates a dialog attached to `parentId`.
+  /// Creates a dialog attached to `parentId` and returns the new Flutter view id.
   ///
   /// Modal behavior is platform-specific (macOS sheet, Windows owner chain,
-  /// Linux transient window with parent input lock). The native side sends
-  /// `viewCreated` when the dialog is ready, same as `createWindowRequest`.
-  Future<void> createModalDialogRequest({
+  /// Linux transient window with parent input lock).
+  Future<int> createModalDialogRequest({
     required int token,
     required String title,
     required String titleBarStyleStr,
@@ -132,7 +132,7 @@ class NativeChannel {
     required int parentId,
     required bool isModal,
   }) async {
-    await _staticChannel.invokeMethod<void>(kMethodCreateModalDialog, {
+    final id = await _staticChannel.invokeMethod<int>(kMethodCreateModalDialog, {
       'token': token,
       'width': windowSize.width,
       'height': windowSize.height,
@@ -143,18 +143,18 @@ class NativeChannel {
       'windowButtonVisibility': windowButtonVisibility,
       'parentId': parentId,
     });
+    return id ?? -1;
   }
 
-  /// Creates a borderless popup attached to `parentId`.
-  ///
-  /// Native sends `viewCreated` when the popup Flutter view is ready.
-  Future<void> createPopupWindowRequest({required int token, required int parentId, required Size windowSize}) async {
-    await _staticChannel.invokeMethod<void>(kMethodCreatePopupWindow, {
+  /// Creates a borderless popup attached to `parentId` and returns the new view id.
+  Future<int> createPopupWindowRequest({required int token, required int parentId, required Size windowSize}) async {
+    final id = await _staticChannel.invokeMethod<int>(kMethodCreatePopupWindow, {
       'token': token,
       'width': windowSize.width,
       'height': windowSize.height,
       'parentId': parentId,
     });
+    return id ?? -1;
   }
 
   Future<bool?> checkWindowExist(int viewId) async {
