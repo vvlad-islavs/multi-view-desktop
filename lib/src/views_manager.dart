@@ -10,7 +10,7 @@ abstract class ViewsManager {
   int shiftedToRealId(int viewId);
 
   /// Creates a native window and calls `onCreated` with its real view id.
-  int createWindow({WindowOptions? newOpts, required void Function(int) onCreated, int? parent});
+  Future<int> createWindow({WindowOptions? newOpts, required void Function(int) onCreated, int? parent});
 
   /// Creates a dialog for `parentRealId`. See `DialogOptions` and `openDialog`.
   Future<int> createDialog({DialogOptions? newOpts, required int parentRealId, required void Function(int) onCreated});

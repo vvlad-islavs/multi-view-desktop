@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:ui' show Size;
 
 import 'package:flutter/material.dart';
+
 // ignore: depend_on_referenced_packages
 import 'package:meta/meta.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
@@ -9,15 +9,19 @@ import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
 import 'package:multiview_desktop/src/impl/cascade_close_service_impl.dart';
 import 'package:multiview_desktop/src/lifecycle/create_view_error.dart';
 import 'package:multiview_desktop/src/lifecycle/view_animator.dart';
-import 'package:multiview_desktop/src/lifecycle/view_close_host.dart';
+import 'package:multiview_desktop/src/lifecycle/view_close_delegate.dart';
+import 'package:multiview_desktop/src/lifecycle/view_registry.dart';
 import 'package:multiview_desktop/src/lifecycle/view_close_service.dart';
 import 'package:multiview_desktop/src/lifecycle/view_create_completer.dart';
 import 'package:multiview_desktop/src/lifecycle/view_options_applier.dart';
 import 'package:multiview_desktop/src/lifecycle/view_owner_base.dart';
 import 'package:multiview_desktop/src/lifecycle/view_owners.dart';
+import 'package:multiview_desktop/src/view_manager/view_manager_proxies.dart';
+import 'package:multiview_desktop/src/view_animation_config.dart';
 
 export 'view_animator.dart' show ViewAnimator;
-export 'view_close_host.dart' show ViewCloseHost;
+export 'view_registry.dart' show ViewRegistry;
+export 'view_close_delegate.dart' show ViewCloseDelegate;
 export 'view_close_service.dart' show ViewCloseService;
 export 'view_owner_base.dart' show ViewCreatedCallback;
 export 'view_options_applier.dart' show ViewOptionsApplier;
@@ -28,12 +32,14 @@ export 'view_options_applier.dart' show ViewOptionsApplier;
 @internal
 class LifecycleViewsController {
   LifecycleViewsController({
+    required this.registry,
+    required this.proxies,
     required this.ffiBridge,
-    required ViewCloseHost closeHost,
+    required ViewCloseDelegate closeDelegate,
     required void Function(int parentId, {required int dialogId, required bool isModal}) registerDialog,
-    required this.hideAppFromTaskbar,
     required bool Function(int parentId) hasPendingDialogCreate,
     required bool Function(int parentId) hasModalDialog,
+    required this.animation,
     ViewAnimator? viewAnimator,
     ViewCloseService? closeServiceOverride,
     CascadeCloseService? cascadeCloseService,
@@ -42,21 +48,21 @@ class LifecycleViewsController {
     VoidCallback? onBeforeCloseApp,
     VoidCallback? onCloseAppAborted,
     VoidCallback? onBeforeForceCloseApp,
-  })  : viewAnimator = viewAnimator ?? const ViewAnimator(),
-        _closeHost = closeHost,
-        _registerDialog = registerDialog,
-        _hasPendingDialogCreate = hasPendingDialogCreate,
-        _hasModalDialog = hasModalDialog {
-    optionsApplier = ViewOptionsApplier(ffi: ffiBridge, hideAppFromTaskbar: hideAppFromTaskbar);
+  }) : viewAnimator = viewAnimator ?? const ViewAnimator(),
+       _registerDialog = registerDialog,
+       _hasPendingDialogCreate = hasPendingDialogCreate,
+       _hasModalDialog = hasModalDialog {
+    optionsApplier = ViewOptionsApplier(ffi: ffiBridge);
     windowOwner = WindowOwner(this);
     childWindowOwner = ChildWindowOwner(this);
     modelessDialogOwner = ModelessDialogOwner(this);
     modalDialogOwner = ModalDialogOwner(this);
     popupOwner = PopupOwner(this);
-    closeService = closeServiceOverride ??
+    closeService =
+        closeServiceOverride ??
         ViewCloseService(
           lifecycle: this,
-          closeHost: closeHost,
+          delegate: closeDelegate,
           resolveOwner: ownerFor,
           cascadeCloseService: cascadeCloseService,
           onDialogCloseResult: onDialogCloseResult,
@@ -67,10 +73,23 @@ class LifecycleViewsController {
         );
   }
 
+  final ViewRegistry registry;
+
+  /// View-scoped native calls (invoke guard + registry checks).
+  final ViewManagerProxies proxies;
+
+  /// Lifecycle-only FFI: create windows/dialogs/popups and close-policy hooks.
   final FfiBridge ffiBridge;
+
   final ViewAnimator viewAnimator;
-  final ViewCloseHost _closeHost;
-  final void Function(bool hide, {int? viewId}) hideAppFromTaskbar;
+
+  final ViewAnimationConfig animation;
+
+  ViewOpenCloseAnimationPolicy get windowOpenCloseAnimation => animation.windowOpenClose;
+
+  ViewOpenCloseAnimationPolicy get modelessDialogOpenCloseAnimation => animation.modelessDialogOpenClose;
+
+  ViewOpenCloseAnimationPolicy get modalDialogOpenCloseAnimation => animation.modalDialogOpenClose;
 
   final void Function(int parentId, {required int dialogId, required bool isModal}) _registerDialog;
   final bool Function(int parentId) _hasPendingDialogCreate;
@@ -90,12 +109,12 @@ class LifecycleViewsController {
   late final PopupOwner popupOwner;
 
   ViewOwnerBase? ownerFor(int viewId) {
-    if (_closeHost.isPopup(viewId)) return popupOwner;
-    if (_closeHost.isDialog(viewId)) {
-      return _closeHost.isModalDialog(viewId) ? modalDialogOwner : modelessDialogOwner;
+    if (registry.isPopup(viewId)) return popupOwner;
+    if (registry.isDialog(viewId)) {
+      return registry.isModalDialog(viewId) ? modalDialogOwner : modelessDialogOwner;
     }
-    if (_closeHost.isWindow(viewId)) {
-      return _closeHost.windowParentId(viewId) == null ? windowOwner : childWindowOwner;
+    if (registry.isWindow(viewId)) {
+      return registry.windowParentId(viewId) == null ? windowOwner : childWindowOwner;
     }
     return null;
   }
@@ -106,9 +125,9 @@ class LifecycleViewsController {
     _registerDialog(parentId, dialogId: dialogId, isModal: isModal);
   }
 
-  bool isWindowRegistered(int viewId) => _closeHost.isWindow(viewId);
+  bool isWindowRegistered(int viewId) => registry.isWindow(viewId);
 
-  bool isViewRegistered(int viewId) => _closeHost.isManaged(viewId);
+  bool isViewRegistered(int viewId) => registry.isManaged(viewId);
 
   bool hasPendingDialogCreate(int parentId) => _hasPendingDialogCreate(parentId);
 
@@ -122,38 +141,25 @@ class LifecycleViewsController {
   // Typed open API.
   // ---------------------------------------------------------------------------
 
-  int openWindow({
-    WindowOptions? options,
-    required ViewCreatedCallback onCreated,
-  }) =>
+  Future<int> openWindow({WindowOptions? options, required ViewCreatedCallback onCreated}) =>
       windowOwner.open(options: options, onCreated: onCreated);
 
-  int openChildWindow({
-    required int parentId,
-    WindowOptions? options,
-    required ViewCreatedCallback onCreated,
-  }) =>
+  Future<int> openChildWindow({required int parentId, WindowOptions? options, required ViewCreatedCallback onCreated}) =>
       childWindowOwner.open(parentId: parentId, options: options, onCreated: onCreated);
 
   Future<int> openModelessDialog({
     required int parentId,
     DialogOptions? options,
     required ViewCreatedCallback onCreated,
-  }) =>
-      modelessDialogOwner.open(parentId: parentId, options: options, onCreated: onCreated);
+  }) => modelessDialogOwner.open(parentId: parentId, options: options, onCreated: onCreated);
 
   Future<int> openModalDialog({
     required int parentId,
     DialogOptions? options,
     required ViewCreatedCallback onCreated,
-  }) =>
-      modalDialogOwner.open(parentId: parentId, options: options, onCreated: onCreated);
+  }) => modalDialogOwner.open(parentId: parentId, options: options, onCreated: onCreated);
 
-  int openPopup({
-    required int parentId,
-    required Size size,
-    required ViewCreatedCallback onCreated,
-  }) =>
+  int openPopup({required int parentId, required Size size, required ViewCreatedCallback onCreated}) =>
       popupOwner.open(parentId: parentId, size: size, onCreated: onCreated);
 
   // ---------------------------------------------------------------------------
@@ -166,9 +172,7 @@ class LifecycleViewsController {
   }
 
   bool hasPendingCreates({List<int> excludeTokens = const []}) {
-    return createCompleters.entries.any(
-      (e) => !excludeTokens.contains(e.key) && !e.value.isCompleted,
-    );
+    return createCompleters.entries.any((e) => !excludeTokens.contains(e.key) && !e.value.isCompleted);
   }
 
   Future<void> waitAllCreatingViews({List<int> excludeTokens = const []}) async {

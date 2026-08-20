@@ -4,7 +4,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-
 import 'package:multiview_desktop/multiview_desktop.dart';
 
 import '../utils/theme_config.dart';

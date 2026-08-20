@@ -5,20 +5,15 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:meta/meta.dart';
 import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
 
-/// Maps [WindowOptions] / [DialogOptions] to native FFI calls.
+/// Maps [WindowOptions] / [DialogOptions] to native FFI during view creation.
 ///
-/// Lives on [LifecycleViewsController] so creators stay create-only and
-/// `view_root` can reuse the same applier after integration.
+/// Uses [FfiBridge] directly because options are applied before the view is
+/// registered in [ViewRegistry] (proxy invoke guards would skip every call).
 @internal
 class ViewOptionsApplier {
-  ViewOptionsApplier({
-    required FfiBridge ffi,
-    required void Function(bool hide, {int? viewId}) hideAppFromTaskbar,
-  })  : _ffi = ffi,
-        _hideAppFromTaskbar = hideAppFromTaskbar;
+  ViewOptionsApplier({required FfiBridge ffi}) : _ffi = ffi;
 
   final FfiBridge _ffi;
-  final void Function(bool hide, {int? viewId}) _hideAppFromTaskbar;
 
   void applyWindow(int viewId, WindowOptions opts) {
     if (opts.size != null) {
@@ -53,9 +48,6 @@ class ViewOptionsApplier {
     }
     if (opts.fullScreen != null) {
       _ffi.setFullScreen(viewId, isFullScreen: opts.fullScreen!);
-    }
-    if (opts.hideAppFromTaskbar ?? false) {
-      _hideAppFromTaskbar(true);
     }
   }
 

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
 // ignore: depend_on_referenced_packages
 import 'package:meta/meta.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
@@ -25,7 +26,7 @@ class ViewTaskbarProxy extends ViewNativeProxy {
 
   void setProgressBar(double progress) {
     if (Platform.isLinux) return;
-    final id = host.lifecycleViewId();
+    final id = firstAvailableId;
     if (id == null) return;
     call(id, () => ffi.setProgressBar(progress), dialogSupports: true);
   }
@@ -38,7 +39,7 @@ class ViewTaskbarProxy extends ViewNativeProxy {
     if (Platform.isWindows || Platform.isLinux) {
       return ffi.isHideAppFromTaskbar();
     }
-    final id = host.lifecycleViewId();
+    final id = firstAvailableId;
     if (id == null) return false;
     return call(id, () => ffi.isHideAppFromTaskbar(), dialogSupports: true) ?? false;
   }
@@ -52,23 +53,15 @@ class ViewTaskbarProxy extends ViewNativeProxy {
 
   void hideAppFromTaskbar(bool isHideAppFromTaskbar, {int? viewId}) {
     if (Platform.isMacOS) {
-      final id = host.lifecycleViewId();
+      final id = firstAvailableId;
       if (id == null) return;
-      call(
-        id,
-        () => ffi.hideAppFromTaskbar(id, isHideAppFromTaskbar: isHideAppFromTaskbar),
-        dialogSupports: true,
-      );
+      call(id, () => ffi.hideAppFromTaskbar(id, isHideAppFromTaskbar: isHideAppFromTaskbar), dialogSupports: true);
       return;
     }
 
     if (viewId == null) {
       for (final id in host.windowViewIds()) {
-        call(
-          id,
-          () => ffi.hideAppFromTaskbar(id, isHideAppFromTaskbar: isHideAppFromTaskbar),
-          dialogSupports: true,
-        );
+        call(id, () => ffi.hideAppFromTaskbar(id, isHideAppFromTaskbar: isHideAppFromTaskbar), dialogSupports: true);
       }
       return;
     }
@@ -79,4 +72,7 @@ class ViewTaskbarProxy extends ViewNativeProxy {
       dialogSupports: true,
     );
   }
+
+  @visibleForTesting
+  int? get firstAvailableId => MultiViewDesktop.allWindowViewIds.firstOrNull;
 }

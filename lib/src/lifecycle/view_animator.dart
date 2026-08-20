@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 // ignore: depend_on_referenced_packages
 import 'package:meta/meta.dart';
 
@@ -9,6 +10,9 @@ import 'package:meta/meta.dart';
 ///
 /// Pass [onValue] to apply each tick (opacity, bounds, etc.). Timing params
 /// stay on [animate]; the applier stays caller-specific.
+///
+/// When [fps] is null, ticks are synchronized with [SchedulerBinding] (vsync).
+/// When [fps] is set, [Timer.periodic] drives ticks at the given rate.
 @internal
 class ViewAnimator {
   const ViewAnimator();
@@ -20,12 +24,39 @@ class ViewAnimator {
     double to = 1.0,
     Duration duration = const Duration(milliseconds: 180),
     Curve curve = Curves.easeOutCubic,
-    int fps = 60,
+    int? fps,
+  }) {
+    if (fps != null) {
+      return _animateWithTimer(
+        onValue: onValue,
+        from: from,
+        to: to,
+        duration: duration,
+        curve: curve,
+        fps: fps,
+      );
+    }
+    return _animateWithScheduler(
+      onValue: onValue,
+      from: from,
+      to: to,
+      duration: duration,
+      curve: curve,
+    );
+  }
+
+  Future<void> _animateWithTimer({
+    required void Function(double value) onValue,
+    required double from,
+    required double to,
+    required Duration duration,
+    required Curve curve,
+    required int fps,
   }) async {
     final completer = Completer<void>();
     onValue(from);
     final totalMs = duration.inMilliseconds.clamp(1, 60000);
-    final tickMs = math.max(1, (1000 / fps).round());
+    final tickMs = math.max(1, (1000 / fps.clamp(1, 1000)).round());
     final start = DateTime.now();
     Timer? timer;
     timer = Timer.periodic(Duration(milliseconds: tickMs), (_) {
@@ -39,6 +70,41 @@ class ViewAnimator {
         if (!completer.isCompleted) completer.complete();
       }
     });
+    await completer.future;
+  }
+
+  Future<void> _animateWithScheduler({
+    required void Function(double value) onValue,
+    required double from,
+    required double to,
+    required Duration duration,
+    required Curve curve,
+  }) async {
+    final completer = Completer<void>();
+    final binding = SchedulerBinding.instance;
+    final totalMicros = duration.inMicroseconds.clamp(1, 60000000);
+    Duration? start;
+    onValue(from);
+
+    void tick(Duration timeStamp) {
+      start ??= timeStamp;
+      final elapsedMicros = (timeStamp - start!).inMicroseconds;
+      final progress = (elapsedMicros / totalMicros).clamp(0.0, 1.0);
+      final eased = curve.transform(progress);
+      onValue(from + (to - from) * eased);
+
+      if (progress >= 1.0) {
+        onValue(to);
+        if (!completer.isCompleted) completer.complete();
+        return;
+      }
+
+      binding.scheduleFrameCallback(tick);
+      binding.scheduleFrame();
+    }
+
+    binding.scheduleFrameCallback(tick);
+    binding.scheduleFrame();
     await completer.future;
   }
 }

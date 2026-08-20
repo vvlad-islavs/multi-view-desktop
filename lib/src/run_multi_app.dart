@@ -5,6 +5,7 @@ import 'multi_view_desktop.dart';
 import 'view_root.dart' show createMultiViewRoot;
 import 'window_observer.dart';
 import 'taskbar_menu_item.dart';
+import 'view_animation_config.dart';
 import 'window_options.dart';
 
 /// Entry point for a multiview_desktop application.
@@ -109,10 +110,15 @@ class MultiPlatformParams {
   /// Replaced entirely by `MultiViewDesktop.setMenuItems`.
   final List<TaskbarMenuItem> menuItems;
 
+  /// Native view animations: open/close fade and/or geometry (position/size).
+  /// See [ViewAnimationConfig.openClose], [ViewAnimationConfig.geometry], [ViewAnimationConfig.all].
+  final ViewAnimationConfig animation;
+
   const MultiPlatformParams({
     this.enableDynamicAnchor = true,
     this.closeMode = CloseMode.softCascade,
     this.menuItems = const [],
+    this.animation = ViewAnimationConfig.defaults,
   });
 
   /// Default: dynamic anchor enabled, `CloseMode.softCascade`.
@@ -194,7 +200,7 @@ enum CloseMode {
 ///   child: const Text('Open settings'),
 /// )
 /// ```
-int openWindow(
+Future<int> openWindow(
   Widget Function(BuildContext context, int publicId) childBuilder, {
   WindowOptions? options,
   BuildContext? parentContext,

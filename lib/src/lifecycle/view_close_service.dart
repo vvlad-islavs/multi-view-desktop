@@ -7,7 +7,6 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
 import 'package:multiview_desktop/src/impl/cascade_close_service_impl.dart';
 import 'package:multiview_desktop/src/lifecycle/lifecycle_views_controller.dart';
-import 'package:multiview_desktop/src/lifecycle/view_close_host.dart';
 import 'package:multiview_desktop/src/lifecycle/view_owner_base.dart';
 
 /// Soft/force/destroy close orchestration mirroring `_ViewsManagerImpl`.
@@ -15,7 +14,7 @@ import 'package:multiview_desktop/src/lifecycle/view_owner_base.dart';
 class ViewCloseService {
   ViewCloseService({
     required this.lifecycle,
-    required this.closeHost,
+    required this.delegate,
     required this.resolveOwner,
     CascadeCloseService? cascadeCloseService,
     this.anchorViewId,
@@ -27,7 +26,7 @@ class ViewCloseService {
   }) : cascadeCloseService = cascadeCloseService ?? CascadeCloseService();
 
   final LifecycleViewsController lifecycle;
-  final ViewCloseHost closeHost;
+  final ViewCloseDelegate delegate;
   final ViewOwnerBase? Function(int viewId) resolveOwner;
   final CascadeCloseService cascadeCloseService;
 
@@ -40,7 +39,10 @@ class ViewCloseService {
   VoidCallback? onCloseAppAborted;
   VoidCallback? onBeforeForceCloseApp;
 
+  /// Lifecycle-only FFI (create/close-policy; no public proxy).
   FfiBridge get ffi => lifecycle.ffiBridge;
+
+  ViewRegistry get registry => lifecycle.registry;
 
   CloseMode closeMode = CloseMode.softCascade;
 
@@ -49,8 +51,8 @@ class ViewCloseService {
   // ---------------------------------------------------------------------------
 
   Future<void> handeFirstCloseStep(int viewId) async {
-    final nextAnchorCandidates = closeHost.anchorCandidatesExcluding(excludingViewId: viewId)..sort();
-    if (viewId == _anchorId && nextAnchorCandidates.isNotEmpty && !closeHost.enableDynamicAnchor) {
+    final nextAnchorCandidates = delegate.anchorCandidatesExcluding(excludingViewId: viewId)..sort();
+    if (viewId == _anchorId && nextAnchorCandidates.isNotEmpty && !delegate.enableDynamicAnchor) {
       for (final candidate in nextAnchorCandidates.reversed) {
         cascadeCloseService.abort(candidate);
         cascadeCloseService.attachWindow(candidate);
@@ -64,13 +66,13 @@ class ViewCloseService {
   }
 
   Future<void> handleLastCloseStep(int viewId) async {
-    final isModalDialog = closeHost.isModalDialog(viewId);
+    final isModalDialog = registry.isModalDialog(viewId);
 
     await resolveOwner(viewId)?.close(viewId);
 
-    closeHost.destroyPopupsByParent(viewId);
-    closeHost.removeAllDialogsByParent(viewId);
-    closeHost.disposeView(viewId);
+    destroyPopupsByParent(viewId);
+    removeAllDialogsByParent(viewId);
+    delegate.disposeView(viewId);
 
     ffi.setConfirmClose(viewId, isConfirm: true);
     if (isModalDialog) {
@@ -92,7 +94,7 @@ class ViewCloseService {
   // ---------------------------------------------------------------------------
 
   void cancelCascade(int viewId) {
-    final parents = [...closeHost.parentWindowChain(viewId), ...closeHost.parentDialogChain(viewId), viewId];
+    final parents = [...registry.parentWindowChain(viewId), ...registry.parentDialogChain(viewId), viewId];
     for (final parent in parents) {
       ffi.setPreConfirmClose(parent, false);
       cascadeCloseService.abort(parent);
@@ -100,25 +102,39 @@ class ViewCloseService {
   }
 
   void closeView<T>(int viewId, {T? dialogRes}) {
-    if (closeHost.isDialog(viewId)) {
+    if (registry.isDialog(viewId)) {
       onDialogCloseResult?.call(viewId, dialogRes);
-      closeHost.invoke<void>(viewId, () => ffi.destroyModalDialog(viewId), dialogSupports: true);
-      closeHost.disposeView(viewId);
+      delegate.invoke<void>(viewId, () => ffi.destroyModalDialog(viewId), dialogSupports: true);
+      delegate.disposeView(viewId);
       return;
     }
 
-    closeHost.invoke<void>(viewId, () => ffi.softCloseWindow(viewId));
+    delegate.invoke<void>(viewId, () => ffi.softCloseWindow(viewId));
   }
 
   void destroyPopup(int viewId) {
-    if (!closeHost.isPopup(viewId)) return;
-    closeHost.invoke<void>(viewId, () => ffi.destroyModalDialog(viewId), dialogSupports: true);
+    if (!registry.isPopup(viewId)) return;
+    delegate.invoke<void>(viewId, () => ffi.destroyModalDialog(viewId), dialogSupports: true);
     onPopupDestroyed?.call(viewId);
+  }
+
+  void destroyPopupsByParent(int parentId) {
+    for (final id in registry.directPopupChildIds(parentId)) {
+      destroyPopup(id);
+    }
+  }
+
+  void removeAllDialogsByParent(int parentId) {
+    final allDialogs = registry.directDialogChildIds(parentId)..sort();
+    for (final dialogId in allDialogs.reversed) {
+      ffi.destroyModalDialog(dialogId);
+      delegate.disposeView(dialogId);
+    }
   }
 
   Future<bool> closeApp({CloseMode? mode}) async {
     final effectiveMode = mode ?? closeMode;
-    final allRoots = closeHost.rootWindowIds()..sort();
+    final allRoots = registry.rootWindowIds()..sort();
 
     onBeforeCloseApp?.call();
     for (final root in allRoots.reversed) {
@@ -160,10 +176,10 @@ class ViewCloseService {
   }
 
   Future<void> _removeViewsCascade(int rootId) async {
-    final descendants = closeHost.descendantWindowIdsDeepestFirst(rootId).toList()..sort();
+    final descendants = registry.descendantWindowIdsDeepestFirst(rootId).toList()..sort();
 
     for (final id in descendants.reversed) {
-      final wait = closeHost.invoke<Future<bool>>(id, () {
+      final wait = delegate.invoke<Future<bool>>(id, () {
         cascadeCloseService.attachWindow(id);
         ffi.softCloseWindow(id);
         return cascadeCloseService.waitWindow(id);
@@ -172,18 +188,18 @@ class ViewCloseService {
       if (!closed) return;
     }
 
-    if (closeHost.descendantWindowIdsDeepestFirst(rootId).isNotEmpty) {
+    if (registry.descendantWindowIdsDeepestFirst(rootId).isNotEmpty) {
       return;
     }
 
-    closeHost.invoke<void>(rootId, () => _preConfirmCloseCallable(rootId), dialogSupports: true);
+    delegate.invoke<void>(rootId, () => _preConfirmCloseCallable(rootId), dialogSupports: true);
   }
 
   Future<void> _removeSecondaryViewsForce(int rootId, {int loopCycle = 1, int maxLoopCycles = 10}) async {
     cascadeCloseService.clear();
-    final descendants = closeHost.descendantWindowIdsDeepestFirst(rootId).toList()..sort();
+    final descendants = registry.descendantWindowIdsDeepestFirst(rootId).toList()..sort();
     for (final id in descendants.reversed) {
-      final wait = closeHost.invoke<Future<bool>>(id, () {
+      final wait = delegate.invoke<Future<bool>>(id, () {
         cascadeCloseService.attachWindow(id);
         ffi.forceCloseView(id);
         return cascadeCloseService.waitWindow(id);
@@ -192,19 +208,19 @@ class ViewCloseService {
       if (!closed) return;
     }
 
-    if (loopCycle < maxLoopCycles && closeHost.descendantWindowIdsDeepestFirst(rootId).isNotEmpty) {
+    if (loopCycle < maxLoopCycles && registry.descendantWindowIdsDeepestFirst(rootId).isNotEmpty) {
       unawaited(_removeSecondaryViewsForce(rootId, loopCycle: loopCycle + 1));
       return;
     }
 
-    closeHost.invoke<void>(rootId, () => _preConfirmCloseCallable(rootId), dialogSupports: true);
+    delegate.invoke<void>(rootId, () => _preConfirmCloseCallable(rootId), dialogSupports: true);
   }
 
   Future<void> _destroyAllViewsForce(int rootId, {int loopCycle = 1, int maxLoopCycles = 10}) async {
     cascadeCloseService.clear();
-    final descendants = closeHost.descendantWindowIdsDeepestFirst(rootId).toList()..sort();
+    final descendants = registry.descendantWindowIdsDeepestFirst(rootId).toList()..sort();
     for (final id in descendants.reversed) {
-      final wait = closeHost.invoke<Future<bool>>(id, () {
+      final wait = delegate.invoke<Future<bool>>(id, () {
         cascadeCloseService.attachWindow(id);
         ffi.forceCloseView(id);
         return cascadeCloseService.waitWindow(id);
@@ -213,12 +229,12 @@ class ViewCloseService {
       if (!closed) return;
     }
 
-    if (loopCycle < maxLoopCycles && closeHost.descendantWindowIdsDeepestFirst(rootId).isNotEmpty) {
+    if (loopCycle < maxLoopCycles && registry.descendantWindowIdsDeepestFirst(rootId).isNotEmpty) {
       unawaited(_destroyAllViewsForce(rootId, loopCycle: loopCycle + 1));
       return;
     }
 
-    closeHost.invoke<void>(rootId, () => _preConfirmCloseCallable(rootId, isForce: true), dialogSupports: true);
+    delegate.invoke<void>(rootId, () => _preConfirmCloseCallable(rootId, isForce: true), dialogSupports: true);
   }
 
   void _preConfirmCloseCallable(int viewId, {bool isForce = false}) {
@@ -230,13 +246,21 @@ class ViewCloseService {
       return;
     }
 
-    if (Platform.isMacOS && closeHost.isLastMacosRootView(viewId)) {
-      closeHost.onMacosHideInsteadOfClose(viewId);
+    if (Platform.isMacOS && delegate.isLastMacosRootView(viewId)) {
+      _macosHideInsteadOfClose(viewId);
       cascadeCloseService.completeWindow(viewId);
       return;
     }
 
     ffi.softCloseWindow(viewId);
+  }
+
+  void _macosHideInsteadOfClose(int viewId) {
+    destroyPopupsByParent(viewId);
+    removeAllDialogsByParent(viewId);
+    lifecycle.proxies.state.hide(viewId);
+    ffi.setPreConfirmClose(viewId, false);
+    cascadeCloseService.completeWindow(viewId);
   }
 
   int? get _anchorId => anchorViewId;

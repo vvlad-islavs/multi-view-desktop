@@ -1,5 +1,7 @@
 // ignore: depend_on_referenced_packages
 import 'package:meta/meta.dart';
+import 'package:multiview_desktop/src/lifecycle/view_animator.dart';
+import 'package:multiview_desktop/src/view_animation_config.dart';
 import 'package:multiview_desktop/src/view_manager/view_appearance_proxy.dart';
 import 'package:multiview_desktop/src/view_manager/view_input_proxy.dart';
 import 'package:multiview_desktop/src/view_manager/view_native_host.dart';
@@ -19,8 +21,15 @@ export 'view_window_state_proxy.dart' show ViewWindowStateProxy;
 /// Groups native FFI proxies. Exposed via [globalRootState.proxies] for [MultiViewDesktop].
 @internal
 class ViewManagerProxies {
-  ViewManagerProxies(ViewNativeHost host)
-      : position = ViewPositionProxy(host),
+  ViewManagerProxies(
+    ViewNativeHost host, {
+    required ViewAnimator animator,
+    required ViewGeometryAnimationPolicy geometryAnimation,
+  })  : position = ViewPositionProxy(
+          host,
+          animator: animator,
+          geometryAnimation: geometryAnimation,
+        ),
         appearance = ViewAppearanceProxy(host),
         state = ViewWindowStateProxy(host),
         taskbar = ViewTaskbarProxy(host),

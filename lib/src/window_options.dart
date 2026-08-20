@@ -29,7 +29,6 @@ sealed class BaseOptions {
   /// Native window background color shown behind Flutter content.
   final Color? backgroundColor;
 
-  /// When `true`, hides the entire application icon from the dock / taskbar.
   /// Initial title-bar style; use `TitleBarStyle.hidden` for frameless chrome.
   final TitleBarStyle? titleBarStyle;
 
@@ -61,7 +60,6 @@ class WindowOptions extends BaseOptions {
     super.maximumSize,
     this.alignment = Alignment.center,
     super.backgroundColor,
-    this.hideAppFromTaskbar,
     super.titleBarStyle,
     super.windowButtonVisibility,
     super.title,
@@ -72,9 +70,6 @@ class WindowOptions extends BaseOptions {
 
   /// Where to place the window on the display under the cursor (or primary).
   final Alignment? alignment;
-
-  /// When `true`, hides the entire application icon from the dock / taskbar.
-  final bool? hideAppFromTaskbar;
 }
 
 /// Configuration for a dialog opened via `openDialog`.

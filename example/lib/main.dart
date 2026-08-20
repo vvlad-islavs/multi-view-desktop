@@ -18,6 +18,7 @@ void main() {
     },
     config: MultiAppConfig(
       generalParams: MultiPlatformParams(
+        animation: ViewAnimationConfig.all(),
         enableDynamicAnchor: true,
         closeMode: CloseMode.softCascade,
         menuItems: [
@@ -80,7 +81,6 @@ void main() {
         maximumSize: Size(1200, 800),
         size: Size(1000, 700),
         alignment: Alignment.center,
-        hideAppFromTaskbar: false,
         titleBarStyle: TitleBarStyle.normal,
         windowButtonVisibility: true,
         title: 'Window 1',

@@ -2,30 +2,28 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
 // ignore: depend_on_referenced_packages
 import 'package:meta/meta.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/lifecycle/create_view_error.dart';
 import 'package:multiview_desktop/src/lifecycle/view_create_completer.dart';
 import 'package:multiview_desktop/src/lifecycle/view_owner_base.dart';
-import 'package:multiview_desktop/src/lifecycle/view_owner_fade_config.dart';
+import 'package:multiview_desktop/src/view_animation_config.dart';
 import 'package:multiview_desktop/src/utils/calc_window_position.dart';
 
 /// Independent top-level window owner.
 @internal
 class WindowOwner extends ViewOwnerBase {
-  WindowOwner(super.host) : super(fade: ViewOwnerFadeConfig.windowDefaults);
+  WindowOwner(super.host) : super(fade: host.windowOpenCloseAnimation);
 
-  int open({
-    WindowOptions? options,
-    required ViewCreatedCallback onCreated,
-  }) {
+  Future<int> open({WindowOptions? options, required ViewCreatedCallback onCreated}) async {
     final opts = options ?? WindowOptions();
     final viewId = createNativeWindow(opts: opts);
     host.applyWindowOptions(viewId, opts);
     onCreated(viewId);
     trackUntilFirstFrame(viewId, parentId: null, isDialog: false);
-    scheduleShowAfterFirstFrame(viewId);
+    await showAfterFirstFrame(viewId);
     return viewId;
   }
 
@@ -36,13 +34,9 @@ class WindowOwner extends ViewOwnerBase {
 /// Child window owner (`parentId` set at native create).
 @internal
 class ChildWindowOwner extends ViewOwnerBase {
-  ChildWindowOwner(super.host) : super(fade: ViewOwnerFadeConfig.windowDefaults);
+  ChildWindowOwner(super.host) : super(fade: host.windowOpenCloseAnimation);
 
-  int open({
-    required int parentId,
-    WindowOptions? options,
-    required ViewCreatedCallback onCreated,
-  }) {
+  Future<int> open({required int parentId, WindowOptions? options, required ViewCreatedCallback onCreated}) async {
     if (!host.isWindowRegistered(parentId)) {
       throw ArgumentError.value(parentId, 'parentId', 'Parent window is not registered');
     }
@@ -52,7 +46,7 @@ class ChildWindowOwner extends ViewOwnerBase {
     host.applyWindowOptions(viewId, opts);
     onCreated(viewId);
     trackUntilFirstFrame(viewId, parentId: parentId, isDialog: false);
-    scheduleShowAfterFirstFrame(viewId);
+    await showAfterFirstFrame(viewId);
     return viewId;
   }
 
@@ -63,15 +57,11 @@ class ChildWindowOwner extends ViewOwnerBase {
 /// Shared dialog open pipeline.
 @internal
 class DialogOwner extends ViewOwnerBase {
-  DialogOwner(super.host, {required this.modal, required ViewOwnerFadeConfig fadeConfig}) : super(fade: fadeConfig);
+  DialogOwner(super.host, {required this.modal, required ViewOpenCloseAnimationPolicy fadeConfig}) : super(fade: fadeConfig);
 
   final bool modal;
 
-  Future<int> open({
-    required int parentId,
-    required DialogOptions opts,
-    required ViewCreatedCallback onCreated,
-  }) async {
+  Future<int> open({required int parentId, required DialogOptions opts, required ViewCreatedCallback onCreated}) async {
     if (!host.isWindowRegistered(parentId)) {
       throw ArgumentError.value(parentId, 'parentId', 'Parent window is not registered');
     }
@@ -93,12 +83,8 @@ class DialogOwner extends ViewOwnerBase {
     try {
       Offset? pos;
       if (!modal) {
-        final parentBounds = ffi.getBounds(parentId);
-        pos = calcWindowPositionByParent(
-          Alignment.center,
-          windowSize: windowSize,
-          parentBounds: parentBounds,
-        );
+        final parentBounds = host.proxies.position.getBounds(parentId);
+        pos = calcWindowPositionByParent(Alignment.center, windowSize: windowSize, parentBounds: parentBounds);
       }
 
       newViewId = ffi.createDialog(
@@ -114,7 +100,9 @@ class DialogOwner extends ViewOwnerBase {
     } catch (e, st) {
       completers[modalFinishedToken]?.complete(CreateViewError.unhandled.code);
       completers.remove(modalFinishedToken);
-      throw Exception('Failed to create dialog window, tokenId: ${ViewOwnerBase.nativeCreateToken}. Error: $e, stack: $st');
+      throw Exception(
+        'Failed to create dialog window, tokenId: ${ViewOwnerBase.nativeCreateToken}. Error: $e, stack: $st',
+      );
     }
 
     throwIfNativeError(newViewId, errorToken: modalFinishedToken);
@@ -134,7 +122,7 @@ class DialogOwner extends ViewOwnerBase {
           ffi.completeModalDialogCreate(viewId);
         }
       } else {
-        showWithFadeIn(viewId);
+        await showWithFadeIn(viewId);
       }
     }
 
@@ -151,16 +139,12 @@ class DialogOwner extends ViewOwnerBase {
 @internal
 class ModelessDialogOwner extends ViewOwnerBase {
   ModelessDialogOwner(super.host)
-      : _delegate = DialogOwner(host, modal: false, fadeConfig: ViewOwnerFadeConfig.modelessDialogDefaults),
-        super(fade: ViewOwnerFadeConfig.modelessDialogDefaults);
+    : _delegate = DialogOwner(host, modal: false, fadeConfig: host.modelessDialogOpenCloseAnimation),
+      super(fade: host.modelessDialogOpenCloseAnimation);
 
   final DialogOwner _delegate;
 
-  Future<int> open({
-    required int parentId,
-    DialogOptions? options,
-    required ViewCreatedCallback onCreated,
-  }) =>
+  Future<int> open({required int parentId, DialogOptions? options, required ViewCreatedCallback onCreated}) =>
       _delegate.open(parentId: parentId, opts: _asModeless(options), onCreated: onCreated);
 
   @override
@@ -189,16 +173,12 @@ class ModelessDialogOwner extends ViewOwnerBase {
 @internal
 class ModalDialogOwner extends ViewOwnerBase {
   ModalDialogOwner(super.host)
-      : _delegate = DialogOwner(host, modal: true, fadeConfig: ViewOwnerFadeConfig.none),
-        super(fade: ViewOwnerFadeConfig.none);
+    : _delegate = DialogOwner(host, modal: true, fadeConfig: host.modalDialogOpenCloseAnimation),
+      super(fade: host.modalDialogOpenCloseAnimation);
 
   final DialogOwner _delegate;
 
-  Future<int> open({
-    required int parentId,
-    DialogOptions? options,
-    required ViewCreatedCallback onCreated,
-  }) =>
+  Future<int> open({required int parentId, DialogOptions? options, required ViewCreatedCallback onCreated}) =>
       _delegate.open(parentId: parentId, opts: _asModal(options), onCreated: onCreated);
 
   @override
@@ -226,26 +206,20 @@ class ModalDialogOwner extends ViewOwnerBase {
 /// Popup owner — open/close fade not configured yet.
 @internal
 class PopupOwner extends ViewOwnerBase {
-  PopupOwner(super.host) : super(fade: ViewOwnerFadeConfig.none);
+  PopupOwner(super.host) : super(fade: ViewOpenCloseAnimationPolicy.disabled);
 
-  int open({
-    required int parentId,
-    required Size size,
-    required ViewCreatedCallback onCreated,
-  }) {
+  int open({required int parentId, required Size size, required ViewCreatedCallback onCreated}) {
     if (!host.isViewRegistered(parentId)) {
       throw ArgumentError.value(parentId, 'parentId', 'Parent view is not registered');
     }
 
     int? newViewId;
     try {
-      newViewId = ffi.createPopupWindow(
-        token: ViewOwnerBase.nativeCreateToken,
-        parentId: parentId,
-        windowSize: size,
-      );
+      newViewId = ffi.createPopupWindow(token: ViewOwnerBase.nativeCreateToken, parentId: parentId, windowSize: size);
     } catch (e, st) {
-      throw Exception('Failed to create popup window, tokenId: ${ViewOwnerBase.nativeCreateToken}. Error: $e, stack: $st');
+      throw Exception(
+        'Failed to create popup window, tokenId: ${ViewOwnerBase.nativeCreateToken}. Error: $e, stack: $st',
+      );
     }
 
     throwIfNativeError(newViewId, errorToken: ViewOwnerBase.nativeCreateToken);

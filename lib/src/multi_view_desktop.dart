@@ -101,14 +101,14 @@ class MultiViewDesktop {
 
   /// Opens a new OS window showing `child`.
   @internal
-  static int addWindow(
+  static Future<int> addWindow(
     Widget Function(BuildContext context, int publicId) child, {
     WindowOptions? options,
     BuildContext? parent,
-  }) {
+  }) async {
     final parentId = parent == null ? null : _getRealId(parent);
 
-    final realId = _manager.createWindow(
+    final realId = await _manager.createWindow(
       newOpts: options,
       onCreated: (int newRealId) {
         globalRootState.addWindowView(

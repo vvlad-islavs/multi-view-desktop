@@ -1,7 +1,7 @@
-import 'package:flutter/services.dart';
 // ignore: depend_on_referenced_packages
 import 'package:meta/meta.dart';
 import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
+import 'package:multiview_desktop/src/lifecycle/view_registry.dart';
 
 typedef ViewNativeInvoke =
     T? Function<T>(int viewId, T Function() action, {bool dialogSupports});
@@ -12,30 +12,30 @@ class ViewNativeHost {
   ViewNativeHost({
     required this.ffi,
     required this.invoke,
-    required this.isWindow,
-    required this.isDialog,
-    required this.isPopup,
-    required this.isModalDialog,
-    required this.dialogParentId,
-    required this.allManagedViewIds,
+    required this.registry,
     required this.lifecycleViewId,
-    required this.windowViewIds,
   });
 
   final FfiBridge ffi;
   final ViewNativeInvoke invoke;
-
-  final bool Function(int viewId) isWindow;
-  final bool Function(int viewId) isDialog;
-  final bool Function(int viewId) isPopup;
-  final bool Function(int viewId) isModalDialog;
-  final int? Function(int viewId) dialogParentId;
-
-  final Iterable<int> Function() allManagedViewIds;
+  final ViewRegistry registry;
   final int? Function() lifecycleViewId;
-  final Iterable<int> Function() windowViewIds;
 
-  bool isManaged(int viewId) => isWindow(viewId) || isDialog(viewId) || isPopup(viewId);
+  bool isWindow(int viewId) => registry.isWindow(viewId);
+
+  bool isDialog(int viewId) => registry.isDialog(viewId);
+
+  bool isPopup(int viewId) => registry.isPopup(viewId);
+
+  bool isModalDialog(int viewId) => registry.isModalDialog(viewId);
+
+  int? dialogParentId(int viewId) => registry.dialogParentId(viewId);
+
+  Iterable<int> allManagedViewIds() => registry.allManagedViewIds;
+
+  Iterable<int> windowViewIds() => registry.windowViewIds;
+
+  bool isManaged(int viewId) => registry.isManaged(viewId);
 }
 
 /// Base type for FFI proxy groups.
