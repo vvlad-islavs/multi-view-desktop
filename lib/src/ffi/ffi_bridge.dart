@@ -9,7 +9,7 @@ import 'package:flutter/services.dart' show MethodCall;
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/resize_edge.dart';
 import 'package:multiview_desktop/src/title_bar_style.dart';
-import 'package:multiview_desktop/src/utils/calc_window_position.dart';
+import 'package:multiview_desktop/src/utils/window_position_calculator.dart';
 
 // Native files: MvdFfiBridge.swift, mvd_ffi_bridge.cpp, mvd_ffi_bridge.cc
 // Symbol convention: mvd_<verb>_<noun>
@@ -340,7 +340,7 @@ abstract class FfiBridge {
   Offset? _calculateOffFromAlign(int viewId, {required Alignment alignment}) {
     final sizeResult = getBounds(viewId).size;
     final windowSize = Size(sizeResult.width, sizeResult.height);
-    return calcWindowPosition(windowSize, alignment);
+    return WindowPositionCalculator.instance.calcWindowPosition(windowSize, alignment);
   }
 
   Size getSize(int viewId) => getBounds(viewId).size;
@@ -717,4 +717,169 @@ class FfiLinuxBridge extends FfiBridge {
 
 class _UnsupportedFfiBridge extends FfiBridge {
   _UnsupportedFfiBridge() : super._();
+}
+
+/// Test double that records FFI calls without loading the native plugin.
+///
+/// Lives in this library so it can use [FfiBridge._] (private constructor).
+@visibleForTesting
+class RecordingFfiBridge extends FfiBridge {
+  RecordingFfiBridge() : super._();
+
+  final List<String> calls = [];
+  int nextViewId = 100;
+
+  /// When non-null, the next create* call returns this id (e.g. error code) once.
+  int? nextCreateResult;
+
+  /// Optional canned bounds for [getFrame] / [getBounds].
+  final Map<int, Rect> frames = {};
+
+  /// Optional canned opacity for [getOpacity].
+  final Map<int, double> opacities = {};
+
+  void _rec(String call) => calls.add(call);
+
+  bool hasCall(String prefix) => calls.any((c) => c.startsWith(prefix));
+
+  List<String> callsFor(String method) => calls.where((c) => c.startsWith('$method:')).toList();
+
+  int _nextCreateId() {
+    final forced = nextCreateResult;
+    if (forced != null) {
+      nextCreateResult = null;
+      return forced;
+    }
+    return nextViewId++;
+  }
+
+  @override
+  int createWindow({
+    required int token,
+    required String title,
+    required String titleBarStyleStr,
+    required bool windowButtonVisibility,
+    required Size windowSize,
+    required Offset? pos,
+    int? parentId,
+  }) {
+    final id = _nextCreateId();
+    _rec('createWindow:$id:parent=${parentId ?? -1}');
+    return id;
+  }
+
+  @override
+  int createDialog({
+    required int token,
+    required String title,
+    required String titleBarStyleStr,
+    required bool windowButtonVisibility,
+    required Size windowSize,
+    required Offset? pos,
+    required int parentId,
+    required bool isModal,
+  }) {
+    final id = _nextCreateId();
+    _rec('createDialog:$id:parent=$parentId:modal=$isModal');
+    return id;
+  }
+
+  @override
+  int createPopupWindow({required int token, required int parentId, required Size windowSize}) {
+    final id = _nextCreateId();
+    _rec('createPopup:$id:parent=$parentId');
+    return id;
+  }
+
+  @override
+  void softCloseWindow(int viewId) => _rec('softCloseWindow:$viewId');
+
+  @override
+  void forceCloseView(int viewId) {
+    _rec('forceCloseView:$viewId');
+    setPreventClose(viewId, isPreventClose: false);
+    softCloseWindow(viewId);
+  }
+
+  @override
+  void destroyModalDialog(int viewId) => _rec('destroyModalDialog:$viewId');
+
+  @override
+  void setPreConfirmClose(int viewId, bool isPreConfirm) => _rec('setPreConfirmClose:$viewId:$isPreConfirm');
+
+  @override
+  void setConfirmClose(int viewId, {required bool isConfirm}) => _rec('setConfirmClose:$viewId:$isConfirm');
+
+  @override
+  void setPreventClose(int viewId, {required bool isPreventClose}) =>
+      _rec('setPreventClose:$viewId:$isPreventClose');
+
+  @override
+  void completeModalDialogCreate(int viewId) => _rec('completeModalDialogCreate:$viewId');
+
+  @override
+  void show(int viewId) => _rec('show:$viewId');
+
+  @override
+  void hide(int viewId) => _rec('hide:$viewId');
+
+  @override
+  void maximize(int viewId, {bool vertically = false}) =>
+      _rec('maximize:$viewId:vertically=$vertically');
+
+  @override
+  void setOpacity(int viewId, double opacity) {
+    opacities[viewId] = opacity;
+    _rec('setOpacity:$viewId:$opacity');
+  }
+
+  @override
+  double getOpacity(int viewId) => opacities[viewId] ?? 1.0;
+
+  @override
+  Rect? getFrame(int viewId) => frames[viewId];
+
+  @override
+  Rect getBounds(int viewId) => frames[viewId] ?? Rect.zero;
+
+  @override
+  void setSize(int viewId, {required Size size}) => _rec('setSize:$viewId:${size.width}x${size.height}');
+
+  @override
+  void setMinSize(int viewId, {required Size size}) => _rec('setMinSize:$viewId:${size.width}x${size.height}');
+
+  @override
+  void setMaxSize(int viewId, {required Size size}) => _rec('setMaxSize:$viewId:${size.width}x${size.height}');
+
+  @override
+  void setPosition(int viewId, {required Offset pos}) => _rec('setPosition:$viewId:${pos.dx},${pos.dy}');
+
+  @override
+  void setTitle(int viewId, {required String title}) => _rec('setTitle:$viewId:$title');
+
+  @override
+  void setBackgroundColor(int viewId, {required Color color}) => _rec('setBackgroundColor:$viewId');
+
+  @override
+  void setAlwaysOnTop(int viewId, {required bool isAlwaysOnTop}) =>
+      _rec('setAlwaysOnTop:$viewId:$isAlwaysOnTop');
+
+  @override
+  void setFullScreen(int viewId, {required bool isFullScreen}) => _rec('setFullScreen:$viewId:$isFullScreen');
+
+  @override
+  void setResizable(int viewId, bool isResizable) => _rec('setResizable:$viewId:$isResizable');
+
+  @override
+  void setTitleBarStyle(
+    int viewId, {
+    required TitleBarStyle style,
+    required bool closeVisibility,
+    required bool maximizeVisibility,
+    required bool minimizeVisibility,
+  }) => _rec('setTitleBarStyle:$viewId:${style.name}');
+
+  @override
+  void setAlignment(int viewId, {required Alignment alignment}) =>
+      _rec('setAlignment:$viewId:${alignment.x},${alignment.y}');
 }

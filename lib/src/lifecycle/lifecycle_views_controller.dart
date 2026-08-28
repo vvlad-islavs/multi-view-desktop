@@ -16,6 +16,7 @@ import 'package:multiview_desktop/src/lifecycle/view_create_completer.dart';
 import 'package:multiview_desktop/src/lifecycle/view_options_applier.dart';
 import 'package:multiview_desktop/src/lifecycle/view_owner_base.dart';
 import 'package:multiview_desktop/src/lifecycle/view_owners.dart';
+import 'package:multiview_desktop/src/utils/window_position_calculator.dart';
 import 'package:multiview_desktop/src/view_manager/view_manager_proxies.dart';
 import 'package:multiview_desktop/src/view_animation_config.dart';
 
@@ -40,6 +41,7 @@ class LifecycleViewsController {
     required bool Function(int parentId) hasPendingDialogCreate,
     required bool Function(int parentId) hasModalDialog,
     required this.animation,
+    WindowPositionCalculator? positionCalculator,
     ViewAnimator? viewAnimator,
     ViewCloseService? closeServiceOverride,
     CascadeCloseService? cascadeCloseService,
@@ -49,6 +51,7 @@ class LifecycleViewsController {
     VoidCallback? onCloseAppAborted,
     VoidCallback? onBeforeForceCloseApp,
   }) : viewAnimator = viewAnimator ?? const ViewAnimator(),
+       positionCalculator = positionCalculator ?? WindowPositionCalculator.instance,
        _registerDialog = registerDialog,
        _hasPendingDialogCreate = hasPendingDialogCreate,
        _hasModalDialog = hasModalDialog {
@@ -82,6 +85,8 @@ class LifecycleViewsController {
   final FfiBridge ffiBridge;
 
   final ViewAnimator viewAnimator;
+
+  final WindowPositionCalculator positionCalculator;
 
   final ViewAnimationConfig animation;
 

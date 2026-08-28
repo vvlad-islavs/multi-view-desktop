@@ -10,7 +10,6 @@ import 'package:multiview_desktop/src/lifecycle/create_view_error.dart';
 import 'package:multiview_desktop/src/lifecycle/view_create_completer.dart';
 import 'package:multiview_desktop/src/lifecycle/view_owner_base.dart';
 import 'package:multiview_desktop/src/view_animation_config.dart';
-import 'package:multiview_desktop/src/utils/calc_window_position.dart';
 
 /// Independent top-level window owner.
 @internal
@@ -84,7 +83,11 @@ class DialogOwner extends ViewOwnerBase {
       Offset? pos;
       if (!modal) {
         final parentBounds = host.proxies.position.getBounds(parentId);
-        pos = calcWindowPositionByParent(Alignment.center, windowSize: windowSize, parentBounds: parentBounds);
+        pos = positionCalculator.calcWindowPositionByParent(
+          Alignment.center,
+          windowSize: windowSize,
+          parentBounds: parentBounds,
+        );
       }
 
       newViewId = ffi.createDialog(

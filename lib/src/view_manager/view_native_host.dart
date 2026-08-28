@@ -13,13 +13,11 @@ class ViewNativeHost {
     required this.ffi,
     required this.invoke,
     required this.registry,
-    required this.lifecycleViewId,
   });
 
   final FfiBridge ffi;
   final ViewNativeInvoke invoke;
   final ViewRegistry registry;
-  final int? Function() lifecycleViewId;
 
   bool isWindow(int viewId) => registry.isWindow(viewId);
 

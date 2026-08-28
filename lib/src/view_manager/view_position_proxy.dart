@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 // ignore: depend_on_referenced_packages
 import 'package:meta/meta.dart';
 import 'package:multiview_desktop/src/lifecycle/view_animator.dart';
-import 'package:multiview_desktop/src/utils/calc_window_position.dart';
+import 'package:multiview_desktop/src/utils/window_position_calculator.dart';
 import 'package:multiview_desktop/src/view_animation_config.dart';
 import 'package:multiview_desktop/src/view_manager/view_native_host.dart';
 
@@ -14,11 +14,14 @@ class ViewPositionProxy extends ViewNativeProxy {
     super.host, {
     required ViewAnimator animator,
     required ViewGeometryAnimationPolicy geometryAnimation,
+    WindowPositionCalculator? positionCalculator,
   })  : _animator = animator,
-        _geometryAnimation = geometryAnimation;
+        _geometryAnimation = geometryAnimation,
+        _positionCalculator = positionCalculator ?? WindowPositionCalculator.instance;
 
   final ViewAnimator _animator;
   final ViewGeometryAnimationPolicy _geometryAnimation;
+  final WindowPositionCalculator _positionCalculator;
 
   final Map<int, int> _geometryGeneration = {};
 
@@ -29,47 +32,47 @@ class ViewPositionProxy extends ViewNativeProxy {
   Offset getPosition(int viewId) =>
       call(viewId, () => ffi.getPosition(viewId), dialogSupports: true) ?? Offset.zero;
 
-  void setSize(int viewId, Size size) {
-    _applyFrame(
+  Future<void> setSize(int viewId, Size size) {
+    return _applyFrame(
       viewId,
       (current) => Rect.fromLTWH(current.left, current.top, size.width, size.height),
     );
   }
 
-  void setPosition(int viewId, Offset position) {
-    _applyFrame(
+  Future<void> setPosition(int viewId, Offset position) {
+    return _applyFrame(
       viewId,
       (current) => Rect.fromLTWH(position.dx, position.dy, current.width, current.height),
     );
   }
 
-  void setMinimumSize(int viewId, Size size) {
+  Future<void> setMinimumSize(int viewId, Size size) async {
     call(viewId, () => ffi.setMinSize(viewId, size: size), dialogSupports: true);
   }
 
-  void setMaximumSize(int viewId, Size size) {
+  Future<void> setMaximumSize(int viewId, Size size) async {
     call(viewId, () => ffi.setMaxSize(viewId, size: size), dialogSupports: true);
   }
 
-  void setAspectRatio(int viewId, double ratio) {
+  Future<void> setAspectRatio(int viewId, double ratio) async {
     call(viewId, () => ffi.setAspectRatio(viewId, ratio));
   }
 
-  void center(int viewId) => setAlignment(viewId, Alignment.center);
+  Future<void> center(int viewId) => setAlignment(viewId, Alignment.center);
 
-  void setAlignment(int viewId, Alignment alignment, {bool insideParent = false}) {
+  Future<void> setAlignment(int viewId, Alignment alignment, {bool insideParent = false}) async {
     if (host.isDialog(viewId) && insideParent) {
       final parentId = host.dialogParentId(viewId);
       if (parentId == null) return;
       final current = getBounds(viewId);
       if (current == Rect.zero) return;
       final parentBounds = ffi.getBounds(parentId);
-      final pos = calcWindowPositionByParent(
+      final pos = _positionCalculator.calcWindowPositionByParent(
         alignment,
         windowSize: current.size,
         parentBounds: parentBounds,
       );
-      _applyFrame(
+      await _applyFrame(
         viewId,
         (_) => Rect.fromLTWH(pos.dx, pos.dy, current.width, current.height),
       );
@@ -87,14 +90,14 @@ class ViewPositionProxy extends ViewNativeProxy {
 
     final current = getBounds(viewId);
     if (current == Rect.zero) return;
-    final pos = calcWindowPosition(current.size, alignment);
-    _applyFrame(
+    final pos = _positionCalculator.calcWindowPosition(current.size, alignment);
+    await _applyFrame(
       viewId,
       (_) => Rect.fromLTWH(pos.dx, pos.dy, current.width, current.height),
     );
   }
 
-  bool positionPopup(int viewId, Rect bounds) {
+  Future<bool> positionPopup(int viewId, Rect bounds) async {
     if (!host.isPopup(viewId)) return false;
     if (!_geometryAnimation.enabled) {
       return call(viewId, () => ffi.setPopupBounds(viewId, bounds: bounds), dialogSupports: true) ?? false;
@@ -105,11 +108,11 @@ class ViewPositionProxy extends ViewNativeProxy {
       return call(viewId, () => ffi.setPopupBounds(viewId, bounds: bounds), dialogSupports: true) ?? false;
     }
 
-    unawaited(_animateFrame(viewId, current, bounds, dialogSupports: true));
+    await _animateFrame(viewId, current, bounds, dialogSupports: true);
     return true;
   }
 
-  void _applyFrame(int viewId, Rect Function(Rect current) targetFor, {bool dialogSupports = true}) {
+  Future<void> _applyFrame(int viewId, Rect Function(Rect current) targetFor, {bool dialogSupports = true}) async {
     final current = getBounds(viewId);
     if (current == Rect.zero) return;
 
@@ -119,7 +122,7 @@ class ViewPositionProxy extends ViewNativeProxy {
       return;
     }
 
-    unawaited(_animateFrame(viewId, current, target, dialogSupports: dialogSupports));
+    await _animateFrame(viewId, current, target, dialogSupports: dialogSupports);
   }
 
   Future<void> _animateFrame(

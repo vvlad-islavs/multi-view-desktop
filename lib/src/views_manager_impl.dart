@@ -24,6 +24,7 @@ class _ViewsManagerImpl implements ViewsManager {
   late final ViewManagerProxies _proxies;
 
   ViewManagerProxies get proxies => _proxies;
+
   ViewRegistry get _registry => _lifecycle.registry;
 
   // ===========================================================================
@@ -56,22 +57,18 @@ class _ViewsManagerImpl implements ViewsManager {
   final ValueNotifier<List<int>> _dialogsNotifier = ValueNotifier([]);
 
   ValueNotifier<List<int>> get windowsNotifier => _windowsNotifier;
+
   ValueNotifier<List<int>> get dialogsNotifier => _dialogsNotifier;
 
   Iterable<MapEntry<int, ViewWindowEntry>> get windowEntries => _registry.windows.entries;
+
   Iterable<MapEntry<int, ViewDialogEntry>> get dialogEntries => _registry.dialogs.entries;
 
   List<int> get allRealWindowIds => _registry.windows.keys.toList();
+
   List<int> get allShiftedWindowIds => _registry.windows.keys.map((e) => _realToShifted(e)).toList();
 
   List<WindowObserver> get _observers => config.observers;
-
-  /// View id for app-wide native calls (dock badge, taskbar, etc.).
-  int? get _lifecycleViewId {
-    if (_realAnchorId != null && _registry.windows.containsKey(_realAnchorId)) return _realAnchorId;
-    if (_registry.windows.isEmpty) return null;
-    return _registry.windows.keys.reduce((a, b) => a < b ? a : b);
-  }
 
   // ===========================================================================
   // Constructor
@@ -89,31 +86,28 @@ class _ViewsManagerImpl implements ViewsManager {
       invoke: _viewExistChecker,
     );
     final viewAnimator = ViewAnimator();
-    _nativeHost = ViewNativeHost(
-      ffi: _ffiBridge,
-      invoke: _viewExistChecker,
-      registry: registry,
-      lifecycleViewId: () => _lifecycleViewId,
-    );
+    final positionCalculator = WindowPositionCalculator.instance;
+    _nativeHost = ViewNativeHost(ffi: _ffiBridge, invoke: _viewExistChecker, registry: registry);
     _proxies = ViewManagerProxies(
       _nativeHost,
       animator: viewAnimator,
       geometryAnimation: config.generalParams.animation.geometry,
+      positionCalculator: positionCalculator,
     );
     _lifecycle = LifecycleViewsController(
       registry: registry,
       proxies: _proxies,
       ffiBridge: _ffiBridge,
       viewAnimator: viewAnimator,
+      positionCalculator: positionCalculator,
       animation: config.generalParams.animation,
       closeDelegate: closeDelegate,
       cascadeCloseService: cascadeCloseService,
       registerDialog: (parentId, {required dialogId, required isModal}) {
         _modalStateService.registerDialog(parentId, dialogId: dialogId, isModal: isModal);
       },
-      hasPendingDialogCreate: (parentId) => _lifecycle.createCompleters.values.any(
-        (e) => !e.isCompleted && e.isDialog && e.parentId == parentId,
-      ),
+      hasPendingDialogCreate: (parentId) =>
+          _lifecycle.createCompleters.values.any((e) => !e.isCompleted && e.isDialog && e.parentId == parentId),
       hasModalDialog: (parentId) =>
           _modalStateService.getNotifier(parentId).value.firstWhereOrNull((e) => e.isModal) != null,
       onDialogCloseResult: (viewId, res) => _dialogsResults[viewId] = res,
@@ -191,7 +185,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  int createPopup({required int parentRealId, required Size size}) {
+  Future<int> createPopup({required int parentRealId, required Size size}) async {
     if (!_registry.windows.containsKey(parentRealId) && !_registry.dialogs.containsKey(parentRealId)) {
       throw ArgumentError.value(parentRealId, 'Parent error', 'Parent window is not registered');
     }
@@ -210,8 +204,8 @@ class _ViewsManagerImpl implements ViewsManager {
   // ===========================================================================
 
   @override
-  void closeView<T>(int viewId, {T? dialogRes}) {
-    _lifecycle.closeService.closeView<T>(viewId, dialogRes: dialogRes);
+  Future<bool> closeView<T>(int viewId, {T? dialogRes}) {
+    return _lifecycle.closeService.closeView<T>(viewId, dialogRes: dialogRes);
   }
 
   @override
@@ -239,12 +233,12 @@ class _ViewsManagerImpl implements ViewsManager {
   // ===========================================================================
 
   @override
-  void destroyPopup(int viewId) {
+  Future<void> destroyPopup(int viewId) async {
     _lifecycle.closeService.destroyPopup(viewId);
   }
 
   @override
-  bool positionPopup(int viewId, Rect bounds) {
+  Future<bool> positionPopup(int viewId, Rect bounds) async {
     if (!_hasLiveFlutterView(viewId)) return false;
     return _proxies.position.positionPopup(viewId, bounds);
   }
@@ -598,7 +592,7 @@ class _ViewsManagerImpl implements ViewsManager {
     Offset? pos;
     final windowSize = Size(opts.size?.width ?? 800.0, opts.size?.height ?? 600.0);
     if (opts.alignment != null) {
-      pos = calcWindowPosition(windowSize, opts.alignment!);
+      pos = WindowPositionCalculator.instance.calcWindowPosition(windowSize, opts.alignment!);
     }
     int? newViewId;
     try {
@@ -646,7 +640,7 @@ class _ViewsManagerImpl implements ViewsManager {
         _unregisterPopup(viewId);
       }
     } else if (eventName == 'viewCreated') {
-      // do nothing. Create now is sync
+      // do nothing. now create is sync
     } else if (eventName == 'taskbar-callback') {
       config.macosParams.onTaskbarTap?.call();
     } else if (eventName == 'preconfirm-close') {
@@ -786,7 +780,10 @@ class _ViewsManagerImpl implements ViewsManager {
   ViewEntryBase? _viewEntryFor(int viewId) => _registry.entryFor(viewId);
 
   T? _viewExistChecker<T>(int viewId, Function() func, {bool dialogSupports = false}) {
-    final isManaged = _registry.windows.containsKey(viewId) || _registry.dialogs.containsKey(viewId) || _registry.popups.containsKey(viewId);
+    final isManaged =
+        _registry.windows.containsKey(viewId) ||
+        _registry.dialogs.containsKey(viewId) ||
+        _registry.popups.containsKey(viewId);
     if (dialogSupports) {
       if (!isManaged) return null;
     } else {

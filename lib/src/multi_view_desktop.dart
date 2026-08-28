@@ -271,16 +271,21 @@ class MultiViewDesktop {
 
   /// Soft-closes this window. If `setPreventClose(true)` was set, fires
   /// `WindowListener.onWindowClose` instead of destroying the window.
-  void closeWindow() {
-    _manager.closeView(_realId);
+  ///
+  /// Returns `true` when the window finished closing (including close animation),
+  /// or `false` when the close was cancelled (e.g. via `cancelCascadeClose`).
+  Future<bool> closeWindow() {
+    return _manager.closeView(_realId);
   }
 
   /// Closes this dialog and completes the `openDialog` future on the caller side.
   ///
   /// `res` is forwarded to the `await openDialog<T>()` expression. Has no effect
   /// on regular (non-dialog) windows; use `closeWindow` instead.
-  void closeDialog<T>([T? res]) {
-    _manager.closeView<T>(_realId, dialogRes: res);
+  ///
+  /// Returns `true` when the dialog closed successfully.
+  Future<bool> closeDialog<T>([T? res]) {
+    return _manager.closeView<T>(_realId, dialogRes: res);
   }
 
   /// Returns whether close is currently blocked for this window.
@@ -402,46 +407,31 @@ class MultiViewDesktop {
   Offset getPosition() => getBounds().topLeft;
 
   /// Resizes the window to `size` in logical pixels.
-  void setSize(Size size) {
-    _proxies.position.setSize(_realId, size);
-  }
+  Future<void> setSize(Size size) => _proxies.position.setSize(_realId, size);
 
   /// Moves the window so its top-left corner is at `position`.
-  void setPosition(Offset position) {
-    _proxies.position.setPosition(_realId, position);
-  }
+  Future<void> setPosition(Offset position) => _proxies.position.setPosition(_realId, position);
 
   /// Centers the window on the screen that contains the largest portion of it.
-  void center() {
-    _proxies.position.center(_realId);
-  }
+  Future<void> center() => _proxies.position.center(_realId);
 
   /// Positions the window using `alignment` on the display under the cursor.
-  void setAlignment(Alignment alignment) {
-    _proxies.position.setAlignment(_realId, alignment);
-  }
+  Future<void> setAlignment(Alignment alignment) => _proxies.position.setAlignment(_realId, alignment);
 
   /// Repositions this dialog within its parent window bounds using `alignment`.
   ///
   /// Only meaningful for dialog views. Regular windows should use `setAlignment`.
-  void setDialogAlignment(Alignment alignment) {
-    _proxies.position.setAlignment(_realId, alignment, insideParent: true);
-  }
+  Future<void> setDialogAlignment(Alignment alignment) =>
+      _proxies.position.setAlignment(_realId, alignment, insideParent: true);
 
   /// Sets the minimum size the user can resize the window to.
-  void setMinimumSize(Size size) {
-    _proxies.position.setMinimumSize(_realId, size);
-  }
+  Future<void> setMinimumSize(Size size) => _proxies.position.setMinimumSize(_realId, size);
 
   /// Sets the maximum size the user can resize the window to.
-  void setMaximumSize(Size size) {
-    _proxies.position.setMaximumSize(_realId, size);
-  }
+  Future<void> setMaximumSize(Size size) => _proxies.position.setMaximumSize(_realId, size);
 
   /// Locks the content aspect ratio (width / height). Pass `0` to clear.
-  void setAspectRatio(double ratio) {
-    _proxies.position.setAspectRatio(_realId, ratio);
-  }
+  Future<void> setAspectRatio(double ratio) => _proxies.position.setAspectRatio(_realId, ratio);
 
   // ---------------------------------------------------------------------------
   // Per-window: visibility and focus

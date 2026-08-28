@@ -2,7 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 
-import 'utils/calc_window_position.dart';
+import 'utils/window_position_calculator.dart';
 
 // MethodChannel method names (must match native MultiviewDesktopImpl).
 const String kMethodCreateWindow = 'createWindow';
@@ -214,7 +214,7 @@ class NativeChannel {
     final sizeResult = await _staticChannel.invokeMethod<Map>(kMethodGetBounds, _args(viewId));
     if (sizeResult != null) {
       final windowSize = Size((sizeResult['width'] as num).toDouble(), (sizeResult['height'] as num).toDouble());
-      return calcWindowPosition(windowSize, alignment);
+      return WindowPositionCalculator.instance.calcWindowPosition(windowSize, alignment);
     }
     return null;
   }

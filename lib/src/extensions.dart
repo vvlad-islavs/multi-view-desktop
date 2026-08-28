@@ -51,7 +51,7 @@ extension MvdContext on BuildContext {
   ///   child: const Text('Save'),
   /// )
   /// ```
-  void closeDialog<T>([T? res]) => MultiViewDesktop.of(this).closeDialog(res);
+  Future<bool> closeDialog<T>([T? res]) => MultiViewDesktop.of(this).closeDialog(res);
 
   /// `MultiViewDesktop` instance for the window that owns this context.
   ///

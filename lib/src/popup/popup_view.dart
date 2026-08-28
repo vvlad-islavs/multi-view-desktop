@@ -168,7 +168,7 @@ class _PopupViewState extends State<PopupView> {
       _tracker = LocalElementPositionTracker(element: _anchorKey.currentContext ?? context);
       _anchorRect = _tracker?.getGlobalRect();
 
-      final viewId = globalRootState.manager.createPopup(parentRealId: parentRealId, size: const Size(1, 1));
+      final viewId = await globalRootState.manager.createPopup(parentRealId: parentRealId, size: const Size(1, 1));
       if (!mounted) {
         globalRootState.manager.destroyPopup(viewId);
         return;

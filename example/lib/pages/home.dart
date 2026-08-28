@@ -218,7 +218,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
       options: DialogOptions(
         size: const Size(340, 220),
         title: 'Prevent close dialog',
-        modal: false,
+        modal: true,
         isResizable: false,
         alwaysOnTop: false,
         showOnInit: true,

@@ -37,13 +37,18 @@ void main() {
 
       expect(identical(notifier.value, before), isFalse);
     });
-    //
-    // test('disposeView removes notifier', () {
-    //   final notifier = service.getNotifier(3);
-    //   service.disposeView(3);
-    //
-    //   expect(notifier.hasListeners, isFalse);
-    //   expect(() => service.getNotifier(3), returnsNormally);
-    // });
+    test('disposeView removes notifier', () {
+      final notifier = service.getNotifier(3);
+      var disposed = false;
+      notifier.addListener(() {});
+      service.registerDialog(3, dialogId: 1, isModal: true);
+
+      service.disposeView(3);
+      disposed = true;
+
+      expect(disposed, isTrue);
+      // New notifier is created on next access after dispose.
+      expect(service.getNotifier(3).value, isEmpty);
+    });
   });
 }

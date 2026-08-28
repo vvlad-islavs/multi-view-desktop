@@ -18,7 +18,7 @@ import 'impl/window_communicator_impl.dart';
 import 'shared_entry_app.dart';
 import 'app_shell/app_shell_registry.dart';
 import 'view_shell_brightness_sync.dart';
-import 'utils/calc_window_position.dart';
+import 'utils/window_position_calculator.dart';
 import 'utils/mapped_value_notifier.dart';
 import 'view_manager/view_manager_proxies.dart';
 import 'lifecycle/lifecycle_views_controller.dart';

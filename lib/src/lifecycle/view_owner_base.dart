@@ -11,7 +11,7 @@ import 'package:multiview_desktop/src/lifecycle/create_view_error.dart';
 import 'package:multiview_desktop/src/lifecycle/lifecycle_views_controller.dart';
 import 'package:multiview_desktop/src/lifecycle/view_create_completer.dart';
 import 'package:multiview_desktop/src/view_animation_config.dart';
-import 'package:multiview_desktop/src/utils/calc_window_position.dart';
+import 'package:multiview_desktop/src/utils/window_position_calculator.dart';
 import 'package:multiview_desktop/src/view_manager/view_manager_proxies.dart';
 
 typedef ViewCreatedCallback = void Function(int viewId);
@@ -29,6 +29,8 @@ abstract class ViewOwnerBase {
 
   /// Lifecycle-only FFI: create and close-policy hooks without a public proxy.
   FfiBridge get ffi => host.ffiBridge;
+
+  WindowPositionCalculator get positionCalculator => host.positionCalculator;
 
   Map<int, ViewCreateCompleter<int?>> get completers => host.createCompleters;
 
@@ -101,7 +103,7 @@ abstract class ViewOwnerBase {
     Offset? pos;
     final windowSize = Size(opts.size?.width ?? 800.0, opts.size?.height ?? 600.0);
     if (opts.alignment != null) {
-      pos = calcWindowPosition(windowSize, opts.alignment!);
+      pos = positionCalculator.calcWindowPosition(windowSize, opts.alignment!);
     }
 
     final newViewId = ffi.createWindow(

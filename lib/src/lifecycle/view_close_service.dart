@@ -101,15 +101,24 @@ class ViewCloseService {
     }
   }
 
-  void closeView<T>(int viewId, {T? dialogRes}) {
+  Future<bool> closeView<T>(int viewId, {T? dialogRes}) async {
     if (registry.isDialog(viewId)) {
       onDialogCloseResult?.call(viewId, dialogRes);
-      delegate.invoke<void>(viewId, () => ffi.destroyModalDialog(viewId), dialogSupports: true);
-      delegate.disposeView(viewId);
-      return;
+      if (registry.isModalDialog(viewId)) {
+        delegate.invoke<void>(viewId, () => ffi.destroyModalDialog(viewId), dialogSupports: true);
+        delegate.disposeView(viewId);
+        return true;
+      }
     }
 
-    delegate.invoke<void>(viewId, () => ffi.softCloseWindow(viewId));
+    final wait = delegate.invoke<Future<bool>>(viewId, () {
+      cascadeCloseService.attachWindow(viewId);
+      ffi.softCloseWindow(viewId);
+      return cascadeCloseService.waitWindow(viewId);
+    }, dialogSupports: registry.isDialog(viewId));
+
+    if (wait == null) return false;
+    return await wait;
   }
 
   void destroyPopup(int viewId) {
