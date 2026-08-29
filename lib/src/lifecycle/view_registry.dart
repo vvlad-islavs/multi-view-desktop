@@ -63,7 +63,7 @@ class ViewPopupEntry {
   final int parentId;
 }
 
-/// Canonical `_windows` / `_dialogs` / `_popups` maps for lifecycle and native hosts.
+/// `_windows` / `_dialogs` / `_popups` maps for lifecycle and native hosts.
 @internal
 class ViewRegistry {
   final Map<int, ViewWindowEntry> windows = {};

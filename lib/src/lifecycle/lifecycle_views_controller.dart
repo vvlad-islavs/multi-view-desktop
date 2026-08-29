@@ -30,9 +30,7 @@ export 'view_close_service.dart' show ViewCloseService;
 export 'view_owner_base.dart' show ViewCreatedCallback;
 export 'view_options_applier.dart' show ViewOptionsApplier;
 
-/// Central hub for native view lifecycle: open owners, close service, first-frame barrier.
-///
-/// Intended to replace inline logic in `_ViewsManagerImpl`.
+/// Native view lifecycle: open owners, close service, first-frame barrier.
 @internal
 class LifecycleViewsController {
   LifecycleViewsController({

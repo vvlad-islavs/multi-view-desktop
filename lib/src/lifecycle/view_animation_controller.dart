@@ -8,7 +8,7 @@ import 'package:multiview_desktop/src/lifecycle/view_animation_override.dart';
 import 'package:multiview_desktop/src/view_animation_config.dart';
 import 'package:multiview_desktop/src/view_manager/view_manager_proxies.dart';
 
-/// High-level native view animations on top of [ViewAnimator].
+/// Native view animations. Uses [ViewAnimator] for ticks.
 ///
 /// Owns the per-view override map ([stageForceOverride]). Each animate* method
 /// consumes a matching staged override (same [viewId] + [ViewAnimationType]),

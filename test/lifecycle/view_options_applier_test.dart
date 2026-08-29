@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
 import 'package:multiview_desktop/src/lifecycle/view_options_applier.dart';
-import 'package:multiview_desktop/src/title_bar_style.dart';
 
 void main() {
   group('ViewOptionsApplier', () {

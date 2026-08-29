@@ -298,7 +298,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             return false
         }
 
-        // Prefer the anchor window so Dart/native stay in sync after dock click.
+        // Anchor window keeps Dart/native in sync after a dock click.
         let targetId: Int64
         let targetWindow: NSWindow
         if let mainViewId, let anchorWindow = windows[mainViewId], !anchorWindow.isVisible {
@@ -695,8 +695,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     }
 
     /// Soft-close gate events must not call Dart synchronously from
-    /// `windowShouldClose` while the close button is in tracking mode — Flutter
-    /// microtasks (any `await` in the handler) do not run until tracking ends.
+    /// `windowShouldClose` while the close button is in tracking mode.
+    /// Flutter microtasks (any `await` in the handler) do not run until tracking ends.
     private func emitSoftCloseGate(_ eventName: String, viewId: Int64) {
         if mvdFfiEventsAttached() {
             DispatchQueue.main.async { [weak self] in

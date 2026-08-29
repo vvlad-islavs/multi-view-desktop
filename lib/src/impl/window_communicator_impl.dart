@@ -76,7 +76,7 @@ class WindowCommunicatorImpl implements WindowCommunicator {
   /// Closes and removes the per-view stream and children for `viewId`.
   ///
   /// Called automatically by the library when a view is removed from the
-  /// `ViewCollection`.  Do not call this manually.
+  /// `ViewCollection`. Do not call this manually.
   @internal
   Future<void> disposeViewByShiftedId(int viewId) async {
     _viewControllers.remove(viewId)?.close();

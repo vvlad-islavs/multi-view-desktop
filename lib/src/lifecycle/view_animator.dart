@@ -12,7 +12,7 @@ import 'package:meta/meta.dart';
 /// stay on [animate]; the applier stays caller-specific.
 ///
 /// When [fps] is null, [onValue] runs once per completed display frame
-/// ([SchedulerBinding.endOfFrame]) — tied to actual frame boundaries.
+/// ([SchedulerBinding.endOfFrame]).
 ///
 /// When [fps] is set, [Timer.periodic] drives ticks at that fixed rate.
 @internal

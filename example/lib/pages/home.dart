@@ -1,4 +1,4 @@
-// ignore_for_file: avoid_print, use_build_context_synchronously
+// ignore_for_file: use_build_context_synchronously
 
 import 'dart:async';
 import 'dart:io';
@@ -21,34 +21,15 @@ class ConfirmDialog extends StatefulWidget {
   State<ConfirmDialog> createState() => _ConfirmDialogState();
 }
 
-class _ConfirmDialogState extends State<ConfirmDialog> with WindowListener {
-  @override
-  FutureOr<bool> onWindowClose() {
-    final mvd = context.viewController;
-    final info = mvd.getWindowInfo();
-    debugPrint('close view, info: modal - ${info.isModal}, dialog - ${info.isDialog}');
-    mvd.setPreventClose(false);
-    context.closeDialog<bool>(res);
-    return super.onWindowClose();
-  }
-
-  bool? res;
-
+class _ConfirmDialogState extends State<ConfirmDialog> {
   @override
   Widget build(BuildContext ctx) {
-    // ctx.viewController.setPreventClose(true);
     return AlertViewDialog(
       title: 'Close window?',
       content: 'This window has preventClose enabled.',
       actions: [
         TextButton(onPressed: () => ctx.closeDialog(), child: const Text('Cancel')),
-        TextButton(
-          onPressed: () {
-            ctx.closeDialog<bool>(true);
-            res = true;
-          },
-          child: const Text('Close'),
-        ),
+        TextButton(onPressed: () => ctx.closeDialog<bool>(true), child: const Text('Close')),
       ],
     );
   }
@@ -132,7 +113,6 @@ class _HomePageState extends State<HomePage> with WindowListener {
   }
 
   void _viewListener() {
-    // debugPrint('allViews from notif: ${MultiViewDesktop.allWindowIdsNotifier.value}');
     sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
   }
 
@@ -232,7 +212,6 @@ class _HomePageState extends State<HomePage> with WindowListener {
 
     // close all other dialogs
     final allDialogs = DialogScope.of(context).value;
-    debugPrint('allDialog UI: $allDialogs');
     if (allDialogs.isNotEmpty) {
       for (final dialog in allDialogs) {
         // if (dialog.isModal) {
@@ -246,15 +225,6 @@ class _HomePageState extends State<HomePage> with WindowListener {
       // final result = await context.openDialog<bool?>(
       (ctx, id) {
         return ConfirmDialog(key: _dialogKey);
-        // return AlertViewDialog(
-        //   key: _dialogKey,
-        //   title: 'Close window?',
-        //   content: 'This window has preventClose enabled.',
-        //   actions: [
-        //     TextButton(onPressed: () => ctx.closeDialog(), child: const Text('Cancel')),
-        //     TextButton(onPressed: () => ctx.closeDialog<bool>(true), child: const Text('Close')),
-        //   ],
-        // );
       },
       options: DialogOptions(
         size: const Size(340, 220),
@@ -265,11 +235,9 @@ class _HomePageState extends State<HomePage> with WindowListener {
         showOnInit: true,
       ),
     );
-    // MultiViewDesktop.fromId(entry.id).focus();
 
     final accept = await entry.result;
     if (!mounted) return true;
-    debugPrint('диалог завершен: $accept');
     if (accept == true) {
       win.setPreventClose(false);
       win.closeWindow();
@@ -285,14 +253,11 @@ class _HomePageState extends State<HomePage> with WindowListener {
   void _progressBarExample() async {
     final progressLimit = 100;
     final progressStep = 5;
-    debugPrint('Progress example started');
     for (int i = 0; i < progressLimit; i += progressStep) {
       final progress = i / 100;
-      debugPrint('Progress: $progress');
       MultiViewDesktop.setProgressBar(progress);
       await Future.delayed(Duration(milliseconds: 100));
     }
-    debugPrint('Progress completed');
     await Future.delayed(const Duration(milliseconds: 1000));
     MultiViewDesktop.setProgressBar(-1);
   }
@@ -540,7 +505,9 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     child: _tile(
                       'popupView with custom animation',
                       subtitle: 'Native popup anchored to this row',
-                      onTap: () => _popupController2.toggle(animation: AnimationSettings(duration: Duration(seconds: 2), curve: Curves.elasticIn)),
+                      onTap: () => _popupController2.toggle(
+                        animation: AnimationSettings(duration: Duration(seconds: 2), curve: Curves.elasticIn),
+                      ),
                     ),
                   ),
                   _tile(

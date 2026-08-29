@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
-import 'package:multiview_desktop/src/impl/cascade_close_service_impl.dart';
 import 'package:multiview_desktop/src/lifecycle/view_create_completer.dart';
 
 import 'lifecycle_test_harness.dart';

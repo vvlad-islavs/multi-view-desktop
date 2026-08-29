@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multiview_desktop/src/view_manager/view_manager_proxies.dart';
 
 import 'lifecycle_test_harness.dart';
 

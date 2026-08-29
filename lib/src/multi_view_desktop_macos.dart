@@ -9,7 +9,7 @@ import 'package:multiview_desktop/src/view_manager/view_manager_proxies.dart';
 /// On non-macOS platforms these methods are no-ops / return safe defaults
 /// (handled by the native manager).
 class MultiViewDesktopMacos {
-  /// Creates a macOS facade for [realId]. Prefer [MultiViewDesktop.macos].
+  /// Creates a macOS facade for [realId]. Application code uses [MultiViewDesktop.macos].
   @internal
   MultiViewDesktopMacos(this._realId, this._proxies);
 

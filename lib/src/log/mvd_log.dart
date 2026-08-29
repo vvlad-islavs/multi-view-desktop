@@ -4,9 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:multiview_desktop/src/lifecycle/create_view_error.dart';
 import 'package:multiview_desktop/src/log/log_params.dart';
 
-/// Process-wide file logger. Configure once from [LogParams] in `runMultiApp`.
-///
-/// Do not construct; use [MvdLog.instance].
+/// File logger for the process. Configured from [LogParams] in `runMultiApp`.
 @internal
 class MvdLog {
   MvdLog._();
@@ -53,8 +51,6 @@ class MvdLog {
   /// macOS: `~/Library/Caches/multiview_desktop`
   /// Windows: `%LOCALAPPDATA%/multiview_desktop/logs`
   /// Linux: `${XDG_CACHE_HOME:-~/.cache}/multiview_desktop`
-  ///
-  /// Cleared with the OS/user cache, not with a debug-only temp folder.
   static Directory defaultLogDirectory() {
     if (Platform.isMacOS) {
       final home = Platform.environment['HOME'] ?? Directory.systemTemp.path;

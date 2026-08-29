@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
 import 'package:multiview_desktop/src/lifecycle/view_animator.dart';
 import 'package:multiview_desktop/src/lifecycle/view_animation_controller.dart';
 import 'package:multiview_desktop/src/lifecycle/view_registry.dart';
 import 'package:multiview_desktop/src/view_manager/view_manager_proxies.dart';
-import 'package:multiview_desktop/src/view_manager/view_native_host.dart';
 import 'package:multiview_desktop/src/view_animation_config.dart';
 
 import 'lifecycle_test_harness.dart';
@@ -56,7 +54,7 @@ void main() {
   });
 
   group('ViewAnimationController force/soft', () {
-    ViewAnimationController _controller(RecordingFfiBridge ffi, ViewAnimationConfig config) {
+    ViewAnimationController makeController(RecordingFfiBridge ffi, ViewAnimationConfig config) {
       final registry = ViewRegistry();
       final host = ViewNativeHost(
         ffi: ffi,
@@ -74,7 +72,7 @@ void main() {
 
     test('force override runs close fade even when config disables fadeOut', () async {
       final ffi = RecordingFfiBridge();
-      final controller = _controller(ffi, ViewAnimationConfig.disabled);
+      final controller = makeController(ffi, ViewAnimationConfig.disabled);
 
       controller.stageForceOverride(
         7,
@@ -94,7 +92,7 @@ void main() {
 
     test('soft override is not staged when animation type is disabled', () async {
       final ffi = RecordingFfiBridge();
-      final controller = _controller(ffi, ViewAnimationConfig.disabled);
+      final controller = makeController(ffi, ViewAnimationConfig.disabled);
 
       controller.stageSoftOverride(
         7,
@@ -109,13 +107,13 @@ void main() {
         const Rect.fromLTWH(0, 0, 10, 10),
       );
 
-      // Instant set only — no animation ticks beyond the final setFrame.
+      // Instant set only. No animation ticks beyond the final setFrame.
       expect(ffi.callsFor('setFrame'), ['setFrame:7:0.0,0.0,10.0,10.0']);
     });
 
     test('force override animates geometry when geometry policy is disabled', () async {
       final ffi = RecordingFfiBridge();
-      final controller = _controller(ffi, ViewAnimationConfig.disabled);
+      final controller = makeController(ffi, ViewAnimationConfig.disabled);
 
       controller.stageForceOverride(
         7,
@@ -231,7 +229,7 @@ void main() {
 
     test('popup soft override is not staged when popup fade is disabled', () async {
       final ffi = RecordingFfiBridge();
-      final controller = _controller(ffi, ViewAnimationConfig.disabled);
+      final controller = makeController(ffi, ViewAnimationConfig.disabled);
 
       controller.stageSoftOverride(
         9,
@@ -250,7 +248,7 @@ void main() {
 
     test('popup ignores force override', () async {
       final ffi = RecordingFfiBridge();
-      final controller = _controller(ffi, ViewAnimationConfig.disabled);
+      final controller = makeController(ffi, ViewAnimationConfig.disabled);
 
       controller.stageForceOverride(
         9,

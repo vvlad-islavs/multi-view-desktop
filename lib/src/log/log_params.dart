@@ -1,14 +1,10 @@
 /// File-logger settings for `MultiAppConfig.logParams`.
 ///
-/// When [enable] is true, diagnostics are appended to `mvd.log` in a cache
-/// directory that is the same in debug and release:
+/// When [enable] is true, diagnostics are appended to `mvd.log`:
 ///
 /// * macOS: `~/Library/Caches/multiview_desktop`
 /// * Windows: `%LOCALAPPDATA%/multiview_desktop/logs`
 /// * Linux: `${XDG_CACHE_HOME:-~/.cache}/multiview_desktop`
-///
-/// The OS/user cache cleanup removes the files; they are not in a debug-only
-/// temp folder.
 class LogParams {
   /// When false, the file logger is a no-op.
   final bool enable;

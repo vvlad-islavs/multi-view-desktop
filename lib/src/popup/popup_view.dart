@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui' show Offset, Rect, Size;
 
 import 'package:flutter/widgets.dart';
 import 'package:multiview_desktop/src/log/mvd_log.dart';
@@ -15,10 +14,9 @@ import 'package:multiview_desktop/src/window_listener.dart';
 
 /// Anchors a native popup to [child].
 ///
-/// [PopupController] owns the open session: native window, overlay-hosted
-/// child, and fade-on-user-open. This widget only tracks the anchor and
-/// positions the window. Unmounting it (list scroll) hides the window; it
-/// does not close the session or rebuild the child.
+/// [PopupController] owns the native window and the overlay-hosted child.
+/// This widget tracks the anchor and positions the window. Unmounting hides
+/// the window without closing the session or rebuilding the child.
 ///
 /// ```dart
 /// final controller = PopupController();

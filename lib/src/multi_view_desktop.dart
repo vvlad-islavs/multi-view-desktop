@@ -275,11 +275,11 @@ class MultiViewDesktop {
     return _manager.windowType(_realId);
   }
 
-  /// Stages a one-shot **force** animation for [type] on this view.
+  /// Stages a one-shot force animation for [type] on this view.
   ///
   /// Consumed by the next matching operation. Runs even when that animation type
-  /// is disabled in [ViewAnimationConfig]. Prefer method `animation:` params for
-  /// soft timing (only when the type is already enabled). Not used for popups.
+  /// is disabled in [ViewAnimationConfig]. Method `animation:` params apply only
+  /// when that type is already enabled. Not used for popups.
   void setForceAnimation(ViewAnimationType type, AnimationSettings animation) {
     _manager.stageForceViewAnimation(_realId, type, animation: animation);
   }

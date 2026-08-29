@@ -8,7 +8,7 @@ import 'package:meta/meta.dart';
 /// popup `open` / `close`, etc.
 /// Applied only when that animation type is already enabled in [ViewAnimationConfig].
 ///
-/// Force: pass via [MultiViewDesktop.setForceAnimation] — runs once even if the
+/// Force: pass via [MultiViewDesktop.setForceAnimation]. Runs once even if the
 /// type is disabled in config. Force timing wins over soft when both are staged.
 /// Not used for popups (no public view id).
 class AnimationSettings {
@@ -28,7 +28,7 @@ class AnimationSettings {
 /// Identifies which operation the next staged animation override applies to.
 ///
 /// Open/close fade is part of [createWindow], [createDialog], [createPopup],
-/// [closeWindow], [closeDialog], and [closePopup] — not separate animation types.
+/// [closeWindow], [closeDialog], and [closePopup]. Not separate animation types.
 enum ViewAnimationType {
   setSize,
   setPosition,
@@ -47,7 +47,7 @@ enum ViewAnimationType {
 /// Configure via [MultiPlatformParams.animation] in `runMultiApp`.
 ///
 /// Use [ViewAnimationConfig.openClose], [ViewAnimationConfig.geometry], or
-/// [ViewAnimationConfig.all] — each factory owns its parameters.
+/// [ViewAnimationConfig.all]. Each factory owns its parameters.
 ///
 /// When [fps] is null, ticks follow completed display frames (one [onValue] per
 /// [SchedulerBinding.endOfFrame]). When [fps] is set, [Timer.periodic] drives ticks.
@@ -157,7 +157,7 @@ class ViewAnimationConfig {
     );
   }
 
-  /// Position/size animation only (`setSize`, `setPosition`, …).
+  /// Position/size animation only (`setSize`, `setPosition`, ...).
   factory ViewAnimationConfig.geometry({
     int? fps,
     Duration duration = const Duration(milliseconds: 250),

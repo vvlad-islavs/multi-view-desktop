@@ -133,7 +133,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   // ===========================================================================
-  // ViewsManager — ID mapping
+  // ViewsManager: ID mapping
   // ===========================================================================
 
   @override
@@ -143,7 +143,7 @@ class _ViewsManagerImpl implements ViewsManager {
   int realToShiftedId(int viewId) => _realToShifted(viewId);
 
   // ===========================================================================
-  // ViewsManager — create
+  // ViewsManager: create
   // ===========================================================================
 
   @override
@@ -268,7 +268,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   // ===========================================================================
-  // ViewsManager — close
+  // ViewsManager: close
   // ===========================================================================
 
   @override
@@ -330,7 +330,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   // ===========================================================================
-  // ViewsManager — popups
+  // ViewsManager: popups
   // ===========================================================================
 
   @override
@@ -362,7 +362,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   // ===========================================================================
-  // ViewsManager — anchor
+  // ViewsManager: anchor
   // ===========================================================================
 
   @override
@@ -389,7 +389,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   // ===========================================================================
-  // ViewsManager — listeners & introspection
+  // ViewsManager: listeners and introspection
   // ===========================================================================
 
   @override
@@ -409,7 +409,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   // ===========================================================================
-  // ViewsManager — view shell overrides
+  // ViewsManager: view shell overrides
   // ===========================================================================
 
   @override
@@ -446,7 +446,7 @@ class _ViewsManagerImpl implements ViewsManager {
   ViewShellOverrides? getViewShellOverrides(int viewId) => _viewEntryFor(viewId)?.viewShellOverrides.value;
 
   // ===========================================================================
-  // Internal API — root widget & startup
+  // Internal API: root widget and startup
   // ===========================================================================
 
   /// Returns the `ValueNotifier<List<DialogInfo>>` tracking modal dialogs blocking `realViewId`.

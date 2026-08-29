@@ -21,7 +21,6 @@ import 'view_shell_brightness_sync.dart';
 import 'utils/window_position_calculator.dart';
 import 'utils/mapped_value_notifier.dart';
 import 'view_manager/view_manager_proxies.dart';
-import 'view_animation_config.dart' show ViewOpenCloseAnimationPolicy;
 import 'lifecycle/lifecycle_views_controller.dart';
 import 'lifecycle/create_view_error.dart';
 import 'lifecycle/view_registry.dart';
@@ -70,9 +69,8 @@ Widget createMultiViewRoot(
 
 /// The invisible root widget placed at the top of the tree by `runMultiApp`.
 ///
-/// Manages a `ViewCollection` whose entries grow/shrink as windows are
-/// opened or closed.  Each child is wrapped in a `ViewScope` so that any
-/// descendant can call `MultiViewDesktop.getIdByContext`.
+/// Manages a `ViewCollection` whose entries grow and shrink as windows
+/// open or close. Each child is wrapped in a `ViewScope`.
 class _MultiViewRoot extends StatefulWidget {
   const _MultiViewRoot({required this.homeBuilder, required this.config});
 

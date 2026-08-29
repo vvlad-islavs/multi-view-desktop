@@ -217,7 +217,7 @@ class ModelessDialogOwner extends ViewOwnerBase {
   }
 }
 
-/// Modal dialog owner — no fade (native sheet animation on macOS).
+/// Modal dialog owner. No fade; native sheet animation on macOS.
 @internal
 class ModalDialogOwner extends ViewOwnerBase {
   ModalDialogOwner(super.host)

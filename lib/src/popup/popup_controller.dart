@@ -11,10 +11,9 @@ import 'package:multiview_desktop/src/view_root.dart' show globalRootState;
 /// [isOpen] is the source of truth. The native window and popup child live on
 /// this controller for the whole open session:
 /// * [open] / [close] / [toggle] are user intent (close fades, then drops the child).
-/// * If the anchor [PopupView] is unmounted (e.g. scrolled out of a [ListView]),
-///   the native window is only hidden. The child stays mounted under an
-///   [Overlay] entry, so its [State] is kept. A new [PopupView] reattaches
-///   without fading and without rebuilding the child.
+/// * If the anchor [PopupView] is unmounted, the native window is only hidden.
+///   The child stays mounted under an [Overlay] entry, so its [State] is kept.
+///   A new [PopupView] reattaches without fading and without rebuilding the child.
 class PopupController extends ChangeNotifier {
   bool _isOpen = false;
   bool _attached = false;

@@ -178,9 +178,8 @@ class NativeChannel {
     );
   }
 
-  /// Sets size and position in a single atomic native call.
-  /// Prefer this over separate [setSize] + [setPosition] for popups because
-  /// each native `setFrame` triggers a Flutter resize synchronization cycle.
+  /// Sets size and position in a single native call.
+  /// Separate [setSize] + [setPosition] each trigger a Flutter resize cycle.
   Future<bool> setPopupBounds(int viewId, {required Rect bounds}) async {
     return await _staticChannel.invokeMethod<bool>(
           kMethodSetPopupBounds,

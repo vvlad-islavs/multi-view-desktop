@@ -9,9 +9,6 @@ import '../screen_retriever/screen_retriever.dart';
 const int _macTopRectInset = 38;
 
 /// Computes window/dialog offsets from display geometry or a parent frame.
-///
-/// Inject into lifecycle / proxies so unit tests can substitute a fake without
-/// calling [ScreenRetriever].
 @internal
 class WindowPositionCalculator {
   WindowPositionCalculator({Display Function()? resolveDisplay})

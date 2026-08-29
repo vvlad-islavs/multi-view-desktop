@@ -1,14 +1,11 @@
 import 'dart:convert' show utf8;
 import 'dart:ffi' hide Size;
 import 'dart:io';
-import 'dart:ui' show Brightness, Color, Offset, Rect, Size;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show MethodCall;
 import 'package:multiview_desktop/multiview_desktop.dart';
-import 'package:multiview_desktop/src/resize_edge.dart';
-import 'package:multiview_desktop/src/title_bar_style.dart';
 import 'package:multiview_desktop/src/utils/window_position_calculator.dart';
 
 // Native files: MvdFfiBridge.swift, mvd_ffi_bridge.cpp, mvd_ffi_bridge.cc
@@ -268,7 +265,7 @@ abstract class FfiBridge {
     return utf8.decode(bytes.asTypedList(n));
   }
 
-  // Create — native returns the new Flutter view id, or -1 on failure.
+  // Create. Native returns the new Flutter view id, or -1 on failure.
 
   int createWindow({
     required int token,

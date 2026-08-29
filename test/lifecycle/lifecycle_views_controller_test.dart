@@ -1,12 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/lifecycle/create_view_error.dart';
 import 'package:multiview_desktop/src/lifecycle/view_create_completer.dart';
 import 'package:multiview_desktop/src/lifecycle/view_owners.dart';
-import 'package:multiview_desktop/src/view_animation_config.dart';
 
 import 'lifecycle_test_harness.dart';
 

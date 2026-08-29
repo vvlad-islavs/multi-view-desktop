@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 /// In-process message bus between views.
 ///
 /// Because `runMultiApp` uses a single Flutter engine and a single Dart
-/// isolate, all views share memory directly.  `WindowCommunicator` provides
-/// a lightweight routing layer so views can still exchange messages without
+/// isolate, all views share memory directly. `WindowCommunicator` provides
+/// a routing layer so views can still exchange messages without
 /// tight coupling.
 ///
 /// Two addressing modes are supported:

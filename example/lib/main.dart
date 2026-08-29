@@ -32,7 +32,7 @@ void main() {
       ),
       macosParams: MacosPlatformParams(
         closeAppAfterLastWindowClosed: false,
-        saveLastWindowToReopen: false,
+        saveLastWindowToReopen: true,
         onTerminate: () async {
           // do something before terminate
           // for example soft close instead of destroy
