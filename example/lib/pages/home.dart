@@ -456,7 +456,6 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     openWindow(
                           (ctx, viewId) => const HomePage(),
                       options: WindowOptions(size: const Size(1000, 700), alignment: Alignment.center, title: ' '),
-                      animation: AnimationSettings(duration: Duration(seconds: 3), curve: Curves.elasticIn, fps: 50),
                     );
                   },
                 ),

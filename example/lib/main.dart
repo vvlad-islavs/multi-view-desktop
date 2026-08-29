@@ -30,7 +30,7 @@ void main() {
         ],
       ),
       macosParams: MacosPlatformParams(
-        closeAppAfterLastWindowClosed: true,
+        closeAppAfterLastWindowClosed: false,
         saveLastWindowToReopen: false,
         onTerminate: () async {
           // do something before terminate
