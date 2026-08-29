@@ -23,12 +23,12 @@ void main() {
       h.seedDialog(11, parentId: 1, isModal: true);
       h.seedPopup(20, parentId: 1);
 
-      expect(h.lifecycle.ownerFor(1), isA<WindowOwner>());
-      expect(h.lifecycle.ownerFor(2), isA<ChildWindowOwner>());
-      expect(h.lifecycle.ownerFor(10), isA<ModelessDialogOwner>());
-      expect(h.lifecycle.ownerFor(11), isA<ModalDialogOwner>());
-      expect(h.lifecycle.ownerFor(20), isA<PopupOwner>());
-      expect(h.lifecycle.ownerFor(99), isNull);
+      expect(h.closeService.ownerFor(1), isA<WindowOwner>());
+      expect(h.closeService.ownerFor(2), isA<ChildWindowOwner>());
+      expect(h.closeService.ownerFor(10), isA<ModelessDialogOwner>());
+      expect(h.closeService.ownerFor(11), isA<ModalDialogOwner>());
+      expect(h.closeService.ownerFor(20), isA<PopupOwner>());
+      expect(h.closeService.ownerFor(99), isNull);
     });
 
     test('allocateToken increments', () {

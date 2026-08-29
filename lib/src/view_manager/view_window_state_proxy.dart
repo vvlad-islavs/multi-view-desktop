@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
 // ignore: depend_on_referenced_packages
 import 'package:meta/meta.dart';
 import 'package:multiview_desktop/src/resize_edge.dart';
@@ -105,7 +104,7 @@ class ViewWindowStateProxy extends ViewNativeProxy {
   bool isPreventClose(int viewId) => call(viewId, () => ffi.isPreventClose(viewId)) ?? false;
 
   void setPreventClose(int viewId, bool isPreventClose) {
-    call(viewId, () => ffi.setPreventClose(viewId, isPreventClose: isPreventClose));
+    call(viewId, () => ffi.setPreventClose(viewId, isPreventClose: isPreventClose), dialogSupports: false);
   }
 
   void startDragging(int viewId) {

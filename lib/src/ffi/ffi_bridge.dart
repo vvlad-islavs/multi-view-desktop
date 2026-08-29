@@ -824,6 +824,9 @@ class RecordingFfiBridge extends FfiBridge {
   void hide(int viewId) => _rec('hide:$viewId');
 
   @override
+  void focus(int viewId) => _rec('focus:$viewId');
+
+  @override
   void maximize(int viewId, {bool vertically = false}) =>
       _rec('maximize:$viewId:vertically=$vertically');
 
@@ -831,6 +834,12 @@ class RecordingFfiBridge extends FfiBridge {
   void setOpacity(int viewId, double opacity) {
     opacities[viewId] = opacity;
     _rec('setOpacity:$viewId:$opacity');
+  }
+
+  @override
+  void setFrame(int viewId, Rect rect) {
+    frames[viewId] = rect;
+    _rec('setFrame:$viewId:${rect.left},${rect.top},${rect.width},${rect.height}');
   }
 
   @override

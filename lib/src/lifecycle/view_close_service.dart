@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
@@ -15,7 +16,6 @@ class ViewCloseService {
   ViewCloseService({
     required this.lifecycle,
     required this.delegate,
-    required this.resolveOwner,
     CascadeCloseService? cascadeCloseService,
     this.anchorViewId,
     this.onDialogCloseResult,
@@ -27,7 +27,6 @@ class ViewCloseService {
 
   final LifecycleViewsController lifecycle;
   final ViewCloseDelegate delegate;
-  final ViewOwnerBase? Function(int viewId) resolveOwner;
   final CascadeCloseService cascadeCloseService;
 
   /// Anchor view for close-policy promotion (mirrors `_realAnchorId`).
@@ -45,6 +44,17 @@ class ViewCloseService {
   ViewRegistry get registry => lifecycle.registry;
 
   CloseMode closeMode = CloseMode.softCascade;
+
+  /// Waits until [SchedulerPhase.idle]. Used only where close FFI can nest into
+  /// an active frame (fade-out ticks, direct programmatic modal destroy).
+  /// Cascade close from native events is already deferred in `_ViewsManagerImpl`.
+  Future<void> _awaitSchedulerIdle() async {
+    if (BindingBase.debugBindingType() == null) return;
+    final binding = SchedulerBinding.instance;
+    while (binding.schedulerPhase != SchedulerPhase.idle) {
+      await binding.endOfFrame;
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Native close events (wire from `_onStaticCall`).
@@ -64,11 +74,23 @@ class ViewCloseService {
 
     await closeSubtreeByMode(viewId, closeMode);
   }
+  @visibleForTesting
+  ViewOwnerBase? ownerFor(int viewId) {
+    if (registry.isPopup(viewId)) return lifecycle.popupOwner;
+    if (registry.isDialog(viewId)) {
+      return registry.isModalDialog(viewId) ? lifecycle.modalDialogOwner : lifecycle.modelessDialogOwner;
+    }
+    if (registry.isWindow(viewId)) {
+      return registry.windowParentId(viewId) == null ? lifecycle.windowOwner : lifecycle.childWindowOwner;
+    }
+    return null;
+  }
 
   Future<void> handleLastCloseStep(int viewId) async {
     final isModalDialog = registry.isModalDialog(viewId);
 
-    await resolveOwner(viewId)?.close(viewId);
+    await _awaitSchedulerIdle();
+    await ownerFor(viewId)?.close(viewId);
 
     destroyPopupsByParent(viewId);
     removeAllDialogsByParent(viewId);
@@ -102,9 +124,11 @@ class ViewCloseService {
   }
 
   Future<bool> closeView<T>(int viewId, {T? dialogRes}) async {
-    if (registry.isDialog(viewId)) {
+    final isDialog = registry.isDialog(viewId);
+    if (isDialog) {
       onDialogCloseResult?.call(viewId, dialogRes);
       if (registry.isModalDialog(viewId)) {
+        await _awaitSchedulerIdle();
         delegate.invoke<void>(viewId, () => ffi.destroyModalDialog(viewId), dialogSupports: true);
         delegate.disposeView(viewId);
         return true;
@@ -115,7 +139,7 @@ class ViewCloseService {
       cascadeCloseService.attachWindow(viewId);
       ffi.softCloseWindow(viewId);
       return cascadeCloseService.waitWindow(viewId);
-    }, dialogSupports: registry.isDialog(viewId));
+    }, dialogSupports: isDialog);
 
     if (wait == null) return false;
     return await wait;
@@ -181,7 +205,7 @@ class ViewCloseService {
   }
 
   void _removeViewsNone(int rootId) {
-    _preConfirmCloseCallable(rootId);
+    delegate.invoke<void>(rootId, () => _preConfirmCloseCallable(rootId), dialogSupports: true);
   }
 
   Future<void> _removeViewsCascade(int rootId) async {

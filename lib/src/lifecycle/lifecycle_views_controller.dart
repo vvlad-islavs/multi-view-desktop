@@ -9,6 +9,7 @@ import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
 import 'package:multiview_desktop/src/impl/cascade_close_service_impl.dart';
 import 'package:multiview_desktop/src/lifecycle/create_view_error.dart';
 import 'package:multiview_desktop/src/lifecycle/view_animator.dart';
+import 'package:multiview_desktop/src/lifecycle/view_animation_controller.dart';
 import 'package:multiview_desktop/src/lifecycle/view_close_delegate.dart';
 import 'package:multiview_desktop/src/lifecycle/view_registry.dart';
 import 'package:multiview_desktop/src/lifecycle/view_close_service.dart';
@@ -21,6 +22,8 @@ import 'package:multiview_desktop/src/view_manager/view_manager_proxies.dart';
 import 'package:multiview_desktop/src/view_animation_config.dart';
 
 export 'view_animator.dart' show ViewAnimator;
+export 'view_animation_controller.dart' show ViewAnimationController;
+export 'view_animation_override.dart' show ViewAnimationOverride;
 export 'view_registry.dart' show ViewRegistry;
 export 'view_close_delegate.dart' show ViewCloseDelegate;
 export 'view_close_service.dart' show ViewCloseService;
@@ -41,8 +44,8 @@ class LifecycleViewsController {
     required bool Function(int parentId) hasPendingDialogCreate,
     required bool Function(int parentId) hasModalDialog,
     required this.animation,
+    required this.animationController,
     WindowPositionCalculator? positionCalculator,
-    ViewAnimator? viewAnimator,
     ViewCloseService? closeServiceOverride,
     CascadeCloseService? cascadeCloseService,
     void Function(int viewId, dynamic dialogRes)? onDialogCloseResult,
@@ -50,8 +53,7 @@ class LifecycleViewsController {
     VoidCallback? onBeforeCloseApp,
     VoidCallback? onCloseAppAborted,
     VoidCallback? onBeforeForceCloseApp,
-  }) : viewAnimator = viewAnimator ?? const ViewAnimator(),
-       positionCalculator = positionCalculator ?? WindowPositionCalculator.instance,
+  }) : positionCalculator = positionCalculator ?? WindowPositionCalculator.instance,
        _registerDialog = registerDialog,
        _hasPendingDialogCreate = hasPendingDialogCreate,
        _hasModalDialog = hasModalDialog {
@@ -66,7 +68,6 @@ class LifecycleViewsController {
         ViewCloseService(
           lifecycle: this,
           delegate: closeDelegate,
-          resolveOwner: ownerFor,
           cascadeCloseService: cascadeCloseService,
           onDialogCloseResult: onDialogCloseResult,
           onPopupDestroyed: onPopupDestroyed,
@@ -84,7 +85,7 @@ class LifecycleViewsController {
   /// Lifecycle-only FFI: create windows/dialogs/popups and close-policy hooks.
   final FfiBridge ffiBridge;
 
-  final ViewAnimator viewAnimator;
+  final ViewAnimationController animationController;
 
   final WindowPositionCalculator positionCalculator;
 
@@ -113,17 +114,6 @@ class LifecycleViewsController {
   late final ModalDialogOwner modalDialogOwner;
   late final PopupOwner popupOwner;
 
-  ViewOwnerBase? ownerFor(int viewId) {
-    if (registry.isPopup(viewId)) return popupOwner;
-    if (registry.isDialog(viewId)) {
-      return registry.isModalDialog(viewId) ? modalDialogOwner : modelessDialogOwner;
-    }
-    if (registry.isWindow(viewId)) {
-      return registry.windowParentId(viewId) == null ? windowOwner : childWindowOwner;
-    }
-    return null;
-  }
-
   int allocateToken() => _nextToken++;
 
   void registerDialog(int parentId, {required int dialogId, required bool isModal}) {
@@ -146,23 +136,51 @@ class LifecycleViewsController {
   // Typed open API.
   // ---------------------------------------------------------------------------
 
-  Future<int> openWindow({WindowOptions? options, required ViewCreatedCallback onCreated}) =>
-      windowOwner.open(options: options, onCreated: onCreated);
+  Future<int> openWindow({
+    WindowOptions? options,
+    required ViewCreatedCallback onCreated,
+    AnimationSettings? animation,
+  }) =>
+      windowOwner.open(options: options, onCreated: onCreated, animation: animation);
 
-  Future<int> openChildWindow({required int parentId, WindowOptions? options, required ViewCreatedCallback onCreated}) =>
-      childWindowOwner.open(parentId: parentId, options: options, onCreated: onCreated);
+  Future<int> openChildWindow({
+    required int parentId,
+    WindowOptions? options,
+    required ViewCreatedCallback onCreated,
+    AnimationSettings? animation,
+  }) =>
+      childWindowOwner.open(
+        parentId: parentId,
+        options: options,
+        onCreated: onCreated,
+        animation: animation,
+      );
 
   Future<int> openModelessDialog({
     required int parentId,
     DialogOptions? options,
     required ViewCreatedCallback onCreated,
-  }) => modelessDialogOwner.open(parentId: parentId, options: options, onCreated: onCreated);
+    AnimationSettings? animation,
+  }) =>
+      modelessDialogOwner.open(
+        parentId: parentId,
+        options: options,
+        onCreated: onCreated,
+        animation: animation,
+      );
 
   Future<int> openModalDialog({
     required int parentId,
     DialogOptions? options,
     required ViewCreatedCallback onCreated,
-  }) => modalDialogOwner.open(parentId: parentId, options: options, onCreated: onCreated);
+    AnimationSettings? animation,
+  }) =>
+      modalDialogOwner.open(
+        parentId: parentId,
+        options: options,
+        onCreated: onCreated,
+        animation: animation,
+      );
 
   int openPopup({required int parentId, required Size size, required ViewCreatedCallback onCreated}) =>
       popupOwner.open(parentId: parentId, size: size, onCreated: onCreated);

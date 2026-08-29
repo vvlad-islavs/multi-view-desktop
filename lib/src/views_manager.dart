@@ -10,10 +10,20 @@ abstract class ViewsManager {
   int shiftedToRealId(int viewId);
 
   /// Creates a native window and calls `onCreated` with its real view id.
-  Future<int> createWindow({WindowOptions? newOpts, required void Function(int) onCreated, int? parent});
+  Future<int> createWindow({
+    WindowOptions? newOpts,
+    required void Function(int) onCreated,
+    int? parent,
+    AnimationSettings? animation,
+  });
 
   /// Creates a dialog for `parentRealId`. See `DialogOptions` and `openDialog`.
-  Future<int> createDialog({DialogOptions? newOpts, required int parentRealId, required void Function(int) onCreated});
+  Future<int> createDialog({
+    DialogOptions? newOpts,
+    required int parentRealId,
+    required void Function(int) onCreated,
+    AnimationSettings? animation,
+  });
 
   /// Creates a borderless popup owned by `parentRealId`. Returns the real view id.
   Future<int> createPopup({required int parentRealId, required Size size});
@@ -22,11 +32,26 @@ abstract class ViewsManager {
   Future<void> destroyPopup(int viewId);
 
   /// Moves and optionally resizes a popup to [bounds] in logical screen space.
-  Future<bool> positionPopup(int viewId, Rect bounds);
+  Future<bool> positionPopup(
+    int viewId,
+    Rect bounds, {
+    AnimationSettings? animation,
+  });
 
   WindowInfo windowType(int viewId);
 
-  Future<bool> closeView<T>(int viewId, {T? dialogRes});
+  Future<bool> closeView<T>(
+    int viewId, {
+    T? dialogRes,
+    AnimationSettings? animation,
+  });
+
+  /// Stages one-shot animation params for [viewId]; consumed by the next matching animation.
+  void stageForceViewAnimation(
+    int viewId,
+    ViewAnimationType type, {
+    AnimationSettings? animation,
+  });
 
   Future<bool> closeApp({CloseMode? closeMode});
 

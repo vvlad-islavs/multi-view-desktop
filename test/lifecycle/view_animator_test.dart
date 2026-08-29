@@ -1,12 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:multiview_desktop/multiview_desktop.dart';
+import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
 import 'package:multiview_desktop/src/lifecycle/view_animator.dart';
+import 'package:multiview_desktop/src/lifecycle/view_animation_controller.dart';
+import 'package:multiview_desktop/src/lifecycle/view_registry.dart';
+import 'package:multiview_desktop/src/view_manager/view_manager_proxies.dart';
+import 'package:multiview_desktop/src/view_manager/view_native_host.dart';
+import 'package:multiview_desktop/src/view_animation_config.dart';
+
+import 'lifecycle_test_harness.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('ViewAnimator', () {
-    testWidgets('scheduler path reaches to value', (tester) async {
+    testWidgets('endOfFrame path reaches to value when fps is null', (tester) async {
       final values = <double>[];
-      const animator = ViewAnimator();
+      final animator = ViewAnimator();
 
       final future = animator.animate(
         onValue: values.add,
@@ -25,11 +36,10 @@ void main() {
       expect(values.length, greaterThan(2));
     });
 
-    test('timer fps path reaches to value', () async {
+    test('timer path reaches to value at fixed fps', () async {
       final values = <double>[];
-      const animator = ViewAnimator();
+      final animator = ViewAnimator();
 
-      // Uses real DateTime + Timer.periodic — await wall-clock duration.
       final future = animator.animate(
         onValue: values.add,
         from: 1,
@@ -44,4 +54,169 @@ void main() {
       expect(values.last, 0);
     });
   });
+
+  group('ViewAnimationController force/soft', () {
+    ViewAnimationController _controller(RecordingFfiBridge ffi, ViewAnimationConfig config) {
+      final registry = ViewRegistry();
+      final host = ViewNativeHost(
+        ffi: ffi,
+        invoke: <T>(int viewId, T Function() f, {bool dialogSupports = false}) => f(),
+        registry: registry,
+      );
+      final controller = ViewAnimationController(
+        config: config,
+        animator: InstantViewAnimator(),
+      );
+      final proxies = ViewManagerProxies(host, animationController: controller);
+      controller.bindProxies(proxies);
+      return controller;
+    }
+
+    test('force override runs close fade even when config disables fadeOut', () async {
+      final ffi = RecordingFfiBridge();
+      final controller = _controller(ffi, ViewAnimationConfig.disabled);
+
+      controller.stageForceOverride(
+        7,
+        ViewAnimationType.closeWindow,
+        const AnimationSettings(duration: Duration(milliseconds: 20), fps: 50),
+      );
+
+      await controller.animateClose(
+        7,
+        type: ViewAnimationType.closeWindow,
+        policy: ViewOpenCloseAnimationPolicy.disabled,
+      );
+
+      expect(ffi.callsFor('setOpacity'), isNotEmpty);
+      expect(ffi.callsFor('setOpacity').last, 'setOpacity:7:0.0');
+    });
+
+    test('soft override is not staged when animation type is disabled', () async {
+      final ffi = RecordingFfiBridge();
+      final controller = _controller(ffi, ViewAnimationConfig.disabled);
+
+      controller.stageSoftOverride(
+        7,
+        ViewAnimationType.setSize,
+        const AnimationSettings(duration: Duration(milliseconds: 20)),
+      );
+
+      await controller.applyAnimatedFrame(
+        7,
+        ViewAnimationType.setSize,
+        const Rect.fromLTWH(0, 0, 1, 1),
+        const Rect.fromLTWH(0, 0, 10, 10),
+      );
+
+      // Instant set only — no animation ticks beyond the final setFrame.
+      expect(ffi.callsFor('setFrame'), ['setFrame:7:0.0,0.0,10.0,10.0']);
+    });
+
+    test('force override animates geometry when geometry policy is disabled', () async {
+      final ffi = RecordingFfiBridge();
+      final controller = _controller(ffi, ViewAnimationConfig.disabled);
+
+      controller.stageForceOverride(
+        7,
+        ViewAnimationType.setSize,
+        const AnimationSettings(duration: Duration(milliseconds: 20), fps: 50),
+      );
+
+      await controller.applyAnimatedFrame(
+        7,
+        ViewAnimationType.setSize,
+        const Rect.fromLTWH(0, 0, 1, 1),
+        const Rect.fromLTWH(0, 0, 10, 10),
+      );
+
+      expect(ffi.callsFor('setFrame').length, greaterThan(1));
+      expect(ffi.callsFor('setFrame').last, 'setFrame:7:0.0,0.0,10.0,10.0');
+    });
+
+    test('force timing wins over soft when both are staged', () async {
+      final ffi = RecordingFfiBridge();
+      final durations = <Duration>[];
+      final controller = ViewAnimationController(
+        config: ViewAnimationConfig.defaults,
+        animator: _RecordingDurationAnimator(durations),
+      );
+      final registry = ViewRegistry();
+      final host = ViewNativeHost(
+        ffi: ffi,
+        invoke: <T>(int viewId, T Function() f, {bool dialogSupports = false}) => f(),
+        registry: registry,
+      );
+      controller.bindProxies(ViewManagerProxies(host, animationController: controller));
+
+      controller.stageSoftOverride(
+        1,
+        ViewAnimationType.closeWindow,
+        const AnimationSettings(duration: Duration(milliseconds: 500)),
+      );
+      controller.stageForceOverride(
+        1,
+        ViewAnimationType.closeWindow,
+        const AnimationSettings(duration: Duration(milliseconds: 42)),
+      );
+
+      await controller.animateClose(
+        1,
+        type: ViewAnimationType.closeWindow,
+        policy: ViewAnimationConfig.defaults.windowOpenClose,
+      );
+
+      expect(durations, [const Duration(milliseconds: 42)]);
+    });
+
+    test('soft timing applies when animation is enabled and no force is staged', () async {
+      final ffi = RecordingFfiBridge();
+      final durations = <Duration>[];
+      final controller = ViewAnimationController(
+        config: ViewAnimationConfig.defaults,
+        animator: _RecordingDurationAnimator(durations),
+      );
+      final registry = ViewRegistry();
+      final host = ViewNativeHost(
+        ffi: ffi,
+        invoke: <T>(int viewId, T Function() f, {bool dialogSupports = false}) => f(),
+        registry: registry,
+      );
+      controller.bindProxies(ViewManagerProxies(host, animationController: controller));
+
+      controller.stageSoftOverride(
+        1,
+        ViewAnimationType.closeWindow,
+        const AnimationSettings(duration: Duration(milliseconds: 333)),
+      );
+
+      await controller.animateClose(
+        1,
+        type: ViewAnimationType.closeWindow,
+        policy: ViewAnimationConfig.defaults.windowOpenClose,
+      );
+
+      expect(durations, [const Duration(milliseconds: 333)]);
+    });
+  });
+}
+
+class _RecordingDurationAnimator extends ViewAnimator {
+  _RecordingDurationAnimator(this.durations);
+
+  final List<Duration> durations;
+
+  @override
+  Future<void> animate({
+    required void Function(double value) onValue,
+    double from = 0.0,
+    double to = 1.0,
+    Duration duration = const Duration(milliseconds: 180),
+    Curve curve = Curves.easeOutCubic,
+    int? fps,
+  }) async {
+    durations.add(duration);
+    onValue(from);
+    onValue(to);
+  }
 }

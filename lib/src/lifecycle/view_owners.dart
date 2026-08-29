@@ -14,14 +14,19 @@ import 'package:multiview_desktop/src/view_animation_config.dart';
 /// Independent top-level window owner.
 @internal
 class WindowOwner extends ViewOwnerBase {
-  WindowOwner(super.host) : super(fade: host.windowOpenCloseAnimation);
+  WindowOwner(super.host) : super(fade: host.windowOpenCloseAnimation, openCloseType: ViewAnimationType.createWindow);
 
-  Future<int> open({WindowOptions? options, required ViewCreatedCallback onCreated}) async {
+  Future<int> open({
+    WindowOptions? options,
+    required ViewCreatedCallback onCreated,
+    AnimationSettings? animation,
+  }) async {
     final opts = options ?? WindowOptions();
     final viewId = createNativeWindow(opts: opts);
     host.applyWindowOptions(viewId, opts);
     onCreated(viewId);
     trackUntilFirstFrame(viewId, parentId: null, isDialog: false);
+    host.animationController.stageSoftOverride(viewId, ViewAnimationType.createWindow, animation);
     await showAfterFirstFrame(viewId);
     return viewId;
   }
@@ -33,9 +38,15 @@ class WindowOwner extends ViewOwnerBase {
 /// Child window owner (`parentId` set at native create).
 @internal
 class ChildWindowOwner extends ViewOwnerBase {
-  ChildWindowOwner(super.host) : super(fade: host.windowOpenCloseAnimation);
+  ChildWindowOwner(super.host)
+    : super(fade: host.windowOpenCloseAnimation, openCloseType: ViewAnimationType.createWindow);
 
-  Future<int> open({required int parentId, WindowOptions? options, required ViewCreatedCallback onCreated}) async {
+  Future<int> open({
+    required int parentId,
+    WindowOptions? options,
+    required ViewCreatedCallback onCreated,
+    AnimationSettings? animation,
+  }) async {
     if (!host.isWindowRegistered(parentId)) {
       throw ArgumentError.value(parentId, 'parentId', 'Parent window is not registered');
     }
@@ -45,6 +56,7 @@ class ChildWindowOwner extends ViewOwnerBase {
     host.applyWindowOptions(viewId, opts);
     onCreated(viewId);
     trackUntilFirstFrame(viewId, parentId: parentId, isDialog: false);
+    host.animationController.stageSoftOverride(viewId, ViewAnimationType.createWindow, animation);
     await showAfterFirstFrame(viewId);
     return viewId;
   }
@@ -56,11 +68,17 @@ class ChildWindowOwner extends ViewOwnerBase {
 /// Shared dialog open pipeline.
 @internal
 class DialogOwner extends ViewOwnerBase {
-  DialogOwner(super.host, {required this.modal, required ViewOpenCloseAnimationPolicy fadeConfig}) : super(fade: fadeConfig);
+  DialogOwner(super.host, {required this.modal, required ViewOpenCloseAnimationPolicy fadeConfig})
+    : super(fade: fadeConfig, openCloseType: ViewAnimationType.createDialog);
 
   final bool modal;
 
-  Future<int> open({required int parentId, required DialogOptions opts, required ViewCreatedCallback onCreated}) async {
+  Future<int> open({
+    required int parentId,
+    required DialogOptions opts,
+    required ViewCreatedCallback onCreated,
+    AnimationSettings? animation,
+  }) async {
     if (!host.isWindowRegistered(parentId)) {
       throw ArgumentError.value(parentId, 'parentId', 'Parent window is not registered');
     }
@@ -125,6 +143,7 @@ class DialogOwner extends ViewOwnerBase {
           ffi.completeModalDialogCreate(viewId);
         }
       } else {
+        host.animationController.stageSoftOverride(viewId, ViewAnimationType.createDialog, animation);
         await showWithFadeIn(viewId);
       }
     }
@@ -135,7 +154,11 @@ class DialogOwner extends ViewOwnerBase {
   }
 
   @override
-  Future<void> close(int viewId) => fadeOut(viewId);
+  Future<void> close(int viewId) async {
+    final isModal = host.registry.isModalDialog(viewId);
+    if (isModal) return;
+    return fadeOut(viewId);
+  }
 }
 
 /// Modeless dialog owner.
@@ -143,12 +166,16 @@ class DialogOwner extends ViewOwnerBase {
 class ModelessDialogOwner extends ViewOwnerBase {
   ModelessDialogOwner(super.host)
     : _delegate = DialogOwner(host, modal: false, fadeConfig: host.modelessDialogOpenCloseAnimation),
-      super(fade: host.modelessDialogOpenCloseAnimation);
+      super(fade: host.modelessDialogOpenCloseAnimation, openCloseType: ViewAnimationType.createDialog);
 
   final DialogOwner _delegate;
 
-  Future<int> open({required int parentId, DialogOptions? options, required ViewCreatedCallback onCreated}) =>
-      _delegate.open(parentId: parentId, opts: _asModeless(options), onCreated: onCreated);
+  Future<int> open({
+    required int parentId,
+    DialogOptions? options,
+    required ViewCreatedCallback onCreated,
+    AnimationSettings? animation,
+  }) => _delegate.open(parentId: parentId, opts: _asModeless(options), onCreated: onCreated, animation: animation);
 
   @override
   Future<void> close(int viewId) => _delegate.close(viewId);
@@ -177,12 +204,16 @@ class ModelessDialogOwner extends ViewOwnerBase {
 class ModalDialogOwner extends ViewOwnerBase {
   ModalDialogOwner(super.host)
     : _delegate = DialogOwner(host, modal: true, fadeConfig: host.modalDialogOpenCloseAnimation),
-      super(fade: host.modalDialogOpenCloseAnimation);
+      super(fade: host.modalDialogOpenCloseAnimation, openCloseType: ViewAnimationType.createDialog);
 
   final DialogOwner _delegate;
 
-  Future<int> open({required int parentId, DialogOptions? options, required ViewCreatedCallback onCreated}) =>
-      _delegate.open(parentId: parentId, opts: _asModal(options), onCreated: onCreated);
+  Future<int> open({
+    required int parentId,
+    DialogOptions? options,
+    required ViewCreatedCallback onCreated,
+    AnimationSettings? animation,
+  }) => _delegate.open(parentId: parentId, opts: _asModal(options), onCreated: onCreated, animation: animation);
 
   @override
   Future<void> close(int viewId) => _delegate.close(viewId);
@@ -209,7 +240,8 @@ class ModalDialogOwner extends ViewOwnerBase {
 /// Popup owner — open/close fade not configured yet.
 @internal
 class PopupOwner extends ViewOwnerBase {
-  PopupOwner(super.host) : super(fade: ViewOpenCloseAnimationPolicy.disabled);
+  PopupOwner(super.host)
+    : super(fade: ViewOpenCloseAnimationPolicy.disabled, openCloseType: ViewAnimationType.createWindow);
 
   int open({required int parentId, required Size size, required ViewCreatedCallback onCreated}) {
     if (!host.isViewRegistered(parentId)) {

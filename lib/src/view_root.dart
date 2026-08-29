@@ -21,6 +21,7 @@ import 'view_shell_brightness_sync.dart';
 import 'utils/window_position_calculator.dart';
 import 'utils/mapped_value_notifier.dart';
 import 'view_manager/view_manager_proxies.dart';
+import 'view_animation_config.dart' show ViewOpenCloseAnimationPolicy;
 import 'lifecycle/lifecycle_views_controller.dart';
 import 'lifecycle/create_view_error.dart';
 import 'lifecycle/view_registry.dart';

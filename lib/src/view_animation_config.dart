@@ -2,6 +2,42 @@ import 'package:flutter/animation.dart';
 // ignore: depend_on_referenced_packages
 import 'package:meta/meta.dart';
 
+/// Per-call timing overrides for a single native view animation.
+///
+/// Soft: pass as `animation:` on `openWindow`, `setSize`, `closeWindow`, etc.
+/// Applied only when that animation type is already enabled in [ViewAnimationConfig].
+///
+/// Force: pass via [MultiViewDesktop.setForceAnimation] — runs once even if the
+/// type is disabled in config. Force timing wins over soft when both are staged.
+class AnimationSettings {
+  const AnimationSettings({
+    this.duration,
+    this.curve,
+    this.fps,
+  });
+
+  final Duration? duration;
+  final Curve? curve;
+  final int? fps;
+
+  bool get isEmpty => duration == null && curve == null && fps == null;
+}
+
+/// Identifies which operation the next staged animation override applies to.
+///
+/// Open/close fade is part of [createWindow], [createDialog], [closeWindow], and
+/// [closeDialog] — not separate animation types.
+enum ViewAnimationType {
+  setSize,
+  setPosition,
+  setAlignment,
+  positionPopup,
+  createWindow,
+  createDialog,
+  closeWindow,
+  closeDialog,
+}
+
 /// Application-wide native view animation policy.
 ///
 /// Configure via [MultiPlatformParams.animation] in `runMultiApp`.
@@ -9,8 +45,8 @@ import 'package:meta/meta.dart';
 /// Use [ViewAnimationConfig.openClose], [ViewAnimationConfig.geometry], or
 /// [ViewAnimationConfig.all] — each factory owns its parameters.
 ///
-/// When [fps] is null, ticks use [SchedulerBinding] (display refresh).
-/// When [fps] is set, a fixed-rate timer is used instead.
+/// When [fps] is null, ticks follow completed display frames (one [onValue] per
+/// [SchedulerBinding.endOfFrame]). When [fps] is set, [Timer.periodic] drives ticks.
 class ViewAnimationConfig {
   const ViewAnimationConfig._({
     required this.windowOpenClose,
@@ -119,19 +155,19 @@ class ViewAnimationConfig {
   factory ViewAnimationConfig.all({
     int? fps,
     Curve openCloseCurve = Curves.easeIn,
-    Duration windowOpenDuration = const Duration(milliseconds: 150),
-    Duration windowCloseDuration = const Duration(milliseconds: 150),
-    Duration modelessOpenDuration = const Duration(milliseconds: 500),
-    Duration modelessCloseDuration = const Duration(milliseconds: 500),
+    Duration windowOpenDuration = const Duration(milliseconds: 50),
+    Duration windowCloseDuration = const Duration(milliseconds: 50),
+    Duration modelessOpenDuration = const Duration(milliseconds: 150),
+    Duration modelessCloseDuration = const Duration(milliseconds: 150),
     bool windowFadeInOnOpen = true,
     bool windowFadeOutOnClose = true,
     bool modelessFadeInOnOpen = true,
     bool modelessFadeOutOnClose = true,
     bool modalFadeInOnOpen = false,
     bool modalFadeOutOnClose = false,
-    Duration modalOpenDuration = const Duration(milliseconds: 500),
-    Duration modalCloseDuration = const Duration(milliseconds: 500),
-    Duration geometryDuration = const Duration(milliseconds: 250),
+    Duration modalOpenDuration = const Duration(milliseconds: 150),
+    Duration modalCloseDuration = const Duration(milliseconds: 150),
+    Duration geometryDuration = const Duration(milliseconds: 50),
     Curve geometryCurve = Curves.easeInOut,
   }) {
     return ViewAnimationConfig._(

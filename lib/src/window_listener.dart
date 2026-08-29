@@ -110,9 +110,7 @@ mixin WindowListener<T extends StatefulWidget> on State<T> implements WindowList
   }
 
   @override
-  FutureOr<bool> onWindowClose() {
-    return true;
-  }
+  FutureOr<bool> onWindowClose() => true;
 
   @override
   void onWindowFocus() {}

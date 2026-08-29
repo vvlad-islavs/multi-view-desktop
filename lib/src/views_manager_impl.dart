@@ -86,19 +86,23 @@ class _ViewsManagerImpl implements ViewsManager {
       invoke: _viewExistChecker,
     );
     final viewAnimator = ViewAnimator();
+    final animationController = ViewAnimationController(
+      config: config.generalParams.animation,
+      animator: viewAnimator,
+    );
     final positionCalculator = WindowPositionCalculator.instance;
     _nativeHost = ViewNativeHost(ffi: _ffiBridge, invoke: _viewExistChecker, registry: registry);
     _proxies = ViewManagerProxies(
       _nativeHost,
-      animator: viewAnimator,
-      geometryAnimation: config.generalParams.animation.geometry,
+      animationController: animationController,
       positionCalculator: positionCalculator,
     );
+    animationController.bindProxies(_proxies);
     _lifecycle = LifecycleViewsController(
       registry: registry,
       proxies: _proxies,
       ffiBridge: _ffiBridge,
-      viewAnimator: viewAnimator,
+      animationController: animationController,
       positionCalculator: positionCalculator,
       animation: config.generalParams.animation,
       closeDelegate: closeDelegate,
@@ -146,7 +150,12 @@ class _ViewsManagerImpl implements ViewsManager {
   // ===========================================================================
 
   @override
-  Future<int> createWindow({WindowOptions? newOpts, required void Function(int) onCreated, int? parent}) {
+  Future<int> createWindow({
+    WindowOptions? newOpts,
+    required void Function(int) onCreated,
+    int? parent,
+    AnimationSettings? animation,
+  }) {
     if (parent != null && !_registry.windows.containsKey(parent)) {
       throw ArgumentError.value(parent, 'Parent error', 'Parent window is not registered');
     }
@@ -154,9 +163,14 @@ class _ViewsManagerImpl implements ViewsManager {
     final comparedOpts = _compareGlobalAndNewOpts(preferred: newOpts, global: config.globalWindowOptions);
 
     if (parent == null) {
-      return _lifecycle.openWindow(options: comparedOpts, onCreated: onCreated);
+      return _lifecycle.openWindow(options: comparedOpts, onCreated: onCreated, animation: animation);
     }
-    return _lifecycle.openChildWindow(parentId: parent, options: comparedOpts, onCreated: onCreated);
+    return _lifecycle.openChildWindow(
+      parentId: parent,
+      options: comparedOpts,
+      onCreated: onCreated,
+      animation: animation,
+    );
   }
 
   @override
@@ -164,6 +178,7 @@ class _ViewsManagerImpl implements ViewsManager {
     DialogOptions? newOpts,
     required int parentRealId,
     required void Function(int) onCreated,
+    AnimationSettings? animation,
   }) async {
     if (!_registry.windows.containsKey(parentRealId)) {
       throw ArgumentError.value(parentRealId, 'Parent error', 'Parent window is not registered');
@@ -179,9 +194,19 @@ class _ViewsManagerImpl implements ViewsManager {
     }
 
     if (comparedOpts.modal ?? false) {
-      return _lifecycle.openModalDialog(parentId: parentRealId, options: comparedOpts, onCreated: onCreated);
+      return _lifecycle.openModalDialog(
+        parentId: parentRealId,
+        options: comparedOpts,
+        onCreated: onCreated,
+        animation: animation,
+      );
     }
-    return _lifecycle.openModelessDialog(parentId: parentRealId, options: comparedOpts, onCreated: onCreated);
+    return _lifecycle.openModelessDialog(
+      parentId: parentRealId,
+      options: comparedOpts,
+      onCreated: onCreated,
+      animation: animation,
+    );
   }
 
   @override
@@ -204,8 +229,20 @@ class _ViewsManagerImpl implements ViewsManager {
   // ===========================================================================
 
   @override
-  Future<bool> closeView<T>(int viewId, {T? dialogRes}) {
+  Future<bool> closeView<T>(int viewId, {T? dialogRes, AnimationSettings? animation}) {
+    if (!_registry.isModalDialog(viewId)) {
+      _lifecycle.animationController.stageSoftOverride(
+        viewId,
+        _registry.isDialog(viewId) ? ViewAnimationType.closeDialog : ViewAnimationType.closeWindow,
+        animation,
+      );
+    }
     return _lifecycle.closeService.closeView<T>(viewId, dialogRes: dialogRes);
+  }
+
+  @override
+  void stageForceViewAnimation(int viewId, ViewAnimationType type, {AnimationSettings? animation}) {
+    _lifecycle.animationController.stageForceOverride(viewId, type, animation);
   }
 
   @override
@@ -238,9 +275,9 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  Future<bool> positionPopup(int viewId, Rect bounds) async {
+  Future<bool> positionPopup(int viewId, Rect bounds, {AnimationSettings? animation}) async {
     if (!_hasLiveFlutterView(viewId)) return false;
-    return _proxies.position.positionPopup(viewId, bounds);
+    return _proxies.position.positionPopup(viewId, bounds, animation: animation);
   }
 
   // ===========================================================================
@@ -629,6 +666,23 @@ class _ViewsManagerImpl implements ViewsManager {
   // Native FFI events
   // ===========================================================================
 
+  /// Defers close orchestration until after the current frame fully completes.
+  ///
+  /// [SchedulerBinding.endOfFrame] completes only when draw + all post-frame
+  /// callbacks are done - then `step` runs with scheduler back at [SchedulerPhase.idle].
+  ///
+  /// Do not use [SchedulerBinding.addPostFrameCallback] here: that callback runs
+  /// during [SchedulerPhase.postFrameCallbacks], still inside the frame pipeline.
+  ///
+  /// Do not call [SchedulerBinding.scheduleFrame] here: from the native event
+  /// callback it can synchronously re-enter `beginFrame` while a frame is active.
+  /// [endOfFrame] already schedules a frame when [SchedulerPhase.idle].
+  void _deferCloseServiceStep(Future<void> Function() step) {
+    WidgetsBinding.instance.endOfFrame.then((_) {
+      unawaited(step());
+    });
+  }
+
   dynamic _onStaticCall(MethodCall call) {
     if (call.method != 'onEvent') return null;
 
@@ -646,12 +700,12 @@ class _ViewsManagerImpl implements ViewsManager {
     } else if (eventName == 'preconfirm-close') {
       final int? viewId = call.arguments['viewId'] as int?;
       if (viewId != null) {
-        unawaited(_lifecycle.closeService.handeFirstCloseStep(viewId));
+        _deferCloseServiceStep(() => _lifecycle.closeService.handeFirstCloseStep(viewId));
       }
     } else if (eventName == 'confirm-close') {
       final int? viewId = call.arguments['viewId'] as int?;
       if (viewId != null) {
-        unawaited(_lifecycle.closeService.handleLastCloseStep(viewId));
+        _deferCloseServiceStep(() => _lifecycle.closeService.handleLastCloseStep(viewId));
       }
     } else if (eventName == 'applicationShouldTerminateRequest') {
       unawaited(_macosOnShouldAppTerminate());

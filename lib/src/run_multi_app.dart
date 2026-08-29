@@ -204,7 +204,14 @@ Future<int> openWindow(
   Widget Function(BuildContext context, int publicId) childBuilder, {
   WindowOptions? options,
   BuildContext? parentContext,
-}) => MultiViewDesktop.addWindow(childBuilder, options: options, parent: parentContext);
+  AnimationSettings? animation,
+}) =>
+    MultiViewDesktop.addWindow(
+      childBuilder,
+      options: options,
+      parent: parentContext,
+      animation: animation,
+    );
 
 /// Opens a dialog window tied to `parentContext`.
 ///
@@ -234,7 +241,14 @@ Future<T?> openDialog<T>(
   Widget Function(BuildContext context, int publicId) childBuilder, {
   required BuildContext parentContext,
   DialogOptions? options,
-}) => MultiViewDesktop.addDialog(childBuilder, parentContext: parentContext, options: options);
+  AnimationSettings? animation,
+}) =>
+    MultiViewDesktop.addDialog<T>(
+      childBuilder,
+      parentContext: parentContext,
+      options: options,
+      animation: animation,
+    );
 
 class DialogEntry<T> {
   final int id;
@@ -271,4 +285,11 @@ Future<DialogEntry<T?>> openDialogEntry<T>(
   Widget Function(BuildContext context, int publicId) childBuilder, {
   required BuildContext parentContext,
   DialogOptions? options,
-}) => MultiViewDesktop.addDialogEntry(childBuilder, parentContext: parentContext, options: options);
+  AnimationSettings? animation,
+}) =>
+    MultiViewDesktop.addDialogEntry<T>(
+      childBuilder,
+      parentContext: parentContext,
+      options: options,
+      animation: animation,
+    );

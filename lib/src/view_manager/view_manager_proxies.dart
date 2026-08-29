@@ -1,8 +1,7 @@
 // ignore: depend_on_referenced_packages
 import 'package:meta/meta.dart';
-import 'package:multiview_desktop/src/lifecycle/view_animator.dart';
+import 'package:multiview_desktop/src/lifecycle/view_animation_controller.dart';
 import 'package:multiview_desktop/src/utils/window_position_calculator.dart';
-import 'package:multiview_desktop/src/view_animation_config.dart';
 import 'package:multiview_desktop/src/view_manager/view_appearance_proxy.dart';
 import 'package:multiview_desktop/src/view_manager/view_input_proxy.dart';
 import 'package:multiview_desktop/src/view_manager/view_native_host.dart';
@@ -24,13 +23,11 @@ export 'view_window_state_proxy.dart' show ViewWindowStateProxy;
 class ViewManagerProxies {
   ViewManagerProxies(
     ViewNativeHost host, {
-    required ViewAnimator animator,
-    required ViewGeometryAnimationPolicy geometryAnimation,
+    required ViewAnimationController animationController,
     WindowPositionCalculator? positionCalculator,
   })  : position = ViewPositionProxy(
           host,
-          animator: animator,
-          geometryAnimation: geometryAnimation,
+          animationController: animationController,
           positionCalculator: positionCalculator,
         ),
         appearance = ViewAppearanceProxy(host),

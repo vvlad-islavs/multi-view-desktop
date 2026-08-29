@@ -19,10 +19,13 @@ typedef ViewCreatedCallback = void Function(int viewId);
 /// Shared open/wait helpers; [fade] controls open/close animations.
 @internal
 abstract class ViewOwnerBase {
-  ViewOwnerBase(this.host, {required this.fade});
+  ViewOwnerBase(this.host, {required this.fade, required this.openCloseType});
 
   final LifecycleViewsController host;
   final ViewOpenCloseAnimationPolicy fade;
+
+  /// Staged override / animate* type for this owner's open/close fade.
+  final ViewAnimationType openCloseType;
 
   /// View-scoped native calls (invoke guard).
   ViewManagerProxies get proxies => host.proxies;
@@ -36,26 +39,17 @@ abstract class ViewOwnerBase {
 
   static const int nativeCreateToken = 0;
 
-  Future<void> fadeIn(int viewId) async {
-    if (!fade.fadeInOnOpen) return;
-    await host.viewAnimator.animate(
-      onValue: (value) => proxies.appearance.setOpacity(viewId, value),
-      duration: fade.openDuration,
-      curve: fade.curve,
-      fps: fade.fps,
-    );
-  }
+  ViewAnimationType get _closeType => switch (openCloseType) {
+        ViewAnimationType.createWindow => ViewAnimationType.closeWindow,
+        ViewAnimationType.createDialog => ViewAnimationType.closeDialog,
+        _ => openCloseType,
+      };
 
-  /// Fade-out step before native teardown; invoked by [ViewCloseService] and [close].
-  Future<void> fadeOut(int viewId) async {
-    if (!fade.fadeOutOnClose) return;
-    await host.viewAnimator.animate(
-      onValue: (value) => proxies.appearance.setOpacity(viewId, value),
-      from: 1,
-      to: 0,
-      duration: fade.closeDuration,
-      curve: fade.curve,
-      fps: fade.fps,
+  Future<void> fadeOut(int viewId) {
+    return host.animationController.animateClose(
+      viewId,
+      type: _closeType,
+      policy: fade,
     );
   }
 
@@ -79,18 +73,10 @@ abstract class ViewOwnerBase {
 
   /// Shows the window and runs open fade in parallel (opacity 0 → 1).
   Future<void> showWithFadeIn(int viewId) async {
-    if (!fade.fadeInOnOpen) {
-      proxies.state.show(viewId);
-      return;
-    }
-    proxies.appearance.setOpacity(viewId, 0);
-    proxies.state.show(viewId);
-
-    await host.viewAnimator.animate(
-      onValue: (value) => proxies.appearance.setOpacity(viewId, value),
-      duration: fade.openDuration,
-      curve: fade.curve,
-      fps: fade.fps,
+    await host.animationController.animateOpen(
+      viewId,
+      type: openCloseType,
+      policy: fade,
     );
   }
 

@@ -7,6 +7,7 @@ import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
 import 'package:multiview_desktop/src/impl/cascade_close_service_impl.dart';
 import 'package:multiview_desktop/src/lifecycle/lifecycle_views_controller.dart';
 import 'package:multiview_desktop/src/lifecycle/view_animator.dart';
+import 'package:multiview_desktop/src/lifecycle/view_animation_controller.dart';
 import 'package:multiview_desktop/src/lifecycle/view_close_service.dart';
 import 'package:multiview_desktop/src/lifecycle/view_registry.dart';
 import 'package:multiview_desktop/src/utils/window_position_calculator.dart';
@@ -15,7 +16,7 @@ import 'package:multiview_desktop/src/view_manager/view_manager_proxies.dart';
 
 /// Instant no-op animator for unit tests.
 class InstantViewAnimator extends ViewAnimator {
-  const InstantViewAnimator();
+  InstantViewAnimator();
 
   @override
   Future<void> animate({
@@ -69,6 +70,7 @@ class LifecycleTestHarness {
     ViewAnimationConfig animation = ViewAnimationConfig.disabled,
     WindowPositionCalculator? positionCalculator,
   }) {
+    TestWidgetsFlutterBinding.ensureInitialized();
     ffi = RecordingFfiBridge();
     registry = ViewRegistry();
     cascade = CascadeCloseService();
@@ -92,13 +94,18 @@ class LifecycleTestHarness {
       return func();
     }
 
+    final animator = InstantViewAnimator();
+    final animationController = ViewAnimationController(
+      config: animation,
+      animator: animator,
+    );
     host = ViewNativeHost(ffi: ffi, invoke: invoke, registry: registry);
     proxies = ViewManagerProxies(
       host,
-      animator: const InstantViewAnimator(),
-      geometryAnimation: ViewGeometryAnimationPolicy.disabled,
+      animationController: animationController,
       positionCalculator: this.positionCalculator,
     );
+    animationController.bindProxies(proxies);
 
     final delegate = ViewCloseDelegate(
       disposeView: (id) {
@@ -133,7 +140,7 @@ class LifecycleTestHarness {
       hasModalDialog: (parentId) =>
           registry.dialogs.values.any((d) => d.parentId == parentId && d.isModal),
       animation: animation,
-      viewAnimator: const InstantViewAnimator(),
+      animationController: animationController,
       cascadeCloseService: cascade,
       onDialogCloseResult: (id, res) => dialogResults.add((id, res)),
       onPopupDestroyed: (id) => popupDestroyed.add(id),

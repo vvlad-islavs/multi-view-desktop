@@ -105,6 +105,7 @@ class MultiViewDesktop {
     Widget Function(BuildContext context, int publicId) child, {
     WindowOptions? options,
     BuildContext? parent,
+    AnimationSettings? animation,
   }) async {
     final parentId = parent == null ? null : _getRealId(parent);
 
@@ -120,6 +121,7 @@ class MultiViewDesktop {
         );
       },
       parent: parentId,
+      animation: animation,
     );
 
     return _manager.realToShiftedId(realId);
@@ -133,6 +135,7 @@ class MultiViewDesktop {
     Widget Function(BuildContext context, int publicId) child, {
     required BuildContext parentContext,
     DialogOptions? options,
+    AnimationSettings? animation,
   }) async {
     final parentRealId = _getRealId(parentContext);
     final completer = Completer<T>();
@@ -151,6 +154,7 @@ class MultiViewDesktop {
           shellOverrides: options?.shellOverrides,
         );
       },
+      animation: animation,
     );
 
     return completer.future;
@@ -164,6 +168,7 @@ class MultiViewDesktop {
     Widget Function(BuildContext context, int publicId) child, {
     required BuildContext parentContext,
     DialogOptions? options,
+    AnimationSettings? animation,
   }) async {
     final parentRealId = _getRealId(parentContext);
     final completer = Completer<T>();
@@ -181,6 +186,7 @@ class MultiViewDesktop {
           shellOverrides: options?.shellOverrides,
         );
       },
+      animation: animation,
     );
 
     return DialogEntry(id: _manager.realToShiftedId(realId), result: completer.future);
@@ -269,13 +275,22 @@ class MultiViewDesktop {
     return _manager.windowType(_realId);
   }
 
+  /// Stages a one-shot **force** animation for [type] on this view.
+  ///
+  /// Consumed by the next matching operation. Runs even when that animation type
+  /// is disabled in [ViewAnimationConfig]. Prefer method `animation:` params for
+  /// soft timing (only when the type is already enabled).
+  void setForceAnimation(ViewAnimationType type, AnimationSettings animation) {
+    _manager.stageForceViewAnimation(_realId, type, animation: animation);
+  }
+
   /// Soft-closes this window. If `setPreventClose(true)` was set, fires
   /// `WindowListener.onWindowClose` instead of destroying the window.
   ///
   /// Returns `true` when the window finished closing (including close animation),
   /// or `false` when the close was cancelled (e.g. via `cancelCascadeClose`).
-  Future<bool> closeWindow() {
-    return _manager.closeView(_realId);
+  Future<bool> closeWindow({AnimationSettings? animation}) {
+    return _manager.closeView(_realId, animation: animation);
   }
 
   /// Closes this dialog and completes the `openDialog` future on the caller side.
@@ -284,8 +299,8 @@ class MultiViewDesktop {
   /// on regular (non-dialog) windows; use `closeWindow` instead.
   ///
   /// Returns `true` when the dialog closed successfully.
-  Future<bool> closeDialog<T>([T? res]) {
-    return _manager.closeView<T>(_realId, dialogRes: res);
+  Future<bool> closeDialog<T>([T? res, AnimationSettings? animation]) {
+    return _manager.closeView<T>(_realId, dialogRes: res, animation: animation);
   }
 
   /// Returns whether close is currently blocked for this window.
@@ -407,22 +422,31 @@ class MultiViewDesktop {
   Offset getPosition() => getBounds().topLeft;
 
   /// Resizes the window to `size` in logical pixels.
-  Future<void> setSize(Size size) => _proxies.position.setSize(_realId, size);
+  Future<void> setSize(Size size, {AnimationSettings? animation}) =>
+      _proxies.position.setSize(_realId, size, animation: animation);
 
   /// Moves the window so its top-left corner is at `position`.
-  Future<void> setPosition(Offset position) => _proxies.position.setPosition(_realId, position);
+  Future<void> setPosition(Offset position, {AnimationSettings? animation}) =>
+      _proxies.position.setPosition(_realId, position, animation: animation);
 
   /// Centers the window on the screen that contains the largest portion of it.
-  Future<void> center() => _proxies.position.center(_realId);
+  Future<void> center({AnimationSettings? animation}) =>
+      _proxies.position.center(_realId, animation: animation);
 
   /// Positions the window using `alignment` on the display under the cursor.
-  Future<void> setAlignment(Alignment alignment) => _proxies.position.setAlignment(_realId, alignment);
+  Future<void> setAlignment(Alignment alignment, {AnimationSettings? animation}) =>
+      _proxies.position.setAlignment(_realId, alignment, animation: animation);
 
   /// Repositions this dialog within its parent window bounds using `alignment`.
   ///
   /// Only meaningful for dialog views. Regular windows should use `setAlignment`.
-  Future<void> setDialogAlignment(Alignment alignment) =>
-      _proxies.position.setAlignment(_realId, alignment, insideParent: true);
+  Future<void> setDialogAlignment(Alignment alignment, {AnimationSettings? animation}) =>
+      _proxies.position.setAlignment(
+        _realId,
+        alignment,
+        insideParent: true,
+        animation: animation,
+      );
 
   /// Sets the minimum size the user can resize the window to.
   Future<void> setMinimumSize(Size size) => _proxies.position.setMinimumSize(_realId, size);
