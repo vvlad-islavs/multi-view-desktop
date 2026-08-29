@@ -1,9 +1,10 @@
-import 'dart:ui' show FlutterView, Size;
+import 'dart:ui' show Color, FlutterView, Size;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:multiview_desktop/src/log/mvd_log.dart';
 import 'package:multiview_desktop/src/view_animation_config.dart';
+import 'package:multiview_desktop/src/view_manager/view_manager_proxies.dart';
 import 'package:multiview_desktop/src/view_root.dart' show globalRootState;
 
 /// Controls a [PopupView] from outside the popup content.
@@ -14,7 +15,12 @@ import 'package:multiview_desktop/src/view_root.dart' show globalRootState;
 /// * If the anchor [PopupView] is unmounted, the native window is only hidden.
 ///   The child stays mounted under an [Overlay] entry, so its [State] is kept.
 ///   A new [PopupView] reattaches without fading and without rebuilding the child.
+///
+/// Native chrome that does not fight positioning lives on [viewController].
 class PopupController extends ChangeNotifier {
+  /// Opacity, background, shadow, and mouse pass-through for the popup window.
+  late final PopupViewController viewController = PopupViewController._(this);
+
   bool _isOpen = false;
   bool _attached = false;
   bool _fadeOnNextShow = false;
@@ -31,6 +37,10 @@ class PopupController extends ChangeNotifier {
   Size _contentSize = const Size(1, 1);
   bool _nativeShown = false;
   void Function(Size size)? _onContentSize;
+
+  bool _ignoreMouseEvents = false;
+  bool _ignoreMouseMoveEvents = false;
+  bool _parentScrolling = false;
 
   /// Whether the popup is currently requested open.
   bool get isOpen => _isOpen;
@@ -178,6 +188,79 @@ class PopupController extends ChangeNotifier {
     _flutterView = null;
     _viewId = null;
     _nativeShown = false;
+    _parentScrolling = false;
     _contentSize = const Size(1, 1);
+  }
+
+  @internal
+  void setParentScrolling(bool scrolling) {
+    _parentScrolling = scrolling;
+    _syncIgnoreMouse();
+  }
+
+  void _syncIgnoreMouse() {
+    final id = _viewId;
+    if (id == null) return;
+    globalRootState.proxies.input.setIgnoreMouseEvents(
+      id,
+      _ignoreMouseEvents || _parentScrolling,
+      forward: _ignoreMouseMoveEvents,
+    );
+  }
+}
+
+/// Native chrome for a popup. Position and size stay with [PopupView].
+class PopupViewController {
+  PopupViewController._(this._popup);
+
+  final PopupController _popup;
+
+  ViewManagerProxies get _proxies => globalRootState.proxies;
+
+  int? get _id => _popup._viewId;
+
+  void setOpacity(double opacity) {
+    final id = _id;
+    if (id == null) return;
+    _proxies.appearance.setOpacity(id, opacity);
+  }
+
+  double getOpacity() {
+    final id = _id;
+    if (id == null) return 1;
+    return _proxies.appearance.getOpacity(id);
+  }
+
+  void setBackgroundColor(Color color) {
+    final id = _id;
+    if (id == null) return;
+    _proxies.appearance.setBackgroundColor(id, color);
+  }
+
+  void setHasShadow(bool value) {
+    final id = _id;
+    if (id == null) return;
+    _proxies.appearance.setHasShadow(id, value);
+  }
+
+  bool hasShadow() {
+    final id = _id;
+    if (id == null) return true;
+    return _proxies.appearance.hasShadow(id);
+  }
+
+  /// Mouse pass-through. [PopupView] also enables this while an ancestor scrolls.
+  void setIgnoreMouseEvents(bool ignore, {bool mouseMoveEvents = false}) {
+    _popup._ignoreMouseEvents = ignore;
+    _popup._ignoreMouseMoveEvents = mouseMoveEvents;
+    _popup._syncIgnoreMouse();
+  }
+
+  ({bool mouseMoveEvents, bool ignore}) isIgnoreMouseEvents() {
+    final id = _id;
+    if (id == null) {
+      return (mouseMoveEvents: _popup._ignoreMouseMoveEvents, ignore: _popup._ignoreMouseEvents);
+    }
+    return _proxies.input.isIgnoreMouseEvents(id);
   }
 }

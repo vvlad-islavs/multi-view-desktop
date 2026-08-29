@@ -304,9 +304,7 @@ class _PopupViewState extends State<PopupView> {
   }
 
   void _applyClickThrough() {
-    final id = _controller.viewId;
-    if (id == null) return;
-    _proxies.input.setIgnoreMouseEvents(id, _parentScrolling);
+    _controller.setParentScrolling(_parentScrolling);
   }
 
   void _onContentSize(Size size) {
@@ -399,7 +397,7 @@ class _PopupOverlayHost extends StatelessWidget {
     return ViewAnchor(
       view: View(
         view: flutterView,
-        child: ViewScope(
+        child: InternalViewScope(
           viewId: viewId,
           child: PopupContentSizer(
             maxSize: maxSize,

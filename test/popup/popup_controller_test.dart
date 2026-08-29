@@ -92,4 +92,18 @@ void main() {
       controller.dispose();
     });
   });
+
+  group('PopupViewController', () {
+    test('chrome methods no-op without a native session', () {
+      final controller = PopupController();
+      expect(() => controller.viewController.setOpacity(0.5), returnsNormally);
+      expect(controller.viewController.getOpacity(), 1);
+      expect(() => controller.viewController.setBackgroundColor(const Color(0x00000000)), returnsNormally);
+      expect(() => controller.viewController.setHasShadow(false), returnsNormally);
+      expect(controller.viewController.hasShadow(), isTrue);
+      expect(() => controller.viewController.setIgnoreMouseEvents(true), returnsNormally);
+      expect(controller.viewController.isIgnoreMouseEvents().ignore, isTrue);
+      controller.dispose();
+    });
+  });
 }
