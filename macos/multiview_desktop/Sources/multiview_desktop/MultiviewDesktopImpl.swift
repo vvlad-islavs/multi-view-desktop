@@ -203,7 +203,9 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     func replyToApplicationShouldTerminate(terminate: Bool) {
         isConfirmTerminate = terminate
-        if terminate {
+        guard terminate else { return }
+        
+        DispatchQueue.main.async {
             NSApp.terminate(nil)
         }
     }
