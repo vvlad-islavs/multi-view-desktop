@@ -26,9 +26,22 @@ abstract class ViewsManager {
   });
 
   /// Creates a borderless popup owned by `parentRealId`. Returns the real view id.
-  Future<int> createPopup({required int parentRealId, required Size size});
+  Future<int> createPopup({
+    required int parentRealId,
+    required Size size,
+    AnimationSettings? animation,
+  });
 
-  /// Destroys a popup created by [createPopup].
+  /// Shows a popup created by [createPopup].
+  ///
+  /// When [animate] is true, runs open fade if enabled in config. Internal
+  /// re-shows (anchor back on screen) should pass [animate] `false`.
+  Future<void> showPopup(int viewId, {bool animate = true});
+
+  /// Fades out (when enabled) then destroys a popup created by [createPopup].
+  Future<void> closePopup(int viewId, {AnimationSettings? animation});
+
+  /// Destroys a popup created by [createPopup] without close fade.
   Future<void> destroyPopup(int viewId);
 
   /// Moves and optionally resizes a popup to [bounds] in logical screen space.

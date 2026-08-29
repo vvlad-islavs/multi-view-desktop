@@ -239,13 +239,18 @@ class ModalDialogOwner extends ViewOwnerBase {
   }
 }
 
-/// Popup owner — open/close fade not configured yet.
+/// Popup owner. Open fade runs on first show (after layout); close fades then destroys.
 @internal
 class PopupOwner extends ViewOwnerBase {
   PopupOwner(super.host)
-    : super(fade: ViewOpenCloseAnimationPolicy.disabled, openCloseType: ViewAnimationType.createWindow);
+    : super(fade: host.popupOpenCloseAnimation, openCloseType: ViewAnimationType.createPopup);
 
-  int open({required int parentId, required Size size, required ViewCreatedCallback onCreated}) {
+  int open({
+    required int parentId,
+    required Size size,
+    required ViewCreatedCallback onCreated,
+    AnimationSettings? animation,
+  }) {
     if (!host.isViewRegistered(parentId)) {
       throw ArgumentError.value(parentId, 'parentId', 'Parent view is not registered');
     }
@@ -266,11 +271,13 @@ class PopupOwner extends ViewOwnerBase {
     ffi.setConfirmClose(newViewId, isConfirm: true);
 
     onCreated(newViewId);
+    host.animationController.stageSoftOverride(newViewId, ViewAnimationType.createPopup, animation);
     return newViewId;
   }
 
   @override
   Future<void> close(int viewId) async {
+    await fadeOut(viewId);
     host.closeService.destroyPopup(viewId);
   }
 }

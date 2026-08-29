@@ -4,11 +4,13 @@ import 'package:meta/meta.dart';
 
 /// Per-call timing overrides for a single native view animation.
 ///
-/// Soft: pass as `animation:` on `openWindow`, `setSize`, `closeWindow`, etc.
+/// Soft: pass as `animation:` on `openWindow`, `setSize`, `closeWindow`,
+/// popup `open` / `close`, etc.
 /// Applied only when that animation type is already enabled in [ViewAnimationConfig].
 ///
 /// Force: pass via [MultiViewDesktop.setForceAnimation] — runs once even if the
 /// type is disabled in config. Force timing wins over soft when both are staged.
+/// Not used for popups (no public view id).
 class AnimationSettings {
   const AnimationSettings({
     this.duration,
@@ -25,8 +27,8 @@ class AnimationSettings {
 
 /// Identifies which operation the next staged animation override applies to.
 ///
-/// Open/close fade is part of [createWindow], [createDialog], [closeWindow], and
-/// [closeDialog] — not separate animation types.
+/// Open/close fade is part of [createWindow], [createDialog], [createPopup],
+/// [closeWindow], [closeDialog], and [closePopup] — not separate animation types.
 enum ViewAnimationType {
   setSize,
   setPosition,
@@ -34,8 +36,10 @@ enum ViewAnimationType {
   positionPopup,
   createWindow,
   createDialog,
+  createPopup,
   closeWindow,
   closeDialog,
+  closePopup,
 }
 
 /// Application-wide native view animation policy.
@@ -52,10 +56,11 @@ class ViewAnimationConfig {
     required this.windowOpenClose,
     required this.modelessDialogOpenClose,
     required this.modalDialogOpenClose,
+    required this.popupOpenClose,
     required this.geometry,
   });
 
-  /// Open/close fade for windows and modeless dialogs; geometry off.
+  /// Open/close fade for windows, modeless dialogs, and popups; geometry off.
   static const defaults = ViewAnimationConfig._(
     windowOpenClose: ViewOpenCloseAnimationPolicy(
       fadeInOnOpen: true,
@@ -70,6 +75,12 @@ class ViewAnimationConfig {
       closeDuration: Duration(milliseconds: 150),
     ),
     modalDialogOpenClose: ViewOpenCloseAnimationPolicy.disabled,
+    popupOpenClose: ViewOpenCloseAnimationPolicy(
+      fadeInOnOpen: true,
+      fadeOutOnClose: true,
+      openDuration: Duration(milliseconds: 150),
+      closeDuration: Duration(milliseconds: 150),
+    ),
     geometry: ViewGeometryAnimationPolicy.disabled,
   );
 
@@ -78,15 +89,17 @@ class ViewAnimationConfig {
     windowOpenClose: ViewOpenCloseAnimationPolicy.disabled,
     modelessDialogOpenClose: ViewOpenCloseAnimationPolicy.disabled,
     modalDialogOpenClose: ViewOpenCloseAnimationPolicy.disabled,
+    popupOpenClose: ViewOpenCloseAnimationPolicy.disabled,
     geometry: ViewGeometryAnimationPolicy.disabled,
   );
 
   final ViewOpenCloseAnimationPolicy windowOpenClose;
   final ViewOpenCloseAnimationPolicy modelessDialogOpenClose;
   final ViewOpenCloseAnimationPolicy modalDialogOpenClose;
+  final ViewOpenCloseAnimationPolicy popupOpenClose;
   final ViewGeometryAnimationPolicy geometry;
 
-  /// Open/close fade only (windows, modeless dialogs; modal off by default).
+  /// Open/close fade only (windows, modeless dialogs, popups; modal off by default).
   factory ViewAnimationConfig.openClose({
     int? fps,
     Curve curve = Curves.easeIn,
@@ -94,10 +107,14 @@ class ViewAnimationConfig {
     Duration windowCloseDuration = const Duration(milliseconds: 150),
     Duration modelessOpenDuration = const Duration(milliseconds: 150),
     Duration modelessCloseDuration = const Duration(milliseconds: 150),
+    Duration popupOpenDuration = const Duration(milliseconds: 150),
+    Duration popupCloseDuration = const Duration(milliseconds: 150),
     bool windowFadeInOnOpen = true,
     bool windowFadeOutOnClose = true,
     bool modelessFadeInOnOpen = true,
     bool modelessFadeOutOnClose = true,
+    bool popupFadeInOnOpen = true,
+    bool popupFadeOutOnClose = true,
     bool modalFadeInOnOpen = false,
     bool modalFadeOutOnClose = false,
     Duration modalOpenDuration = const Duration(milliseconds: 150),
@@ -128,6 +145,14 @@ class ViewAnimationConfig {
         curve: curve,
         fps: fps,
       ),
+      popupOpenClose: ViewOpenCloseAnimationPolicy(
+        fadeInOnOpen: popupFadeInOnOpen,
+        fadeOutOnClose: popupFadeOutOnClose,
+        openDuration: popupOpenDuration,
+        closeDuration: popupCloseDuration,
+        curve: curve,
+        fps: fps,
+      ),
       geometry: ViewGeometryAnimationPolicy.disabled,
     );
   }
@@ -142,6 +167,7 @@ class ViewAnimationConfig {
       windowOpenClose: ViewOpenCloseAnimationPolicy.disabled,
       modelessDialogOpenClose: ViewOpenCloseAnimationPolicy.disabled,
       modalDialogOpenClose: ViewOpenCloseAnimationPolicy.disabled,
+      popupOpenClose: ViewOpenCloseAnimationPolicy.disabled,
       geometry: ViewGeometryAnimationPolicy(
         enabled: true,
         duration: duration,
@@ -159,10 +185,14 @@ class ViewAnimationConfig {
     Duration windowCloseDuration = const Duration(milliseconds: 50),
     Duration modelessOpenDuration = const Duration(milliseconds: 150),
     Duration modelessCloseDuration = const Duration(milliseconds: 150),
+    Duration popupOpenDuration = const Duration(milliseconds: 150),
+    Duration popupCloseDuration = const Duration(milliseconds: 150),
     bool windowFadeInOnOpen = true,
     bool windowFadeOutOnClose = true,
     bool modelessFadeInOnOpen = true,
     bool modelessFadeOutOnClose = true,
+    bool popupFadeInOnOpen = true,
+    bool popupFadeOutOnClose = true,
     bool modalFadeInOnOpen = false,
     bool modalFadeOutOnClose = false,
     Duration modalOpenDuration = const Duration(milliseconds: 150),
@@ -192,6 +222,14 @@ class ViewAnimationConfig {
         fadeOutOnClose: modalFadeOutOnClose,
         openDuration: modalOpenDuration,
         closeDuration: modalCloseDuration,
+        curve: openCloseCurve,
+        fps: fps,
+      ),
+      popupOpenClose: ViewOpenCloseAnimationPolicy(
+        fadeInOnOpen: popupFadeInOnOpen,
+        fadeOutOnClose: popupFadeOutOnClose,
+        openDuration: popupOpenDuration,
+        closeDuration: popupCloseDuration,
         curve: openCloseCurve,
         fps: fps,
       ),

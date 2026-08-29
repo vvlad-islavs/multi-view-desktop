@@ -8,7 +8,6 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
 import 'package:multiview_desktop/src/impl/cascade_close_service_impl.dart';
 import 'package:multiview_desktop/src/lifecycle/create_view_error.dart';
-import 'package:multiview_desktop/src/lifecycle/view_animator.dart';
 import 'package:multiview_desktop/src/lifecycle/view_animation_controller.dart';
 import 'package:multiview_desktop/src/lifecycle/view_close_delegate.dart';
 import 'package:multiview_desktop/src/lifecycle/view_registry.dart';
@@ -97,6 +96,8 @@ class LifecycleViewsController {
 
   ViewOpenCloseAnimationPolicy get modalDialogOpenCloseAnimation => animation.modalDialogOpenClose;
 
+  ViewOpenCloseAnimationPolicy get popupOpenCloseAnimation => animation.popupOpenClose;
+
   final void Function(int parentId, {required int dialogId, required bool isModal}) _registerDialog;
   final bool Function(int parentId) _hasPendingDialogCreate;
   final bool Function(int parentId) _hasModalDialog;
@@ -182,8 +183,13 @@ class LifecycleViewsController {
         animation: animation,
       );
 
-  int openPopup({required int parentId, required Size size, required ViewCreatedCallback onCreated}) =>
-      popupOwner.open(parentId: parentId, size: size, onCreated: onCreated);
+  int openPopup({
+    required int parentId,
+    required Size size,
+    required ViewCreatedCallback onCreated,
+    AnimationSettings? animation,
+  }) =>
+      popupOwner.open(parentId: parentId, size: size, onCreated: onCreated, animation: animation);
 
   // ---------------------------------------------------------------------------
   // First-frame barrier (call from ViewRoot post-frame callback).

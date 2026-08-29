@@ -42,6 +42,7 @@ abstract class ViewOwnerBase {
   ViewAnimationType get _closeType => switch (openCloseType) {
         ViewAnimationType.createWindow => ViewAnimationType.closeWindow,
         ViewAnimationType.createDialog => ViewAnimationType.closeDialog,
+        ViewAnimationType.createPopup => ViewAnimationType.closePopup,
         _ => openCloseType,
       };
 

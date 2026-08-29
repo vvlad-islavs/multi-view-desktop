@@ -288,5 +288,37 @@ void main() {
       expect(h.ffi.callsFor('setOpacity'), isNotEmpty);
       expect(h.ffi.callsFor('setOpacity').last, 'setOpacity:1:0.0');
     });
+
+    test('popup showWithFadeIn and close fade when popup animation enabled', () async {
+      h = LifecycleTestHarness(animation: ViewAnimationConfig.defaults);
+      h.seedWindow(1);
+
+      final id = h.lifecycle.openPopup(
+        parentId: 1,
+        size: const Size(40, 40),
+        onCreated: (popupId) => h.seedPopup(popupId, parentId: 1),
+      );
+
+      await h.lifecycle.popupOwner.showWithFadeIn(id);
+
+      expect(h.ffi.hasCall('show:$id'), isTrue);
+      expect(h.ffi.callsFor('setOpacity'), isNotEmpty);
+      expect(h.ffi.callsFor('setOpacity').last, 'setOpacity:$id:1.0');
+
+      await h.lifecycle.popupOwner.close(id);
+
+      expect(h.ffi.callsFor('setOpacity').last, 'setOpacity:$id:0.0');
+      expect(h.popupDestroyed, [id]);
+    });
+
+    test('popup close skips fade when popup animation is disabled', () async {
+      h.seedWindow(1);
+      h.seedPopup(5, parentId: 1);
+
+      await h.lifecycle.popupOwner.close(5);
+
+      expect(h.ffi.callsFor('setOpacity'), isEmpty);
+      expect(h.popupDestroyed, [5]);
+    });
   });
 }

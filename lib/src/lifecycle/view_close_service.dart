@@ -147,6 +147,7 @@ class ViewCloseService {
 
   void destroyPopup(int viewId) {
     if (!registry.isPopup(viewId)) return;
+    lifecycle.animationController.clearOverrides(viewId);
     delegate.invoke<void>(viewId, () => ffi.destroyModalDialog(viewId), dialogSupports: true);
     onPopupDestroyed?.call(viewId);
   }

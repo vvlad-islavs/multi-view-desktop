@@ -41,6 +41,12 @@ class ViewAnimationController {
 
   void bindProxies(ViewManagerProxies proxies) => this.proxies = proxies;
 
+  /// Drops unused one-shot overrides for [viewId] (e.g. popup destroyed before show).
+  void clearOverrides(int viewId) {
+    _pendingForceOverrides.remove(viewId);
+    _pendingSoftOverrides.remove(viewId);
+  }
+
   /// Stages a one-shot force override. Runs the next matching animation even if
   /// that type is disabled in config. Timing wins over soft overrides.
   void stageForceOverride(int viewId, ViewAnimationType type, AnimationSettings? settings) {
@@ -70,10 +76,17 @@ class ViewAnimationController {
         return _config.modelessDialogOpenClose.fadeInOnOpen;
       case ViewAnimationType.closeDialog:
         return _config.modelessDialogOpenClose.fadeOutOnClose;
+      case ViewAnimationType.createPopup:
+        return _config.popupOpenClose.fadeInOnOpen;
+      case ViewAnimationType.closePopup:
+        return _config.popupOpenClose.fadeOutOnClose;
     }
   }
 
   AnimationSettings? _takeForceOverride(int viewId, ViewAnimationType type) {
+    if (type == ViewAnimationType.createPopup || type == ViewAnimationType.closePopup) {
+      return null;
+    }
     final pending = _pendingForceOverrides[viewId];
     if (pending == null || pending.type != type) return null;
     _pendingForceOverrides.remove(viewId);
@@ -181,7 +194,7 @@ class ViewAnimationController {
 
     if ((!geo.enabled && forceOverride == null) || _framesEqual(from, to)) {
       _takeSoftOverride(viewId, type);
-      position.setPopupBoundsDirect(viewId, to);
+      position.setPopupBounds(viewId, to);
       return;
     }
 
@@ -195,12 +208,12 @@ class ViewAnimationController {
       fps: forceOverride?.fps ?? softOverride?.fps ?? geo.fps,
       onValue: (t) {
         if (isCurrent != null && !isCurrent()) return;
-        position.setPopupBoundsDirect(viewId, Rect.lerp(from, to, t)!);
+        position.setPopupBounds(viewId, Rect.lerp(from, to, t)!);
       },
     );
 
     if (isCurrent != null && !isCurrent()) return;
-    position.setPopupBoundsDirect(viewId, to);
+    position.setPopupBounds(viewId, to);
   }
 
   bool _framesEqual(Rect a, Rect b) {

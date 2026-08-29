@@ -198,6 +198,74 @@ void main() {
 
       expect(durations, [const Duration(milliseconds: 333)]);
     });
+
+    test('popup soft timing applies when popup fade is enabled', () async {
+      final ffi = RecordingFfiBridge();
+      final durations = <Duration>[];
+      final controller = ViewAnimationController(
+        config: ViewAnimationConfig.defaults,
+        animator: _RecordingDurationAnimator(durations),
+      );
+      final registry = ViewRegistry();
+      final host = ViewNativeHost(
+        ffi: ffi,
+        invoke: <T>(int viewId, T Function() f, {bool dialogSupports = false}) => f(),
+        registry: registry,
+      );
+      controller.bindProxies(ViewManagerProxies(host, animationController: controller));
+
+      controller.stageSoftOverride(
+        9,
+        ViewAnimationType.closePopup,
+        const AnimationSettings(duration: Duration(milliseconds: 80)),
+      );
+
+      await controller.animateClose(
+        9,
+        type: ViewAnimationType.closePopup,
+        policy: ViewAnimationConfig.defaults.popupOpenClose,
+      );
+
+      expect(durations, [const Duration(milliseconds: 80)]);
+    });
+
+    test('popup soft override is not staged when popup fade is disabled', () async {
+      final ffi = RecordingFfiBridge();
+      final controller = _controller(ffi, ViewAnimationConfig.disabled);
+
+      controller.stageSoftOverride(
+        9,
+        ViewAnimationType.closePopup,
+        const AnimationSettings(duration: Duration(milliseconds: 80)),
+      );
+
+      await controller.animateClose(
+        9,
+        type: ViewAnimationType.closePopup,
+        policy: ViewOpenCloseAnimationPolicy.disabled,
+      );
+
+      expect(ffi.callsFor('setOpacity'), isEmpty);
+    });
+
+    test('popup ignores force override', () async {
+      final ffi = RecordingFfiBridge();
+      final controller = _controller(ffi, ViewAnimationConfig.disabled);
+
+      controller.stageForceOverride(
+        9,
+        ViewAnimationType.closePopup,
+        const AnimationSettings(duration: Duration(milliseconds: 20), fps: 50),
+      );
+
+      await controller.animateClose(
+        9,
+        type: ViewAnimationType.closePopup,
+        policy: ViewOpenCloseAnimationPolicy.disabled,
+      );
+
+      expect(ffi.callsFor('setOpacity'), isEmpty);
+    });
   });
 }
 

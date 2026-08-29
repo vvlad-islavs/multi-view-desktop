@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
 // ignore: depend_on_referenced_packages
 import 'package:meta/meta.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
@@ -14,44 +15,37 @@ class ViewPositionProxy extends ViewNativeProxy {
     super.host, {
     required ViewAnimationController animationController,
     WindowPositionCalculator? positionCalculator,
-  })  : _animation = animationController,
-        _positionCalculator = positionCalculator ?? WindowPositionCalculator.instance;
+  }) : _animation = animationController,
+       _positionCalculator = positionCalculator ?? WindowPositionCalculator.instance;
 
   final ViewAnimationController _animation;
   final WindowPositionCalculator _positionCalculator;
 
   final Map<int, int> _geometryGeneration = {};
 
+  Rect? getDisplayRect(Rect query) => ffi.getDisplayRect(query) ;
+
   Rect getBounds(int viewId) => call(viewId, () => ffi.getBounds(viewId), dialogSupports: true) ?? Rect.zero;
 
   Size getSize(int viewId) => call(viewId, () => ffi.getSize(viewId), dialogSupports: true) ?? Size.zero;
 
-  Offset getPosition(int viewId) =>
-      call(viewId, () => ffi.getPosition(viewId), dialogSupports: true) ?? Offset.zero;
+  Offset getPosition(int viewId) => call(viewId, () => ffi.getPosition(viewId), dialogSupports: true) ?? Offset.zero;
 
   void setFrameBounds(int viewId, Rect rect, {bool dialogSupports = true}) {
     call(viewId, () => ffi.setFrame(viewId, rect), dialogSupports: dialogSupports);
   }
 
-  bool setPopupBoundsDirect(int viewId, Rect bounds) =>
+  bool setPopupBounds(int viewId, Rect bounds) =>
       call(viewId, () => ffi.setPopupBounds(viewId, bounds: bounds), dialogSupports: true) ?? false;
 
-  Future<void> setSize(
-    int viewId,
-    Size size, {
-    AnimationSettings? animation,
-  }) {
+  Future<void> setSize(int viewId, Size size, {AnimationSettings? animation}) {
     _animation.stageSoftOverride(viewId, ViewAnimationType.setSize, animation);
     return _applyFrame(viewId, ViewAnimationType.setSize, (current) {
       return Rect.fromLTWH(current.left, current.top, size.width, size.height);
     });
   }
 
-  Future<void> setPosition(
-    int viewId,
-    Offset position, {
-    AnimationSettings? animation,
-  }) {
+  Future<void> setPosition(int viewId, Offset position, {AnimationSettings? animation}) {
     _animation.stageSoftOverride(viewId, ViewAnimationType.setPosition, animation);
     return _applyFrame(viewId, ViewAnimationType.setPosition, (current) {
       return Rect.fromLTWH(position.dx, position.dy, current.width, current.height);
@@ -70,10 +64,7 @@ class ViewPositionProxy extends ViewNativeProxy {
     call(viewId, () => ffi.setAspectRatio(viewId, ratio));
   }
 
-  Future<void> center(
-    int viewId, {
-    AnimationSettings? animation,
-  }) =>
+  Future<void> center(int viewId, {AnimationSettings? animation}) =>
       setAlignment(viewId, Alignment.center, animation: animation);
 
   Future<void> setAlignment(
@@ -118,18 +109,14 @@ class ViewPositionProxy extends ViewNativeProxy {
     );
   }
 
-  Future<bool> positionPopup(
-    int viewId,
-    Rect bounds, {
-    AnimationSettings? animation,
-  }) async {
+  Future<bool> positionPopup(int viewId, Rect bounds, {AnimationSettings? animation}) async {
     if (!host.isPopup(viewId)) return false;
 
     _animation.stageSoftOverride(viewId, ViewAnimationType.positionPopup, animation);
 
     final current = getBounds(viewId);
     if (current == Rect.zero) {
-      return setPopupBoundsDirect(viewId, bounds);
+      return setPopupBounds(viewId, bounds);
     }
 
     final generation = (_geometryGeneration[viewId] ?? 0) + 1;

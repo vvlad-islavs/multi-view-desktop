@@ -86,10 +86,7 @@ class _ViewsManagerImpl implements ViewsManager {
       invoke: _viewExistChecker,
     );
     final viewAnimator = ViewAnimator();
-    final animationController = ViewAnimationController(
-      config: config.generalParams.animation,
-      animator: viewAnimator,
-    );
+    final animationController = ViewAnimationController(config: config.generalParams.animation, animator: viewAnimator);
     final positionCalculator = WindowPositionCalculator.instance;
     _nativeHost = ViewNativeHost(ffi: _ffiBridge, invoke: _viewExistChecker, registry: registry);
     _proxies = ViewManagerProxies(
@@ -210,7 +207,7 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  Future<int> createPopup({required int parentRealId, required Size size}) async {
+  Future<int> createPopup({required int parentRealId, required Size size, AnimationSettings? animation}) async {
     if (!_registry.windows.containsKey(parentRealId) && !_registry.dialogs.containsKey(parentRealId)) {
       throw ArgumentError.value(parentRealId, 'Parent error', 'Parent window is not registered');
     }
@@ -218,6 +215,7 @@ class _ViewsManagerImpl implements ViewsManager {
     return _lifecycle.openPopup(
       parentId: parentRealId,
       size: size,
+      animation: animation,
       onCreated: (viewId) {
         _registry.popups[viewId] = ViewPopupEntry(parentId: parentRealId);
       },
@@ -268,6 +266,23 @@ class _ViewsManagerImpl implements ViewsManager {
   // ===========================================================================
   // ViewsManager — popups
   // ===========================================================================
+
+  @override
+  Future<void> showPopup(int viewId, {bool animate = true}) {
+    if (!_registry.isPopup(viewId)) return Future.value();
+    if (!animate) {
+      _proxies.state.show(viewId);
+      return Future.value();
+    }
+    return _lifecycle.popupOwner.showWithFadeIn(viewId);
+  }
+
+  @override
+  Future<void> closePopup(int viewId, {AnimationSettings? animation}) async {
+    if (!_registry.isPopup(viewId)) return;
+    _lifecycle.animationController.stageSoftOverride(viewId, ViewAnimationType.closePopup, animation);
+    await _lifecycle.popupOwner.close(viewId);
+  }
 
   @override
   Future<void> destroyPopup(int viewId) async {

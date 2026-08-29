@@ -22,7 +22,6 @@ class ConfirmDialog extends StatefulWidget {
 }
 
 class _ConfirmDialogState extends State<ConfirmDialog> with WindowListener {
-
   @override
   FutureOr<bool> onWindowClose() {
     final mvd = context.viewController;
@@ -32,6 +31,7 @@ class _ConfirmDialogState extends State<ConfirmDialog> with WindowListener {
     context.closeDialog<bool>(res);
     return super.onWindowClose();
   }
+
   bool? res;
 
   @override
@@ -42,10 +42,13 @@ class _ConfirmDialogState extends State<ConfirmDialog> with WindowListener {
       content: 'This window has preventClose enabled.',
       actions: [
         TextButton(onPressed: () => ctx.closeDialog(), child: const Text('Cancel')),
-        TextButton(onPressed: () {
-          ctx.closeDialog<bool>(true);
-          res = true;
-        }, child: const Text('Close')),
+        TextButton(
+          onPressed: () {
+            ctx.closeDialog<bool>(true);
+            res = true;
+          },
+          child: const Text('Close'),
+        ),
       ],
     );
   }
@@ -62,6 +65,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
   final GlobalKey _dialogKey = GlobalKey();
 
   final PopupController _popupController = PopupController();
+  final PopupController _popupController2 = PopupController();
 
   // final GlobalKey _modelessDialogKey = GlobalKey();
 
@@ -103,15 +107,12 @@ class _HomePageState extends State<HomePage> with WindowListener {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _refreshState();
-      final parentContext = ParentWindowScope
-          .of(context)
-          .parentContext;
+      final parentContext = ParentWindowScope.of(context).parentContext;
       final currMvd = MultiViewDesktop.of(context);
       final windowInfo = currMvd.getWindowInfo();
       currMvd.setTitle(
         parentContext != null && parentContext.mounted
-            ? '${windowInfo.isDialog ? 'Dialog' : 'Window'} $currentId, parent: ${MultiViewDesktop.getIdByContext(
-            parentContext)}'
+            ? '${windowInfo.isDialog ? 'Dialog' : 'Window'} $currentId, parent: ${MultiViewDesktop.getIdByContext(parentContext)}'
             : 'Window $currentId',
       );
       MultiViewDesktop.allWindowIdsNotifier.addListener(_viewListener);
@@ -189,8 +190,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
       _titleBarHidden = titleBarStyle?.style == TitleBarStyle.hidden;
       _titleBarButtonVisibility =
           (titleBarStyle?.closeVisibility ?? _titleBarButtonVisibility) ||
-              (titleBarStyle?.maximizeVisibility ?? _titleBarButtonVisibility) ||
-              (titleBarStyle?.minimizeVisibility ?? _titleBarButtonVisibility);
+          (titleBarStyle?.maximizeVisibility ?? _titleBarButtonVisibility) ||
+          (titleBarStyle?.minimizeVisibility ?? _titleBarButtonVisibility);
     });
   }
 
@@ -230,9 +231,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
     }
 
     // close all other dialogs
-    final allDialogs = DialogScope
-        .of(context)
-        .value;
+    final allDialogs = DialogScope.of(context).value;
     debugPrint('allDialog UI: $allDialogs');
     if (allDialogs.isNotEmpty) {
       for (final dialog in allDialogs) {
@@ -245,8 +244,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
     final entry = await context.openDialogEntry<bool?>(
       // or only result after dialog close
       // final result = await context.openDialog<bool?>(
-          (ctx, id) {
-        return ConfirmDialog(key: _dialogKey,);
+      (ctx, id) {
+        return ConfirmDialog(key: _dialogKey);
         // return AlertViewDialog(
         //   key: _dialogKey,
         //   title: 'Close window?',
@@ -308,15 +307,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
           padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
           child: Text(
             title,
-            style: Theme
-                .of(context)
-                .textTheme
-                .labelSmall
-                ?.copyWith(
-              color: Theme
-                  .of(context)
-                  .colorScheme
-                  .primary,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Theme.of(context).colorScheme.primary,
               fontWeight: FontWeight.bold,
               letterSpacing: 1.2,
             ),
@@ -356,9 +348,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
 
   @override
   Widget build(BuildContext context) {
-    final windowId = MultiViewDesktop
-        .of(context)
-        .id;
+    final windowId = MultiViewDesktop.of(context).id;
     final windowInfo = MultiViewDesktop.of(context).getWindowInfo();
 
     return SafeArea(
@@ -368,12 +358,9 @@ class _HomePageState extends State<HomePage> with WindowListener {
           appBar: _titleBarHidden
               ? null
               : AppBar(
-            title: Text(MultiViewDesktop.of(context).getTitle()),
-            backgroundColor: Theme
-                .of(context)
-                .colorScheme
-                .inversePrimary,
-          ),
+                  title: Text(MultiViewDesktop.of(context).getTitle()),
+                  backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+                ),
           body: ListView(
             children: [
               // ----------------------------------------------------------------
@@ -420,31 +407,26 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     );
                   },
                 ),
-                if (ParentWindowScope
-                    .of(context)
-                    .parentContext == null && !MultiViewDesktop.isEnabledDynamicAnchor)
+                if (ParentWindowScope.of(context).parentContext == null && !MultiViewDesktop.isEnabledDynamicAnchor)
                   ListenableBuilder(
                     listenable: sharedConfig,
-                    builder: (context, _) =>
-                        _tile(
-                          'SetCurrent as anchor (only if runMultiApp->config->generalParams->enableDynamicAnchor == false)',
-                          subtitle: 'Current is ${MultiViewDesktop.getAnchorId()}',
-                          onTap: () async {
-                            final curr = currentId;
-                            if (curr == null) return;
-                            MultiViewDesktop.setAnchorId(curr);
-                            sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
-                          },
-                        ),
+                    builder: (context, _) => _tile(
+                      'SetCurrent as anchor (only if runMultiApp->config->generalParams->enableDynamicAnchor == false)',
+                      subtitle: 'Current is ${MultiViewDesktop.getAnchorId()}',
+                      onTap: () async {
+                        final curr = currentId;
+                        if (curr == null) return;
+                        MultiViewDesktop.setAnchorId(curr);
+                        sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
+                      },
+                    ),
                   ),
               ]),
               // ----------------------------------------------------------------
               // Shell demo
               // ----------------------------------------------------------------
               if (!windowInfo.isDialog)
-                _section(ExampleLocalizations
-                    .of(context)
-                    .shellDemoSection, shellDemoTiles(context)),
+                _section(ExampleLocalizations.of(context).shellDemoSection, shellDemoTiles(context)),
               // ----------------------------------------------------------------
               // Window management
               // ----------------------------------------------------------------
@@ -454,7 +436,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   subtitle: 'Open a new window',
                   onTap: () async {
                     openWindow(
-                          (ctx, viewId) => const HomePage(),
+                      (ctx, viewId) => const HomePage(),
                       options: WindowOptions(size: const Size(1000, 700), alignment: Alignment.center, title: ' '),
                     );
                   },
@@ -465,7 +447,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     subtitle: 'Open a new child window',
                     onTap: () async {
                       openWindow(
-                            (ctx, viewId) {
+                        (ctx, viewId) {
                           return const HomePage();
                         },
                         options: WindowOptions(size: const Size(1000, 700), title: ' ', alignment: Alignment.center),
@@ -481,7 +463,6 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     ),
                     builder: (ctx) {
                       return SizedBox(
-                        height: 300,
                         width: 900,
                         child: Material(
                           elevation: 8,
@@ -492,68 +473,13 @@ class _HomePageState extends State<HomePage> with WindowListener {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text('Popup of window $currentId', style: Theme
-                                      .of(ctx)
-                                      .textTheme
-                                      .titleSmall),
+                                  const _PopupDemoTimer(),
+                                  const SizedBox(height: 8),
+                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
                                   const SizedBox(height: 8),
                                   Text(
                                     'Theme and context come from the parent via ViewAnchor.',
-                                    style: Theme
-                                        .of(ctx)
-                                        .textTheme
-                                        .bodySmall,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
-                                  ),
-                                  Text('Popup of window $currentId', style: Theme
-                                      .of(ctx)
-                                      .textTheme
-                                      .titleSmall),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Theme and context come from the parent via ViewAnchor.',
-                                    style: Theme
-                                        .of(ctx)
-                                        .textTheme
-                                        .bodySmall,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
-                                  ),
-                                  Text('Popup of window $currentId', style: Theme
-                                      .of(ctx)
-                                      .textTheme
-                                      .titleSmall),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Theme and context come from the parent via ViewAnchor.',
-                                    style: Theme
-                                        .of(ctx)
-                                        .textTheme
-                                        .bodySmall,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
-                                  ),
-                                  Text('Popup of window $currentId', style: Theme
-                                      .of(ctx)
-                                      .textTheme
-                                      .titleSmall),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Theme and context come from the parent via ViewAnchor.',
-                                    style: Theme
-                                        .of(ctx)
-                                        .textTheme
-                                        .bodySmall,
+                                    style: Theme.of(ctx).textTheme.bodySmall,
                                   ),
                                   const SizedBox(height: 8),
                                   Align(
@@ -568,9 +494,53 @@ class _HomePageState extends State<HomePage> with WindowListener {
                       );
                     },
                     child: _tile(
-                      'popupView',
+                      'default popupView',
                       subtitle: 'Native popup anchored to this row',
                       onTap: () => _popupController.toggle(),
+                    ),
+                  ),
+                  PopupView(
+                    controller: _popupController2,
+                    positioner: PopupPositioner(
+                      parentAnchor: PopupPositionerAnchor.bottomLeft,
+                      childAnchor: PopupPositionerAnchor.top,
+                    ),
+                    builder: (ctx) {
+                      return SizedBox(
+                        width: 900,
+                        child: Material(
+                          elevation: 8,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const _PopupDemoTimer(),
+                                  const SizedBox(height: 8),
+                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Theme and context come from the parent via ViewAnchor.',
+                                    style: Theme.of(ctx).textTheme.bodySmall,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton(onPressed: _popupController2.close, child: const Text('Close')),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                    child: _tile(
+                      'popupView with custom animation',
+                      subtitle: 'Native popup anchored to this row',
+                      onTap: () => _popupController2.toggle(animation: AnimationSettings(duration: Duration(seconds: 2), curve: Curves.elasticIn)),
                     ),
                   ),
                   _tile(
@@ -587,7 +557,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                       // }
 
                       await openDialog(
-                            (ctx, viewId) {
+                        (ctx, viewId) {
                           // doOnBuilt(viewId);
                           return HomePage();
                         },
@@ -608,7 +578,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     subtitle: 'Open a new child window',
                     onTap: () async {
                       openDialog(
-                            (ctx, viewId) {
+                        (ctx, viewId) {
                           return const HomePage();
                         },
                         options: DialogOptions(
@@ -618,7 +588,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                           modal: true,
                           windowButtonVisibility: false,
                           // is ignoring in modal dialog
-                          showOnInit: false
+                          showOnInit: false,
                         ),
                         parentContext: context,
                       );
@@ -675,7 +645,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     if (!context.mounted) return;
                     _log(
                       'bounds: ${b.left.toInt()},${b.top.toInt()} '
-                          '${b.width.toInt()}x${b.height.toInt()}',
+                      '${b.width.toInt()}x${b.height.toInt()}',
                     );
                   },
                 ),
@@ -721,7 +691,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   _switchTile(
                     'maximized',
                     _isMaximized,
-                        (v) => v ? MultiViewDesktop.of(context).maximize() : MultiViewDesktop.of(context).unmaximize(),
+                    (v) => v ? MultiViewDesktop.of(context).maximize() : MultiViewDesktop.of(context).unmaximize(),
                   ),
                   _tile('minimize', onTap: () => MultiViewDesktop.of(context).minimize()),
                 ],
@@ -729,33 +699,25 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 _switchTile(
                   'alwaysOnTop${_isLinux ? '. Only on X11' : ''}',
                   _isAlwaysOnTop,
-                      (v) => MultiViewDesktop.of(context).setAlwaysOnTop(v),
+                  (v) => MultiViewDesktop.of(context).setAlwaysOnTop(v),
                 ),
                 if (Platform.isMacOS && !windowInfo.isModal)
                   _switchTile(
                     'hideFromCollection',
                     _isHideFromCollection,
-                        (v) =>
-                        MultiViewDesktop
-                            .of(context)
-                            .macos
-                            .hideFromCollection(v),
+                    (v) => MultiViewDesktop.of(context).macos.hideFromCollection(v),
                   ),
                 if (Platform.isWindows)
                   _switchTile(
                     'hideCurrentTabFromTaskbar',
                     _isHideFromTaskBar,
-                        (v) => MultiViewDesktop.of(context).hideCurrentAppTabFromTaskbar(v),
+                    (v) => MultiViewDesktop.of(context).hideCurrentAppTabFromTaskbar(v),
                   ),
                 if (Platform.isMacOS && !windowInfo.isModal)
                   _switchTile(
                     'visibleOnAllWorkspaces',
                     _visibleOnAllWorkspaces,
-                        (v) =>
-                        MultiViewDesktop
-                            .of(context)
-                            .macos
-                            .setVisibleOnAllWorkspaces(v),
+                    (v) => MultiViewDesktop.of(context).macos.setVisibleOnAllWorkspaces(v),
                   ),
                 if (!Platform.isLinux) _tile('progressBarExample', onTap: () => _progressBarExample()),
               ]),
@@ -903,8 +865,7 @@ class _WindowPickerDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final allIds = MultiViewDesktop.allWindowViewIds.where((id) => id != excludeId).toList()
-      ..sort();
+    final allIds = MultiViewDesktop.allWindowViewIds.where((id) => id != excludeId).toList()..sort();
 
     return AlertDialog(
       title: const Text('Select target window'),
@@ -913,11 +874,11 @@ class _WindowPickerDialog extends StatelessWidget {
         child: allIds.isEmpty
             ? const Text('No other windows open. Open one first.')
             : ListView(
-          shrinkWrap: true,
-          children: allIds
-              .map((id) => ListTile(title: Text('Window $id'), onTap: () => Navigator.of(context).pop(id)))
-              .toList(),
-        ),
+                shrinkWrap: true,
+                children: allIds
+                    .map((id) => ListTile(title: Text('Window $id'), onTap: () => Navigator.of(context).pop(id)))
+                    .toList(),
+              ),
       ),
       actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel'))],
     );
@@ -980,10 +941,7 @@ class _AlignmentGridState extends State<_AlignmentGrid> {
 
   @override
   Widget build(BuildContext context) {
-    final color = Theme
-        .of(context)
-        .colorScheme
-        .primary;
+    final color = Theme.of(context).colorScheme.primary;
     return SizedBox(
       child: GridView.count(
         shrinkWrap: true,
@@ -1011,5 +969,39 @@ class _AlignmentGridState extends State<_AlignmentGrid> {
         }).toList(),
       ),
     );
+  }
+}
+
+/// Lives in the popup child tree. Kept across ListView unmount of [PopupView]
+/// because [PopupController] hosts that tree until [PopupController.close].
+class _PopupDemoTimer extends StatefulWidget {
+  const _PopupDemoTimer();
+
+  @override
+  State<_PopupDemoTimer> createState() => _PopupDemoTimerState();
+}
+
+class _PopupDemoTimerState extends State<_PopupDemoTimer> {
+  int _seconds = 120;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _seconds = _seconds < 1 ? 120 : _seconds - 1);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Text('Timer: $_seconds');
   }
 }
