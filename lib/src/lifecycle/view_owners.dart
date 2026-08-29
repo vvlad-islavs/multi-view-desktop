@@ -135,14 +135,16 @@ class DialogOwner extends ViewOwnerBase {
     trackUntilFirstFrame(viewId, parentId: parentId, isDialog: true);
 
     await waitFirstFrame(viewId);
+    // modal is ignore showOnInit because need complete create to correct show
+    if (modal) {
+      await Future<void>.delayed(const Duration(milliseconds: 35));
+      if (Platform.isMacOS) {
+        ffi.completeModalDialogCreate(viewId);
+      }
+    }
 
     if (opts.showOnInit ?? true) {
-      if (modal) {
-        await Future<void>.delayed(const Duration(milliseconds: 35));
-        if (Platform.isMacOS) {
-          ffi.completeModalDialogCreate(viewId);
-        }
-      } else {
+      if (!modal) {
         host.animationController.stageSoftOverride(viewId, ViewAnimationType.createDialog, animation);
         await showWithFadeIn(viewId);
       }

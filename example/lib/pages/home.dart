@@ -595,7 +595,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                           size: const Size(450, 300),
                           title: ' ',
                           modal: false,
-                          isResizable: false,
+                          isResizable: true,
                           alwaysOnTop: true,
                           showOnInit: true,
                         ),
@@ -612,11 +612,13 @@ class _HomePageState extends State<HomePage> with WindowListener {
                           return const HomePage();
                         },
                         options: DialogOptions(
-                          size: const Size(450, 300),
+                          size: const Size(900, 300),
                           title: ' ',
                           isResizable: false,
                           modal: true,
                           windowButtonVisibility: false,
+                          // is ignoring in modal dialog
+                          showOnInit: false
                         ),
                         parentContext: context,
                       );
