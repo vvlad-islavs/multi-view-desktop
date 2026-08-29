@@ -25,6 +25,7 @@ import 'view_animation_config.dart' show ViewOpenCloseAnimationPolicy;
 import 'lifecycle/lifecycle_views_controller.dart';
 import 'lifecycle/create_view_error.dart';
 import 'lifecycle/view_registry.dart';
+import 'log/mvd_log.dart';
 
 part 'views_manager_impl.dart';
 
@@ -130,7 +131,17 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     final initial = WidgetsBinding.instance.platformDispatcher.views.toList();
     final excludeId = !Platform.isMacOS ? -1 : 0;
     final live = initial.where((v) => v.viewId != excludeId).toList();
-    if (live.isEmpty) return;
+    MvdLog.instance.info('root', 'init main view', {
+      'platform': Platform.operatingSystem,
+      'initPlatformId': _initPlatformId,
+      'hasInitView': _hasInitView,
+      'dispatcherViewIds': initial.map((v) => v.viewId).join(','),
+      'liveViewIds': live.map((v) => v.viewId).join(','),
+    });
+    if (live.isEmpty) {
+      MvdLog.instance.error('root', 'init main view: no live Flutter views');
+      return;
+    }
 
     // After hot restart the lowest live view id may not be 1 (e.g. if view 1 was closed).
     live.sort((a, b) => a.viewId.compareTo(b.viewId));
@@ -144,6 +155,10 @@ class _MultiViewRootState extends State<_MultiViewRoot> with WidgetsBindingObser
     if (!kReleaseMode) {
       final registered = _viewsManagerImpl.allRealWindowIds.toSet();
       final orphaned = live.where((v) => !registered.contains(v.viewId)).toList();
+      MvdLog.instance.info('root', 'hot-restart orphan cleanup', {
+        'registered': registered.join(','),
+        'orphaned': orphaned.map((e) => e.viewId).join(','),
+      });
       _viewsManagerImpl.removeOrphanViewsForceAfterRestart(orphaned.map((e) => e.viewId).toList());
     }
   }

@@ -154,10 +154,21 @@ class _ViewsManagerImpl implements ViewsManager {
     AnimationSettings? animation,
   }) {
     if (parent != null && !_registry.windows.containsKey(parent)) {
+      MvdLog.instance.error('create', 'createWindow: parent is not registered', {
+        'parentRealId': parent,
+        'windows': allRealWindowIds.join(','),
+      });
       throw ArgumentError.value(parent, 'Parent error', 'Parent window is not registered');
     }
 
     final comparedOpts = _compareGlobalAndNewOpts(preferred: newOpts, global: config.globalWindowOptions);
+
+    MvdLog.instance.info('create', parent == null ? 'createWindow (independent)' : 'createWindow (child)', {
+      'parentRealId': parent,
+      'title': comparedOpts.title,
+      'hasShellOverrides': newOpts?.shellOverrides != null,
+      'shell': _shellLog(newOpts?.shellOverrides),
+    });
 
     if (parent == null) {
       return _lifecycle.openWindow(options: comparedOpts, onCreated: onCreated, animation: animation);
@@ -178,17 +189,35 @@ class _ViewsManagerImpl implements ViewsManager {
     AnimationSettings? animation,
   }) async {
     if (!_registry.windows.containsKey(parentRealId)) {
+      MvdLog.instance.error('create', 'createDialog: parent is not registered', {
+        'parentRealId': parentRealId,
+        'windows': allRealWindowIds.join(','),
+      });
       throw ArgumentError.value(parentRealId, 'Parent error', 'Parent window is not registered');
     }
 
     if (_lifecycle.hasPendingDialogCreate(parentRealId)) {
+      MvdLog.instance.error('create', 'createDialog while another dialog is creating', {
+        'parentRealId': parentRealId,
+      });
       throw Exception('Create error: "Create dialog" was called while another dialog is creating in the same window');
     }
 
     final comparedOpts = _compareDialogGlobalAndNewOpts(preferred: newOpts, global: config.globalDialogOptions);
     if (comparedOpts.modal == true && _lifecycle.hasModalDialog(parentRealId)) {
+      MvdLog.instance.error('create', 'createDialog: modal already open on parent', {
+        'parentRealId': parentRealId,
+      });
       throw Exception('Create error: One window can has only one modal dialog');
     }
+
+    MvdLog.instance.info('create', 'createDialog', {
+      'parentRealId': parentRealId,
+      'modal': comparedOpts.modal,
+      'title': comparedOpts.title,
+      'hasShellOverrides': newOpts?.shellOverrides != null,
+      'shell': _shellLog(newOpts?.shellOverrides),
+    });
 
     if (comparedOpts.modal ?? false) {
       return _lifecycle.openModalDialog(
@@ -209,15 +238,31 @@ class _ViewsManagerImpl implements ViewsManager {
   @override
   Future<int> createPopup({required int parentRealId, required Size size, AnimationSettings? animation}) async {
     if (!_registry.windows.containsKey(parentRealId) && !_registry.dialogs.containsKey(parentRealId)) {
+      MvdLog.instance.error('create', 'createPopup: parent is not registered', {
+        'parentRealId': parentRealId,
+      });
       throw ArgumentError.value(parentRealId, 'Parent error', 'Parent window is not registered');
     }
+
+    MvdLog.instance.info('create', 'createPopup', {
+      'parentRealId': parentRealId,
+      'size': '${size.width}x${size.height}',
+    });
 
     return _lifecycle.openPopup(
       parentId: parentRealId,
       size: size,
       animation: animation,
       onCreated: (viewId) {
+        _updateHotRestartShiftBySecondary(viewId);
         _registry.popups[viewId] = ViewPopupEntry(parentId: parentRealId);
+        MvdLog.instance.ids(
+          'create',
+          'popup registered',
+          realId: viewId,
+          parentRealId: parentRealId,
+          extra: {'popups': _registry.popups.keys.join(',')},
+        );
       },
     );
   }
@@ -228,6 +273,17 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   Future<bool> closeView<T>(int viewId, {T? dialogRes, AnimationSettings? animation}) {
+    MvdLog.instance.ids(
+      'close',
+      'closeView requested',
+      realId: viewId,
+      publicId: _realToShifted(viewId),
+      extra: {
+        'isDialog': _registry.isDialog(viewId),
+        'isPopup': _registry.isPopup(viewId),
+        'closeMode': closeMode.name,
+      },
+    );
     if (!_registry.isModalDialog(viewId)) {
       _lifecycle.animationController.stageSoftOverride(
         viewId,
@@ -245,11 +301,17 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   Future<bool> closeApp({CloseMode? closeMode}) {
-    return _lifecycle.closeService.closeApp(mode: closeMode ?? config.generalParams.closeMode);
+    final mode = closeMode ?? config.generalParams.closeMode;
+    MvdLog.instance.info('close', 'closeApp', {'mode': mode.name, 'windows': allRealWindowIds.join(',')});
+    return _lifecycle.closeService.closeApp(mode: mode);
   }
 
   @override
   void cancelCascadeClose(int viewId) {
+    MvdLog.instance.info('close', 'cancelCascadeClose', {
+      'realId': viewId,
+      'publicId': _realToShifted(viewId),
+    });
     _lifecycle.closeService.cancelCascade(viewId);
   }
 
@@ -258,6 +320,10 @@ class _ViewsManagerImpl implements ViewsManager {
 
   @override
   void setAppCloseMode(CloseMode closeMode) {
+    MvdLog.instance.info('close', 'setAppCloseMode', {
+      'from': this.closeMode.name,
+      'to': closeMode.name,
+    });
     this.closeMode = closeMode;
     _lifecycle.closeService.closeMode = closeMode;
     applyNativeLifecyclePolicy();
@@ -349,13 +415,30 @@ class _ViewsManagerImpl implements ViewsManager {
   @override
   void patchViewShell(int viewId, ViewShellOverrides overrides) {
     final entry = _viewEntryFor(viewId);
-    if (entry == null) return;
+    if (entry == null) {
+      MvdLog.instance.warn('shell', 'patchViewShell: no entry', {'realId': viewId});
+      return;
+    }
     final notifier = entry.viewShellOverrides;
-    notifier.value = ViewShellOverrides.merge(notifier.value, overrides);
+    final merged = ViewShellOverrides.merge(notifier.value, overrides);
+    MvdLog.instance.info('shell', 'patchViewShell', {
+      'realId': viewId,
+      'publicId': _realToShifted(viewId),
+      'before': _shellLog(notifier.value),
+      'delta': _shellLog(overrides),
+      'after': _shellLog(merged),
+    });
+    notifier.value = merged;
   }
 
   @override
   void setViewShellOverrides(int viewId, ViewShellOverrides? overrides) {
+    MvdLog.instance.info('shell', 'setViewShellOverrides', {
+      'realId': viewId,
+      'publicId': _realToShifted(viewId),
+      'before': _shellLog(_viewEntryFor(viewId)?.viewShellOverrides.value),
+      'after': _shellLog(overrides),
+    });
     _viewEntryFor(viewId)?.viewShellOverrides.value = overrides;
   }
 
@@ -379,12 +462,27 @@ class _ViewsManagerImpl implements ViewsManager {
   void registerInitialWindow({required int viewId, required Widget Function(BuildContext) homeBuilder}) {
     // Win & linux by default init from 0 id but macos from 1
     _hotRestartShift = !Platform.isMacOS ? -1 : 0;
+    MvdLog.instance.info('shift', 'registerInitialWindow begin', {
+      'incomingViewId': viewId,
+      'hasInitView': _hasInitView,
+      'initPlatformId': _initPlatformId,
+      'preShift': _hotRestartShift,
+    });
     if (!_hasInitView) {
       viewId = _createNextMainWindowAfterRestart(homeBuilder);
+      MvdLog.instance.ids('shift', 'created replacement main window after restart', realId: viewId);
     }
 
     _hotRestartShift = viewId - 1;
     _initRealId = viewId;
+    MvdLog.instance.ids(
+      'shift',
+      'registerInitialWindow',
+      realId: viewId,
+      publicId: 1,
+      shift: _hotRestartShift,
+      extra: {'initRealId': _initRealId},
+    );
     _setAnchor(viewId, force: true);
     _applyOptionsToInitialAnchor();
 
@@ -399,6 +497,11 @@ class _ViewsManagerImpl implements ViewsManager {
     ViewShellOverrides? shellOverrides,
   }) {
     if (parentId != null && !_registry.windows.containsKey(parentId)) {
+      MvdLog.instance.error('create', 'registerWindow: parent is not registered', {
+        'realId': viewId,
+        'parentRealId': parentId,
+        'windows': allRealWindowIds.join(','),
+      });
       throw ArgumentError.value(parentId, 'Parent error', 'Parent window is not registered');
     }
     _updateHotRestartShiftBySecondary(viewId);
@@ -412,8 +515,24 @@ class _ViewsManagerImpl implements ViewsManager {
         initialShellOverrides: shellOverrides,
       ),
     );
+    final publicId = _realToShifted(viewId);
+    final parentPublicId = parentId != null ? _realToShifted(parentId) : null;
+    MvdLog.instance.ids(
+      'create',
+      'window registered',
+      realId: viewId,
+      publicId: publicId,
+      parentRealId: parentId,
+      parentPublicId: parentPublicId,
+      shift: _hotRestartShift,
+      extra: {
+        'hasParentContext': parentContext != null,
+        'shell': _shellLog(shellOverrides),
+        'windows': allRealWindowIds.join(','),
+      },
+    );
     _notifyObservers(
-      (o) => o.onWindowOpened(_realToShifted(viewId), parentViewId: parentId != null ? _realToShifted(parentId) : null),
+      (o) => o.onWindowOpened(publicId, parentViewId: parentPublicId),
     );
     if (_realAnchorId == null) {
       _setAnchor(viewId);
@@ -430,6 +549,10 @@ class _ViewsManagerImpl implements ViewsManager {
     ViewShellOverrides? shellOverrides,
   }) {
     if (!_registry.windows.containsKey(parentId)) {
+      MvdLog.instance.error('create', 'registerDialog: parent is not registered', {
+        'realId': viewId,
+        'parentRealId': parentId,
+      });
       throw ArgumentError.value(parentId, 'Parent error', 'Parent window is not registered');
     }
     _updateHotRestartShiftBySecondary(viewId);
@@ -446,7 +569,18 @@ class _ViewsManagerImpl implements ViewsManager {
       ),
     );
 
-    _notifyObservers((o) => o.onDialogOpened(_realToShifted(viewId), parentViewId: _realToShifted(parentId)));
+    final publicId = _realToShifted(viewId);
+    final parentPublicId = _realToShifted(parentId);
+    MvdLog.instance.ids(
+      'create',
+      'dialog registered',
+      realId: viewId,
+      publicId: publicId,
+      parentRealId: parentId,
+      parentPublicId: parentPublicId,
+      extra: {'isModal': isModal, 'shell': _shellLog(shellOverrides)},
+    );
+    _notifyObservers((o) => o.onDialogOpened(publicId, parentViewId: parentPublicId));
   }
 
   void firstFrameCbComplete(int viewId) => _lifecycle.firstFrameCbComplete(viewId);
@@ -525,6 +659,41 @@ class _ViewsManagerImpl implements ViewsManager {
     final dialogEntry = _registry.dialogs[viewId];
     final shiftedViewId = _realToShifted(viewId);
     final isDialog = dialogEntry != null;
+    final parentRealId = isDialog ? dialogEntry.parentId : _registry.windowParentId(viewId);
+    final children = _registry.directChildWindowIds(viewId);
+
+    MvdLog.instance.ids(
+      'close',
+      isDialog ? 'dispose dialog' : 'dispose window',
+      realId: viewId,
+      publicId: shiftedViewId,
+      parentRealId: parentRealId,
+      extra: {
+        'wasAnchor': viewId == _realAnchorId,
+        'children': children.join(','),
+        'closeMode': closeMode.name,
+      },
+    );
+
+    if (!isDialog &&
+        closeMode == CloseMode.softCascade &&
+        children.isNotEmpty) {
+      MvdLog.instance.error('close', 'cascade: parent closed while children still registered', {
+        'realId': viewId,
+        'publicId': shiftedViewId,
+        'children': children.join(','),
+      });
+    }
+    if (!isDialog &&
+        closeMode == CloseMode.softCascade &&
+        parentRealId != null &&
+        !_registry.isWindow(parentRealId)) {
+      MvdLog.instance.error('close', 'cascade: child closed after parent was already destroyed', {
+        'realId': viewId,
+        'publicId': shiftedViewId,
+        'parentRealId': parentRealId,
+      });
+    }
 
     if (isDialog) {
       _notifyObservers((o) => o.onDialogClose(shiftedViewId));
@@ -556,7 +725,12 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   void _unregisterPopup(int viewId) {
+    final parentId = _registry.popups[viewId]?.parentId;
     _registry.popups.remove(viewId);
+    MvdLog.instance.info('create', 'popup unregistered', {
+      'realId': viewId,
+      'parentRealId': parentId,
+    });
   }
 
   void _destroyPopupsByParent(int parentId) {
@@ -577,6 +751,13 @@ class _ViewsManagerImpl implements ViewsManager {
     _lifecycle.closeService.anchorViewId = viewId;
     final newShifted = viewId != null ? _realToShifted(viewId) : null;
     if (previousShifted != newShifted) {
+      MvdLog.instance.ids(
+        'anchor',
+        'anchor changed',
+        realId: viewId,
+        publicId: newShifted,
+        extra: {'previousPublicId': previousShifted, 'force': force},
+      );
       _notifyObservers((o) => o.onAnchorChanged(previousShifted, newShifted));
     }
     if (viewId == null) return;
@@ -616,7 +797,21 @@ class _ViewsManagerImpl implements ViewsManager {
       return 1;
     }
 
-    return viewId - _hotRestartShift;
+    final shifted = viewId - _hotRestartShift;
+    if (shifted < 1) {
+      MvdLog.instance.error('shift', 'realToShifted produced public id < 1', {
+        'realId': viewId,
+        'publicId': shifted,
+        'shift': _hotRestartShift,
+        'initRealId': _initRealId,
+        'initPlatformId': _initPlatformId,
+        'isWindow': _registry.isWindow(viewId),
+        'isDialog': _registry.isDialog(viewId),
+        'isPopup': _registry.isPopup(viewId),
+        'windows': allRealWindowIds.join(','),
+      });
+    }
+    return shifted;
   }
 
   int _shiftedToReal(int viewId) {
@@ -624,6 +819,13 @@ class _ViewsManagerImpl implements ViewsManager {
       return _initRealId;
     }
 
+    if (viewId < 1) {
+      MvdLog.instance.error('shift', 'shiftedToReal received public id < 1', {
+        'publicId': viewId,
+        'shift': _hotRestartShift,
+        'initRealId': _initRealId,
+      });
+    }
     return viewId + _hotRestartShift;
   }
 
@@ -632,7 +834,14 @@ class _ViewsManagerImpl implements ViewsManager {
       _isInitFirstSecondaryView = true;
     }
     if (allShiftedWindowIds.length == 1 && allShiftedWindowIds.first == 1 && viewId > 2 && !_isInitFirstSecondaryView) {
+      final previous = _hotRestartShift;
       _hotRestartShift = viewId - allShiftedWindowIds.first - 1;
+      MvdLog.instance.info('shift', 'shift updated by first secondary view', {
+        'realId': viewId,
+        'previousShift': previous,
+        'shift': _hotRestartShift,
+        'initRealId': _initRealId,
+      });
 
       _isInitFirstSecondaryView = true;
     }
@@ -657,10 +866,12 @@ class _ViewsManagerImpl implements ViewsManager {
         pos: pos,
       );
     } catch (e, st) {
+      MvdLog.instance.error('shift', 'create replacement main window threw', {'error': e, 'stack': st});
       throw Exception('Failed to create new window, tokenId: 0000. Error: $e, stack: $st');
     }
 
     if (CreateViewError.isErrorCode(newViewId)) {
+      MvdLog.instance.error('shift', 'create replacement main window failed', {'code': newViewId});
       final error = CreateViewError.fromCode(newViewId);
       if (error == CreateViewError.forceClose) {
         // do nothing
@@ -702,6 +913,16 @@ class _ViewsManagerImpl implements ViewsManager {
     if (call.method != 'onEvent') return null;
 
     final String eventName = call.arguments['eventName'] as String;
+    final int? eventViewId = call.arguments['viewId'] as int?;
+    if (eventName != 'move' && eventName != 'resize') {
+      MvdLog.instance.info('event', eventName, {
+        'realId': eventViewId,
+        if (eventViewId != null) 'publicId': _realToShifted(eventViewId),
+        if (eventViewId != null) 'isWindow': _registry.isWindow(eventViewId),
+        if (eventViewId != null) 'isDialog': _registry.isDialog(eventViewId),
+        if (eventViewId != null) 'isPopup': _registry.isPopup(eventViewId),
+      });
+    }
 
     if (eventName == 'popup-closed') {
       final int? viewId = call.arguments['viewId'] as int?;
@@ -741,7 +962,9 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   Future<void> _macosOnShouldAppTerminate() async {
+    MvdLog.instance.info('lifecycle', 'applicationShouldTerminateRequest');
     final confirmTerminate = await config.macosParams.onTerminate?.call() ?? true;
+    MvdLog.instance.info('lifecycle', 'applicationShouldTerminate reply', {'confirm': confirmTerminate});
     if (confirmTerminate) {
       _ffiBridge.closeIsolateLocal();
     }
@@ -847,6 +1070,13 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   ViewEntryBase? _viewEntryFor(int viewId) => _registry.entryFor(viewId);
+
+  String _shellLog(ViewShellOverrides? o) {
+    if (o == null) return 'none';
+    return 'appearance=${o.appearance != null} router=${o.usesRouter} '
+        'home=${o.home != null} title=${o.title} locale=${o.appearance?.locale} '
+        'themeMode=${o.appearance?.themeMode}';
+  }
 
   T? _viewExistChecker<T>(int viewId, Function() func, {bool dialogSupports = false}) {
     final isManaged =

@@ -9,6 +9,7 @@ import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
 import 'package:multiview_desktop/src/impl/cascade_close_service_impl.dart';
 import 'package:multiview_desktop/src/lifecycle/lifecycle_views_controller.dart';
 import 'package:multiview_desktop/src/lifecycle/view_owner_base.dart';
+import 'package:multiview_desktop/src/log/mvd_log.dart';
 
 /// Soft/force/destroy close orchestration mirroring `_ViewsManagerImpl`.
 @internal
@@ -61,6 +62,15 @@ class ViewCloseService {
   // ---------------------------------------------------------------------------
 
   Future<void> handeFirstCloseStep(int viewId) async {
+    MvdLog.instance.info('close', 'first close step', {
+      'realId': viewId,
+      'closeMode': closeMode.name,
+      'isWindow': registry.isWindow(viewId),
+      'isDialog': registry.isDialog(viewId),
+      'parentWindow': registry.windowParentId(viewId),
+      'children': registry.directChildWindowIds(viewId).join(','),
+      'anchorId': _anchorId,
+    });
     final nextAnchorCandidates = delegate.anchorCandidatesExcluding(excludingViewId: viewId)..sort();
     if (viewId == _anchorId && nextAnchorCandidates.isNotEmpty && !delegate.enableDynamicAnchor) {
       for (final candidate in nextAnchorCandidates.reversed) {
@@ -87,6 +97,13 @@ class ViewCloseService {
   }
 
   Future<void> handleLastCloseStep(int viewId) async {
+    MvdLog.instance.info('close', 'last close step', {
+      'realId': viewId,
+      'isModalDialog': registry.isModalDialog(viewId),
+      'isPopup': registry.isPopup(viewId),
+      'parentWindow': registry.windowParentId(viewId),
+      'children': registry.directChildWindowIds(viewId).join(','),
+    });
     final isModalDialog = registry.isModalDialog(viewId);
 
     await _awaitSchedulerIdle();
@@ -117,6 +134,10 @@ class ViewCloseService {
 
   void cancelCascade(int viewId) {
     final parents = [...registry.parentWindowChain(viewId), ...registry.parentDialogChain(viewId), viewId];
+    MvdLog.instance.info('close', 'cascade abort', {
+      'realId': viewId,
+      'chain': parents.join(','),
+    });
     for (final parent in parents) {
       ffi.setPreConfirmClose(parent, false);
       cascadeCloseService.abort(parent);
@@ -147,6 +168,7 @@ class ViewCloseService {
 
   void destroyPopup(int viewId) {
     if (!registry.isPopup(viewId)) return;
+    MvdLog.instance.info('close', 'destroyPopup', {'realId': viewId});
     lifecycle.animationController.clearOverrides(viewId);
     delegate.invoke<void>(viewId, () => ffi.destroyModalDialog(viewId), dialogSupports: true);
     onPopupDestroyed?.call(viewId);
@@ -176,6 +198,7 @@ class ViewCloseService {
       unawaited(closeSubtreeByMode(root, effectiveMode));
       final closed = await cascadeCloseService.waitWindow(root);
       if (!closed) {
+        MvdLog.instance.warn('close', 'closeApp aborted', {'rootId': root, 'mode': effectiveMode.name});
         onCloseAppAborted?.call();
         return false;
       }
@@ -189,6 +212,12 @@ class ViewCloseService {
   // ---------------------------------------------------------------------------
 
   Future<void> closeSubtreeByMode(int rootId, CloseMode mode) async {
+    MvdLog.instance.info('close', 'closeSubtreeByMode', {
+      'rootId': rootId,
+      'mode': mode.name,
+      'descendants': registry.descendantWindowIdsDeepestFirst(rootId).join(','),
+      'pendingCreates': lifecycle.hasPendingCreates(),
+    });
     if (lifecycle.hasPendingCreates()) {
       await lifecycle.waitAllCreatingViews();
     }
@@ -211,18 +240,36 @@ class ViewCloseService {
 
   Future<void> _removeViewsCascade(int rootId) async {
     final descendants = registry.descendantWindowIdsDeepestFirst(rootId).toList()..sort();
+    MvdLog.instance.info('close', 'cascade order', {
+      'rootId': rootId,
+      'descendantsNewestFirst': descendants.reversed.join(','),
+    });
 
     for (final id in descendants.reversed) {
+      MvdLog.instance.info('close', 'cascade closing descendant', {'realId': id, 'rootId': rootId});
       final wait = delegate.invoke<Future<bool>>(id, () {
         cascadeCloseService.attachWindow(id);
         ffi.softCloseWindow(id);
         return cascadeCloseService.waitWindow(id);
       });
       final closed = wait == null ? false : await wait;
-      if (!closed) return;
+      if (!closed) {
+        MvdLog.instance.warn('close', 'cascade aborted on descendant', {'realId': id, 'rootId': rootId});
+        return;
+      }
+      if (!registry.isWindow(rootId)) {
+        MvdLog.instance.error('close', 'cascade: parent destroyed before child cascade finished', {
+          'rootId': rootId,
+          'childId': id,
+        });
+      }
     }
 
     if (registry.descendantWindowIdsDeepestFirst(rootId).isNotEmpty) {
+      MvdLog.instance.warn('close', 'cascade: descendants remain after child loop', {
+        'rootId': rootId,
+        'remaining': registry.descendantWindowIdsDeepestFirst(rootId).join(','),
+      });
       return;
     }
 

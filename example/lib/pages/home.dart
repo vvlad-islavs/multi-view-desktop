@@ -353,7 +353,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
 
     return SafeArea(
       child: DialogModalLayer(
-        showBarrierForNotModalDialog: true,
+        showBarrierForNotModalDialog: false,
         child: Scaffold(
           appBar: _titleBarHidden
               ? null

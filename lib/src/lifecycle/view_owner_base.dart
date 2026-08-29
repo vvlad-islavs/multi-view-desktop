@@ -10,6 +10,7 @@ import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
 import 'package:multiview_desktop/src/lifecycle/create_view_error.dart';
 import 'package:multiview_desktop/src/lifecycle/lifecycle_views_controller.dart';
 import 'package:multiview_desktop/src/lifecycle/view_create_completer.dart';
+import 'package:multiview_desktop/src/log/mvd_log.dart';
 import 'package:multiview_desktop/src/view_animation_config.dart';
 import 'package:multiview_desktop/src/utils/window_position_calculator.dart';
 import 'package:multiview_desktop/src/view_manager/view_manager_proxies.dart';
@@ -58,6 +59,11 @@ abstract class ViewOwnerBase {
 
   void throwIfNativeError(int? viewId, {required int errorToken}) {
     if (!CreateViewError.isErrorCode(viewId)) return;
+    MvdLog.instance.error('create', 'native create failed', {
+      'code': viewId,
+      'token': errorToken,
+      'error': CreateViewError.fromCode(viewId).name,
+    });
     throw Exception(CreateViewError.fromCode(viewId).message(errorToken));
   }
 

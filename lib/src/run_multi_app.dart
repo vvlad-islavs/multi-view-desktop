@@ -1,12 +1,16 @@
 import 'package:flutter/widgets.dart';
 import 'package:meta/meta.dart';
 
+import 'log/log_params.dart';
+import 'log/mvd_log.dart';
 import 'multi_view_desktop.dart';
 import 'view_root.dart' show createMultiViewRoot;
 import 'window_observer.dart';
 import 'taskbar_menu_item.dart';
 import 'view_animation_config.dart';
 import 'window_options.dart';
+
+export 'log/log_params.dart';
 
 /// Entry point for a multiview_desktop application.
 ///
@@ -31,7 +35,9 @@ void runMultiApp({
   MultiAppConfig? config,
 }) {
   WidgetsFlutterBinding.ensureInitialized();
-  runWidget(createMultiViewRoot(home, globalScope, config ?? MultiAppConfig._defaultConfig()));
+  final resolved = config ?? MultiAppConfig._defaultConfig();
+  MvdLog.instance.configure(resolved.logParams);
+  runWidget(createMultiViewRoot(home, globalScope, resolved));
 }
 
 /// Application-wide settings passed to `runMultiApp`.
@@ -59,12 +65,16 @@ class MultiAppConfig {
   /// ```
   final List<WindowObserver> observers;
 
+  /// File logger. Off by default. See [LogParams].
+  final LogParams logParams;
+
   MultiAppConfig._({
     required this.generalParams,
     required this.macosParams,
     WindowOptions? globalWindowOptions,
     DialogOptions? globalDialogOptions,
     this.observers = const [],
+    this.logParams = const LogParams(),
   }) : globalWindowOptions = globalWindowOptions ?? WindowOptions(),
        globalDialogOptions = globalDialogOptions ?? DialogOptions();
 
@@ -76,18 +86,21 @@ class MultiAppConfig {
   /// each `openWindow` call.
   /// `globalDialogOptions` merge into each `openDialog` call.
   /// `observers` receive passive lifecycle callbacks.
+  /// `logParams` writes package diagnostics to a cache-directory file.
   factory MultiAppConfig({
     MultiPlatformParams? generalParams,
     MacosPlatformParams? macosParams,
     WindowOptions? globalWindowOptions,
     DialogOptions? globalDialogOptions,
     List<WindowObserver>? observers,
+    LogParams fileLogParams = const LogParams(),
   }) => MultiAppConfig._(
     globalWindowOptions: globalWindowOptions,
     globalDialogOptions: globalDialogOptions,
     generalParams: generalParams ?? MultiPlatformParams.defaultParams(),
     macosParams: macosParams ?? MacosPlatformParams.defaultParams(),
     observers: observers ?? const [],
+    logParams: fileLogParams,
   );
 
   factory MultiAppConfig._defaultConfig() => MultiAppConfig._(

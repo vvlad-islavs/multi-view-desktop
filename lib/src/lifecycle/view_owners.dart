@@ -9,6 +9,7 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/lifecycle/create_view_error.dart';
 import 'package:multiview_desktop/src/lifecycle/view_create_completer.dart';
 import 'package:multiview_desktop/src/lifecycle/view_owner_base.dart';
+import 'package:multiview_desktop/src/log/mvd_log.dart';
 import 'package:multiview_desktop/src/view_animation_config.dart';
 
 /// Independent top-level window owner.
@@ -23,6 +24,7 @@ class WindowOwner extends ViewOwnerBase {
   }) async {
     final opts = options ?? WindowOptions();
     final viewId = createNativeWindow(opts: opts);
+    MvdLog.instance.ids('create', 'WindowOwner native created', realId: viewId, extra: {'title': opts.title});
     host.applyWindowOptions(viewId, opts);
     onCreated(viewId);
     trackUntilFirstFrame(viewId, parentId: null, isDialog: false);
@@ -53,6 +55,13 @@ class ChildWindowOwner extends ViewOwnerBase {
 
     final opts = options ?? WindowOptions();
     final viewId = createNativeWindow(opts: opts, parentId: parentId);
+    MvdLog.instance.ids(
+      'create',
+      'ChildWindowOwner native created',
+      realId: viewId,
+      parentRealId: parentId,
+      extra: {'title': opts.title},
+    );
     host.applyWindowOptions(viewId, opts);
     onCreated(viewId);
     trackUntilFirstFrame(viewId, parentId: parentId, isDialog: false);
@@ -128,6 +137,13 @@ class DialogOwner extends ViewOwnerBase {
 
     throwIfNativeError(newViewId, errorToken: modalFinishedToken);
     final viewId = newViewId;
+    MvdLog.instance.ids(
+      'create',
+      'DialogOwner native created',
+      realId: viewId,
+      parentRealId: parentId,
+      extra: {'modal': modal, 'title': opts.title, 'shell': opts.shellOverrides != null},
+    );
 
     host.registerDialog(parentId, dialogId: viewId, isModal: modal);
     host.applyDialogOptions(viewId, opts);
@@ -265,6 +281,7 @@ class PopupOwner extends ViewOwnerBase {
     }
 
     throwIfNativeError(newViewId, errorToken: ViewOwnerBase.nativeCreateToken);
+    MvdLog.instance.ids('create', 'PopupOwner native created', realId: newViewId, parentRealId: parentId);
 
     ffi.setPreConfirmClose(newViewId, true);
     ffi.setPreventClose(newViewId, isPreventClose: false);

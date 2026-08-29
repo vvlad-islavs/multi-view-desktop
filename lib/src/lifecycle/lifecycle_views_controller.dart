@@ -16,6 +16,7 @@ import 'package:multiview_desktop/src/lifecycle/view_create_completer.dart';
 import 'package:multiview_desktop/src/lifecycle/view_options_applier.dart';
 import 'package:multiview_desktop/src/lifecycle/view_owner_base.dart';
 import 'package:multiview_desktop/src/lifecycle/view_owners.dart';
+import 'package:multiview_desktop/src/log/mvd_log.dart';
 import 'package:multiview_desktop/src/utils/window_position_calculator.dart';
 import 'package:multiview_desktop/src/view_manager/view_manager_proxies.dart';
 import 'package:multiview_desktop/src/view_animation_config.dart';
@@ -196,6 +197,7 @@ class LifecycleViewsController {
   // ---------------------------------------------------------------------------
 
   void firstFrameCbComplete(int viewId) {
+    MvdLog.instance.info('create', 'first frame', {'realId': viewId});
     createCompleters[viewId]?.complete();
     createCompleters.remove(viewId);
   }
@@ -223,6 +225,7 @@ class LifecycleViewsController {
     return createCompleters[viewId]?.future.timeout(
       Duration(milliseconds: timeoutMs),
       onTimeout: () {
+        MvdLog.instance.error('create', 'first frame timeout', {'realId': viewId, 'timeoutMs': timeoutMs});
         createCompleters[viewId]?.complete(CreateViewError.timeout.code);
         return CreateViewError.timeout.code;
       },

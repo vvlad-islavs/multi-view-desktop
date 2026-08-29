@@ -17,6 +17,7 @@ void main() {
       return child;
     },
     config: MultiAppConfig(
+      fileLogParams: const LogParams(enable: true, sizeKb: 1024 * 10),
       generalParams: MultiPlatformParams(
         animation: ViewAnimationConfig.all(),
         enableDynamicAnchor: true,

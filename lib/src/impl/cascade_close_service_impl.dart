@@ -1,6 +1,8 @@
 // Coordinates `CloseMode.softCascade` by waiting for each secondary window to finish closing.
 import 'dart:async';
 
+import 'package:multiview_desktop/src/log/mvd_log.dart';
+
 ///
 /// Each view ID gets a `Completer` completed with `true` when the window closes
 /// or `false` when the user cancels via `ViewsManager.cancelCascadeClose`.
@@ -16,6 +18,7 @@ class CascadeCloseService {
   void abort(int id) {
     final completer = _closeCompleters[id];
     if (completer == null || completer.isCompleted) return;
+    MvdLog.instance.info('close', 'CascadeCloseService.abort', {'realId': id});
 
     completer.complete(false);
     // Clear remaining completers so their future completion (e.g. user later
@@ -28,10 +31,16 @@ class CascadeCloseService {
   }
 
   /// Registers `id` as the next window in a cascade close sequence.
-  void attachWindow(int id) => _closeCompleters.putIfAbsent(id, () => Completer<bool>());
+  void attachWindow(int id) {
+    MvdLog.instance.info('close', 'CascadeCloseService.attach', {'realId': id});
+    _closeCompleters.putIfAbsent(id, () => Completer<bool>());
+  }
 
   /// Signals that `id` finished its soft-close cycle successfully.
-  void completeWindow(int id) => _closeCompleters[id]?.complete(true);
+  void completeWindow(int id) {
+    MvdLog.instance.info('close', 'CascadeCloseService.complete', {'realId': id});
+    _closeCompleters[id]?.complete(true);
+  }
 
   /// Waits until `id` closes or the cascade is aborted; then removes its completer.
   Future<bool> waitWindow(int id) async {

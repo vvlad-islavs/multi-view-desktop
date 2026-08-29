@@ -4,6 +4,7 @@ import 'package:multiview_desktop/multiview_desktop.dart';
 // ignore: depend_on_referenced_packages
 import 'package:meta/meta.dart';
 import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
+import 'package:multiview_desktop/src/log/mvd_log.dart';
 
 /// Maps [WindowOptions] / [DialogOptions] to native FFI during view creation.
 ///
@@ -16,6 +17,14 @@ class ViewOptionsApplier {
   final FfiBridge _ffi;
 
   void applyWindow(int viewId, WindowOptions opts) {
+    MvdLog.instance.info('options', 'applyWindow', {
+      'realId': viewId,
+      'title': opts.title,
+      'size': opts.size,
+      'titleBarStyle': opts.titleBarStyle?.name,
+      'fullScreen': opts.fullScreen,
+      'alwaysOnTop': opts.alwaysOnTop,
+    });
     if (opts.size != null) {
       _ffi.setSize(viewId, size: opts.size!);
     }
@@ -52,6 +61,12 @@ class ViewOptionsApplier {
   }
 
   void applyDialog(int viewId, DialogOptions opts) {
+    MvdLog.instance.info('options', 'applyDialog', {
+      'realId': viewId,
+      'title': opts.title,
+      'modal': opts.modal,
+      'size': opts.size,
+    });
     if (!Platform.isWindows && opts.size != null) {
       _ffi.setSize(viewId, size: opts.size!);
     }

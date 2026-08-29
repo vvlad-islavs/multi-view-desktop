@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' show Offset, Rect, Size;
 
 import 'package:flutter/widgets.dart';
+import 'package:multiview_desktop/src/log/mvd_log.dart';
 import 'package:multiview_desktop/src/popup/element_position_tracker.dart';
 import 'package:multiview_desktop/src/popup/popup_content_sizer.dart';
 import 'package:multiview_desktop/src/popup/popup_controller.dart';
@@ -131,6 +132,9 @@ class _PopupViewState extends State<PopupView> {
     _unbindPositioning();
     _controller.listenContentSize(null);
     if (_controller.isOpen && _controller.viewId != null) {
+      MvdLog.instance.info('popup', 'anchor unmounted, hiding native popup', {
+        'realId': _controller.viewId,
+      });
       _proxies.state.hide(_controller.viewId!);
       _controller.nativeShown = false;
     }
@@ -176,6 +180,7 @@ class _PopupViewState extends State<PopupView> {
     _opening = true;
     try {
       final parentRealId = ViewScope.of(context).viewId;
+      MvdLog.instance.info('popup', 'open session', {'parentRealId': parentRealId});
       _maxSize = _parentContentSize();
       _cachedParentFrame = _proxies.position.getBounds(parentRealId);
       _cachedDisplayRect = _proxies.position.getDisplayRect(_cachedParentFrame) ?? _cachedDisplayRect;
@@ -203,6 +208,7 @@ class _PopupViewState extends State<PopupView> {
       }
       final flutterView = WidgetsBinding.instance.platformDispatcher.view(id: viewId);
       if (flutterView == null) {
+        MvdLog.instance.error('popup', 'FlutterView missing after createPopup', {'realId': viewId});
         globalRootState.manager.destroyPopup(viewId);
         _controller.clearSessionWidgets();
         return;

@@ -2,6 +2,7 @@ import 'package:flutter/animation.dart';
 
 // ignore: depend_on_referenced_packages
 import 'package:meta/meta.dart';
+import 'package:multiview_desktop/src/log/mvd_log.dart';
 import 'package:multiview_desktop/src/lifecycle/view_animator.dart';
 import 'package:multiview_desktop/src/lifecycle/view_animation_override.dart';
 import 'package:multiview_desktop/src/view_animation_config.dart';
@@ -51,6 +52,7 @@ class ViewAnimationController {
   /// that type is disabled in config. Timing wins over soft overrides.
   void stageForceOverride(int viewId, ViewAnimationType type, AnimationSettings? settings) {
     if (settings == null || settings.isEmpty) return;
+    MvdLog.instance.info('animation', 'stageForceOverride', {'realId': viewId, 'type': type.name});
     _pendingForceOverrides[viewId] = ViewAnimationOverride(type: type, settings: settings);
   }
 
@@ -58,6 +60,7 @@ class ViewAnimationController {
   void stageSoftOverride(int viewId, ViewAnimationType type, AnimationSettings? settings) {
     if (settings == null || settings.isEmpty) return;
     if (!_isStagingAllowed(type)) return;
+    MvdLog.instance.info('animation', 'stageSoftOverride', {'realId': viewId, 'type': type.name});
     _pendingSoftOverrides[viewId] = ViewAnimationOverride(type: type, settings: settings);
   }
 
@@ -109,6 +112,13 @@ class ViewAnimationController {
     final proxies = this.proxies;
     final forceOverride = _takeForceOverride(viewId, type);
 
+    MvdLog.instance.info('animation', 'animateOpen', {
+      'realId': viewId,
+      'type': type.name,
+      'fadeInOnOpen': policy.fadeInOnOpen,
+      'hasForceOverride': forceOverride != null,
+    });
+
     if (!policy.fadeInOnOpen && forceOverride == null) {
       proxies.state.show(viewId);
       return;
@@ -136,6 +146,12 @@ class ViewAnimationController {
     required ViewOpenCloseAnimationPolicy policy,
   }) async {
     final override = _takeForceOverride(viewId, type);
+    MvdLog.instance.info('animation', 'animateClose', {
+      'realId': viewId,
+      'type': type.name,
+      'fadeOutOnClose': policy.fadeOutOnClose,
+      'hasForceOverride': override != null,
+    });
     if (!policy.fadeOutOnClose && override == null) return;
 
     final softOverride = _takeSoftOverride(viewId, type);

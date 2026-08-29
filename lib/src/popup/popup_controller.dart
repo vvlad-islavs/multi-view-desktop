@@ -2,6 +2,7 @@ import 'dart:ui' show FlutterView, Size;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:multiview_desktop/src/log/mvd_log.dart';
 import 'package:multiview_desktop/src/view_animation_config.dart';
 import 'package:multiview_desktop/src/view_root.dart' show globalRootState;
 
@@ -43,6 +44,7 @@ class PopupController extends ChangeNotifier {
     if (_isOpen) return;
     _isOpen = true;
     _fadeOnNextShow = true;
+    MvdLog.instance.info('popup', 'controller.open');
     notifyListeners();
     await _openHandler?.call(animation);
   }
@@ -55,6 +57,7 @@ class PopupController extends ChangeNotifier {
     if (!_isOpen) return;
     _isOpen = false;
     _fadeOnNextShow = false;
+    MvdLog.instance.info('popup', 'controller.close', {'realId': _viewId});
     notifyListeners();
     await _closeHandler?.call(animation);
     await _dropSession?.call(animation);
