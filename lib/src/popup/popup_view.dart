@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:multiview_desktop/src/log/mvd_log.dart';
@@ -78,6 +79,7 @@ class _PopupViewState extends State<PopupView> {
   LocalElementPositionTracker? _tracker;
   Rect? _pendingPlaced;
   bool _boundsCommitScheduled = false;
+  int _placeGeneration = 0;
 
   PopupController get _controller => widget.controller;
 
@@ -86,6 +88,7 @@ class _PopupViewState extends State<PopupView> {
     super.initState();
     _parentListener = _ParentWindowListener(() {
       _parentFrameDirty = true;
+      if (_controller.anchorHidden) return;
       _applyPositionSync();
     });
     _positioner = widget.positioner;
@@ -132,13 +135,7 @@ class _PopupViewState extends State<PopupView> {
     _scrollObserver = null;
     _unbindPositioning();
     _controller.listenContentSize(null);
-    if (_controller.isOpen && _controller.viewId != null) {
-      MvdLog.instance.info('popup', 'anchor unmounted, hiding native popup', {
-        'realId': _controller.viewId,
-      });
-      _proxies.state.hide(_controller.viewId!);
-      _controller.nativeShown = false;
-    }
+    _hideNative(reason: 'anchor unmounted', forceNativeHide: true);
     _controller.detach();
     super.dispose();
   }
@@ -151,8 +148,13 @@ class _PopupViewState extends State<PopupView> {
   void _adoptSession() {
     _startTracking();
     _applyClickThrough();
+    if (_controller.anchorHidden) {
+      MvdLog.instance.info('popup', 'adopt session skipped show, anchor still hidden', {
+        'realId': _controller.viewId,
+      });
+      return;
+    }
     _applyPositionSync();
-    _reveal(allowFade: false);
   }
 
   Future<void> _onUserClose(AnimationSettings? animation) async {
@@ -237,10 +239,14 @@ class _PopupViewState extends State<PopupView> {
     globalRootState.manager.addListener(parentRealId, _parentListener);
     _tracker?.dispose();
     _tracker = LocalElementPositionTracker(element: _anchorKey.currentContext ?? context);
-    _anchorRect = _tracker?.getGlobalRect();
+    _anchorRect = _controller.anchorHidden ? null : _tracker?.getGlobalRect();
     _tracker?.onGlobalRectChange = (rect) {
       _anchorRect = rect;
       _applyPositionSync();
+    };
+    _tracker?.onLost = () {
+      _anchorRect = null;
+      _hideNative(reason: 'tracker lost render object');
     };
     _catchUpAncestorScrolling();
   }
@@ -311,26 +317,101 @@ class _PopupViewState extends State<PopupView> {
   }
 
   void _onContentSize(Size size) {
-    if (!mounted) return;
+    if (!mounted || _controller.anchorHidden) return;
     _applyPositionSync();
   }
 
   void _reveal({required bool allowFade}) {
     final viewId = _controller.viewId;
-    if (viewId == null || _controller.nativeShown) return;
+    if (viewId == null || _controller.nativeShown || _controller.anchorHidden) return;
     _controller.nativeShown = true;
-    unawaited(
-      globalRootState.manager.showPopup(
-        viewId,
-        animate: allowFade && _controller.takeOpenFade(),
-      ),
-    );
+    unawaited(globalRootState.manager.showPopup(viewId, animate: allowFade && _controller.takeOpenFade()));
+  }
+
+  void _hideNative({required String reason, bool forceNativeHide = false}) {
+    _placeGeneration++;
+    _pendingPlaced = null;
+    _controller.markAnchorHidden();
+    final viewId = _controller.viewId;
+    if (viewId == null || !_controller.isOpen) return;
+    if (!_controller.nativeShown && !forceNativeHide) return;
+    MvdLog.instance.info('popup', 'hiding native popup', {'realId': viewId, 'reason': reason});
+    globalRootState.manager.hidePopup(viewId);
+    _controller.nativeShown = false;
+  }
+
+  /// Visible clip of the scroll view: hide as soon as the trigger leaves it.
+  bool _anchorInVisibleClip() {
+    final box = _anchorBox();
+    if (box == null) return false;
+    final anchor = _globalRectOf(box);
+    if (anchor == null || anchor.isEmpty) return false;
+
+    final viewport = RenderAbstractViewport.maybeOf(box);
+    if (viewport is RenderBox) {
+      final visible = _globalRectOf(viewport as RenderBox);
+      if (visible == null) return false;
+      return visible.overlaps(anchor);
+    }
+
+    final view = View.maybeOf(context);
+    if (view == null) return false;
+    final logical = view.physicalSize / view.devicePixelRatio;
+    if (logical.width <= 0 || logical.height <= 0) return false;
+    return (Offset.zero & logical).overlaps(anchor);
+  }
+
+  /// Stricter than [_anchorInVisibleClip]: the trigger's center is inside the
+  /// viewport's painted size. Used to re-show after [PopupController.anchorHidden]
+  /// so cache-extent / remount layout cannot clear the hidden flag.
+  bool _anchorPaintedInViewport() {
+    final box = _anchorBox();
+    if (box == null) return false;
+    final viewport = RenderAbstractViewport.maybeOf(box);
+    if (viewport == null) {
+      return _anchorInVisibleClip();
+    }
+    try {
+      final revealed = viewport.getOffsetToReveal(box, 0.5);
+      if (viewport is! RenderBox) return false;
+      final vpBox = viewport as RenderBox;
+      if (!vpBox.hasSize) return false;
+      return (Offset.zero & vpBox.size).contains(revealed.rect.center);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  RenderBox? _anchorBox() {
+    final ctx = _anchorKey.currentContext;
+    if (ctx == null || !ctx.mounted) return null;
+    final box = ctx.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+    return box;
+  }
+
+  Rect? _globalRectOf(RenderBox box) {
+    if (!box.attached || !box.hasSize) return null;
+    try {
+      return MatrixUtils.transformRect(box.getTransformTo(null), Offset.zero & box.size);
+    } catch (_) {
+      return null;
+    }
   }
 
   void _applyPositionSync() {
     final viewId = _controller.viewId;
-    final anchor = _anchorRect;
-    if (viewId == null || anchor == null || !mounted) return;
+    if (viewId == null || !mounted) return;
+    if (_anchorRect == null || !_anchorInVisibleClip()) {
+      _hideNative(reason: 'anchor not in view');
+      return;
+    }
+    if (_controller.anchorHidden && !_anchorPaintedInViewport()) {
+      return;
+    }
+    _controller.clearAnchorHidden();
+
+    final anchor = _anchorRect!;
 
     if (_parentFrameDirty) {
       final pf = _proxies.position.getBounds(ViewScope.of(context).viewId);
@@ -361,11 +442,15 @@ class _PopupViewState extends State<PopupView> {
   /// Same rule as view-close deferral: wait for [SchedulerBinding.endOfFrame]
   /// so the scheduler is [SchedulerPhase.idle].
   void _commitPopupBoundsWhenIdle() {
+    final generation = _placeGeneration;
     void commit() {
       _boundsCommitScheduled = false;
+      if (generation != _placeGeneration) return;
       final viewId = _controller.viewId;
       final placed = _pendingPlaced;
       if (viewId == null || placed == null || !mounted) return;
+      if (!_anchorInVisibleClip()) return;
+      if (_controller.anchorHidden) return;
       _proxies.position.setPopupBounds(viewId, placed);
       _reveal(allowFade: true);
     }
@@ -428,10 +513,7 @@ class _PopupOverlayHost extends StatelessWidget {
           child: PopupContentSizer(
             maxSize: maxSize,
             onSize: controller.reportContentSize,
-            child: Overlay.wrap(
-              alwaysSizeToContent: true,
-              child: content,
-            ),
+            child: Overlay.wrap(alwaysSizeToContent: true, child: content),
           ),
         ),
       ),

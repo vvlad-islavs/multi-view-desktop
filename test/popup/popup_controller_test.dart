@@ -65,6 +65,38 @@ void main() {
       controller.dispose();
     });
 
+    test('anchorHidden blocks show until cleared', () async {
+      final controller = PopupController();
+      attach(controller);
+      await controller.open();
+      expect(controller.anchorHidden, isFalse);
+
+      controller.markAnchorHidden();
+      expect(controller.anchorHidden, isTrue);
+
+      controller.detach();
+      attach(controller);
+      expect(controller.anchorHidden, isTrue);
+      expect(controller.isOpen, isTrue);
+
+      controller.clearAnchorHidden();
+      expect(controller.anchorHidden, isFalse);
+      controller.dispose();
+    });
+
+    test('open and close reset the hidden-anchor flag', () async {
+      final controller = PopupController();
+      attach(controller);
+      await controller.open();
+      controller.markAnchorHidden();
+      await controller.close();
+      expect(controller.anchorHidden, isFalse);
+
+      await controller.open();
+      expect(controller.anchorHidden, isFalse);
+      controller.dispose();
+    });
+
     test('close still drops session after PopupView detach', () async {
       final controller = PopupController();
       var dropped = 0;

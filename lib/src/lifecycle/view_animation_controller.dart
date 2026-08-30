@@ -39,6 +39,7 @@ class ViewAnimationController {
 
   final Map<int, ViewAnimationOverride> _pendingForceOverrides = {};
   final Map<int, ViewAnimationOverride> _pendingSoftOverrides = {};
+  final Map<int, int> _animGeneration = {};
 
   void bindProxies(ViewManagerProxies proxies) => this.proxies = proxies;
 
@@ -46,7 +47,22 @@ class ViewAnimationController {
   void clearOverrides(int viewId) {
     _pendingForceOverrides.remove(viewId);
     _pendingSoftOverrides.remove(viewId);
+    cancelAnimations(viewId);
   }
+
+  /// Stops in-flight ticks for [viewId] (hide during fade-in must not keep
+  /// applying opacity / bounds after the native window is ordered out).
+  void cancelAnimations(int viewId) {
+    _animGeneration[viewId] = (_animGeneration[viewId] ?? 0) + 1;
+  }
+
+  int _beginAnimation(int viewId) {
+    final next = (_animGeneration[viewId] ?? 0) + 1;
+    _animGeneration[viewId] = next;
+    return next;
+  }
+
+  bool _isCurrentAnimation(int viewId, int generation) => _animGeneration[viewId] == generation;
 
   /// Stages a one-shot force override. Runs the next matching animation even if
   /// that type is disabled in config. Timing wins over soft overrides.
@@ -125,12 +141,16 @@ class ViewAnimationController {
     }
 
     final softOverride = _takeSoftOverride(viewId, type);
+    final generation = _beginAnimation(viewId);
 
     proxies.appearance.setOpacity(viewId, 0);
     proxies.state.show(viewId);
 
     await _animator.animate(
-      onValue: (value) => proxies.appearance.setOpacity(viewId, value),
+      onValue: (value) {
+        if (!_isCurrentAnimation(viewId, generation)) return;
+        proxies.appearance.setOpacity(viewId, value);
+      },
       from: 0,
       to: 1,
       duration: forceOverride?.duration ?? softOverride?.duration ?? policy.openDuration,
@@ -155,8 +175,12 @@ class ViewAnimationController {
     if (!policy.fadeOutOnClose && override == null) return;
 
     final softOverride = _takeSoftOverride(viewId, type);
+    final generation = _beginAnimation(viewId);
     await _animator.animate(
-      onValue: (value) => proxies.appearance.setOpacity(viewId, value),
+      onValue: (value) {
+        if (!_isCurrentAnimation(viewId, generation)) return;
+        proxies.appearance.setOpacity(viewId, value);
+      },
       from: 1,
       to: 0,
       duration: override?.duration ?? softOverride?.duration ?? policy.closeDuration,

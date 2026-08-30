@@ -344,6 +344,14 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
+  void hidePopup(int viewId) {
+    if (!_registry.isPopup(viewId)) return;
+    _lifecycle.animationController.cancelAnimations(viewId);
+    _proxies.appearance.setOpacity(viewId, 1);
+    _proxies.state.hide(viewId);
+  }
+
+  @override
   Future<void> closePopup(int viewId, {AnimationSettings? animation}) async {
     if (!_registry.isPopup(viewId)) return;
     _lifecycle.animationController.stageSoftOverride(viewId, ViewAnimationType.closePopup, animation);

@@ -804,6 +804,9 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         guard let viewId = viewIdForWindow(window) else {
             return true
         }
+        if windowStates[viewId]?.isPopup == true {
+            return false
+        }
         emitEvent("maximize", viewId: viewId)
         return true
     }

@@ -38,6 +38,11 @@ abstract class ViewsManager {
   /// re-shows (anchor back on screen) should pass [animate] `false`.
   Future<void> showPopup(int viewId, {bool animate = true});
 
+  /// Hides a popup without destroying the session. Cancels in-flight open fade.
+  void hidePopup(int viewId);
+
+  /// Fades out (when enabled) then destroys a popup created by [createPopup].
+
   /// Fades out (when enabled) then destroys a popup created by [createPopup].
   Future<void> closePopup(int viewId, {AnimationSettings? animation});
 

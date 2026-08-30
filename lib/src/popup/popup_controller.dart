@@ -12,9 +12,9 @@ import 'package:multiview_desktop/src/view_root.dart' show globalRootState;
 /// [isOpen] is the source of truth. The native window and popup child live on
 /// this controller for the whole open session:
 /// * [open] / [close] / [toggle] are user intent (close fades, then drops the child).
-/// * If the anchor [PopupView] is unmounted, the native window is only hidden.
-///   The child stays mounted under an [Overlay] entry, so its [State] is kept.
-///   A new [PopupView] reattaches without fading and without rebuilding the child.
+/// * If the anchor leaves the viewport or [PopupView] is unmounted, the native
+///   window is hidden and stays hidden until a new [PopupView] sees the
+///   trigger on-screen again. The child stays mounted under an [Overlay] entry.
 ///
 /// Native chrome that does not fight positioning lives on [viewController].
 class PopupController extends ChangeNotifier {
@@ -24,6 +24,7 @@ class PopupController extends ChangeNotifier {
   bool _isOpen = false;
   bool _attached = false;
   bool _fadeOnNextShow = false;
+  bool _anchorHidden = false;
 
   Future<void> Function(AnimationSettings? animation)? _openHandler;
   Future<void> Function(AnimationSettings? animation)? _closeHandler;
@@ -53,6 +54,7 @@ class PopupController extends ChangeNotifier {
     if (_isOpen) return;
     _isOpen = true;
     _fadeOnNextShow = true;
+    _anchorHidden = false;
     MvdLog.instance.info('popup', 'controller.open');
     notifyListeners();
     await _openHandler?.call(animation);
@@ -66,6 +68,7 @@ class PopupController extends ChangeNotifier {
     if (!_isOpen) return;
     _isOpen = false;
     _fadeOnNextShow = false;
+    _anchorHidden = false;
     MvdLog.instance.info('popup', 'controller.close', {'realId': _viewId});
     notifyListeners();
     await _closeHandler?.call(animation);
@@ -144,6 +147,17 @@ class PopupController extends ChangeNotifier {
   @internal
   set nativeShown(bool value) => _nativeShown = value;
 
+  /// True after the anchor left the viewport or was unmounted. Native show is
+  /// skipped until [clearAnchorHidden] when the anchor is in view again.
+  @internal
+  bool get anchorHidden => _anchorHidden;
+
+  @internal
+  void markAnchorHidden() => _anchorHidden = true;
+
+  @internal
+  void clearAnchorHidden() => _anchorHidden = false;
+
   /// Holds [child] for the open session. Same instance is reused if the
   /// anchor [PopupView] remounts.
   @internal
@@ -162,6 +176,7 @@ class PopupController extends ChangeNotifier {
     _hostEntry = host;
     _contentSize = const Size(1, 1);
     _nativeShown = false;
+    _anchorHidden = false;
   }
 
   @internal
@@ -188,6 +203,7 @@ class PopupController extends ChangeNotifier {
     _flutterView = null;
     _viewId = null;
     _nativeShown = false;
+    _anchorHidden = false;
     _parentScrolling = false;
     _contentSize = const Size(1, 1);
   }

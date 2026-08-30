@@ -264,6 +264,43 @@ void main() {
 
       expect(ffi.callsFor('setOpacity'), isEmpty);
     });
+
+    test('cancelAnimations stops further open-fade opacity ticks', () async {
+      final ffi = RecordingFfiBridge();
+      final controller = ViewAnimationController(
+        config: ViewAnimationConfig.defaults,
+        animator: ViewAnimator(),
+      );
+      final registry = ViewRegistry();
+      final host = ViewNativeHost(
+        ffi: ffi,
+        invoke: <T>(int viewId, T Function() f, {bool dialogSupports = false}) => f(),
+        registry: registry,
+      );
+      controller.bindProxies(ViewManagerProxies(host, animationController: controller));
+
+      controller.stageSoftOverride(
+        9,
+        ViewAnimationType.createPopup,
+        const AnimationSettings(duration: Duration(milliseconds: 200), fps: 50),
+      );
+
+      final future = controller.animateOpen(
+        9,
+        type: ViewAnimationType.createPopup,
+        policy: ViewAnimationConfig.defaults.popupOpenClose,
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      final ticksBeforeCancel = ffi.callsFor('setOpacity').length;
+      expect(ticksBeforeCancel, greaterThan(1));
+
+      controller.cancelAnimations(9);
+      await future;
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      expect(ffi.callsFor('setOpacity').length, ticksBeforeCancel);
+    });
   });
 }
 
