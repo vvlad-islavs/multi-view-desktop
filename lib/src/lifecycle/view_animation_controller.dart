@@ -156,6 +156,7 @@ class ViewAnimationController {
       duration: forceOverride?.duration ?? softOverride?.duration ?? policy.openDuration,
       curve: forceOverride?.curve ?? softOverride?.curve ?? policy.curve,
       fps: forceOverride?.fps ?? softOverride?.fps ?? policy.fps,
+      isCurrent: () => _isCurrentAnimation(viewId, generation),
     );
   }
 
@@ -186,6 +187,7 @@ class ViewAnimationController {
       duration: override?.duration ?? softOverride?.duration ?? policy.closeDuration,
       curve: override?.curve ?? softOverride?.curve ?? policy.curve,
       fps: override?.fps ?? softOverride?.fps ?? policy.fps,
+      isCurrent: () => _isCurrentAnimation(viewId, generation),
     );
   }
 

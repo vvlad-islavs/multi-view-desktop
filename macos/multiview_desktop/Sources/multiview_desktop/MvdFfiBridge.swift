@@ -445,15 +445,21 @@ public func mvdDestroyWindow(_ viewId: Int64) {
 public func mvdShow(_ viewId: Int64) {
     guard let window = win(viewId) else { return }
     if impl().windowStates[viewId]?.isPopup == true {
-        window.alphaValue = impl().windowStates[viewId]?.opacity ?? 1.0
-        window.orderFront(nil)
+        impl().showPopupWindow(window, viewId: viewId)
     } else {
         impl().focusWindow(window)
     }
 }
 
 @_cdecl("mvd_hide")
-public func mvdHide(_ viewId: Int64) { win(viewId)?.orderOut(nil) }
+public func mvdHide(_ viewId: Int64) {
+    guard let window = win(viewId) else { return }
+    if impl().windowStates[viewId]?.isPopup == true {
+        impl().hidePopupWindow(window, viewId: viewId)
+    } else {
+        window.orderOut(nil)
+    }
+}
 
 @_cdecl("mvd_is_visible")
 public func mvdIsVisible(_ viewId: Int64) -> Int32 { (win(viewId)?.isVisible ?? true) ? 1 : 0 }

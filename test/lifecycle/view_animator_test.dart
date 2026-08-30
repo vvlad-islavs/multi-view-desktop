@@ -301,6 +301,37 @@ void main() {
 
       expect(ffi.callsFor('setOpacity').length, ticksBeforeCancel);
     });
+
+    test('cancelAnimations completes in-flight close fade immediately', () async {
+      final ffi = RecordingFfiBridge();
+      final controller = ViewAnimationController(
+        config: ViewAnimationConfig.defaults,
+        animator: ViewAnimator(),
+      );
+      final registry = ViewRegistry();
+      final host = ViewNativeHost(
+        ffi: ffi,
+        invoke: <T>(int viewId, T Function() f, {bool dialogSupports = false}) => f(),
+        registry: registry,
+      );
+      controller.bindProxies(ViewManagerProxies(host, animationController: controller));
+
+      controller.stageSoftOverride(
+        9,
+        ViewAnimationType.closePopup,
+        const AnimationSettings(duration: Duration(milliseconds: 400), fps: 50),
+      );
+
+      final future = controller.animateClose(
+        9,
+        type: ViewAnimationType.closePopup,
+        policy: ViewAnimationConfig.defaults.popupOpenClose,
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      controller.cancelAnimations(9);
+      await future.timeout(const Duration(milliseconds: 200));
+    });
   });
 }
 
@@ -317,9 +348,11 @@ class _RecordingDurationAnimator extends ViewAnimator {
     Duration duration = const Duration(milliseconds: 180),
     Curve curve = Curves.easeOutCubic,
     int? fps,
+    bool Function()? isCurrent,
   }) async {
     durations.add(duration);
     onValue(from);
+    if (isCurrent != null && !isCurrent()) return;
     onValue(to);
   }
 }

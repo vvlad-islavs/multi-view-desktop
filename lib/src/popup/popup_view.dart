@@ -64,7 +64,8 @@ class _PopupViewState extends State<PopupView> {
 
   PopupPositioner _positioner = const PopupPositioner();
   Rect? _anchorRect;
-  bool _opening = false;
+  Future<void>? _openWork;
+  bool _dropping = false;
   Size _maxSize = const Size(800, 600);
 
   Rect _cachedParentFrame = Rect.zero;
@@ -163,12 +164,44 @@ class _PopupViewState extends State<PopupView> {
   }
 
   Future<void> _dropSession(AnimationSettings? animation) async {
-    final viewId = _controller.viewId;
-    if (viewId != null) {
-      _proxies.input.setIgnoreMouseEvents(viewId, false);
-      await globalRootState.manager.closePopup(viewId, animation: animation);
+    if (_dropping) return;
+    _dropping = true;
+    try {
+      if (_controller.isOpen) {
+        _resumeSession();
+        return;
+      }
+      final viewId = _controller.viewId;
+      if (viewId != null) {
+        _proxies.input.setIgnoreMouseEvents(viewId, false);
+        await globalRootState.manager.closePopup(viewId, animation: animation, destroy: false);
+      }
+      if (_controller.isOpen) {
+        _resumeSession();
+        return;
+      }
+      if (viewId != null) {
+        await globalRootState.manager.destroyPopup(viewId);
+      }
+      _controller.clearSessionWidgets();
+    } finally {
+      _dropping = false;
     }
-    _controller.clearSessionWidgets();
+  }
+
+  /// Re-binds tracking and shows the existing native window after a cancelled close.
+  void _resumeSession() {
+    if (!mounted || !_controller.isOpen || !_controller.hasSession) return;
+    MvdLog.instance.info('popup', 'resume session after cancelled close', {
+      'realId': _controller.viewId,
+    });
+    _controller.clearAnchorHidden();
+    _controller.nativeShown = false;
+    _startTracking();
+    _applyClickThrough();
+    if (mounted) setState(() {});
+    _reveal(allowFade: true);
+    _applyPositionSync();
   }
 
   Size _parentContentSize() {
@@ -179,9 +212,27 @@ class _PopupViewState extends State<PopupView> {
   }
 
   Future<void> _open(AnimationSettings? animation) async {
-    if (!mounted || _opening || _controller.hasSession) return;
-    _opening = true;
+    while (true) {
+      if (!mounted || !_controller.isOpen) return;
+      if (_controller.hasSession) {
+        _resumeSession();
+        return;
+      }
+      final inFlight = _openWork;
+      if (inFlight != null) {
+        await inFlight;
+        continue;
+      }
+      break;
+    }
+    final work = Completer<void>();
+    _openWork = work.future;
     try {
+      if (!mounted || !_controller.isOpen) return;
+      if (_controller.hasSession) {
+        _resumeSession();
+        return;
+      }
       final parentRealId = ViewScope.of(context).viewId;
       MvdLog.instance.info('popup', 'open session', {'parentRealId': parentRealId});
       _maxSize = _parentContentSize();
@@ -209,6 +260,11 @@ class _PopupViewState extends State<PopupView> {
         _controller.clearSessionWidgets();
         return;
       }
+      if (_controller.hasSession) {
+        globalRootState.manager.destroyPopup(viewId);
+        _resumeSession();
+        return;
+      }
       final flutterView = WidgetsBinding.instance.platformDispatcher.view(id: viewId);
       if (flutterView == null) {
         MvdLog.instance.error('popup', 'FlutterView missing after createPopup', {'realId': viewId});
@@ -227,7 +283,8 @@ class _PopupViewState extends State<PopupView> {
       _applyClickThrough();
       if (mounted) setState(() {});
     } finally {
-      _opening = false;
+      _openWork = null;
+      if (!work.isCompleted) work.complete();
     }
   }
 

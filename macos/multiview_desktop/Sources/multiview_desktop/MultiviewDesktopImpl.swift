@@ -680,6 +680,26 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         return viewId
     }
 
+    /// `orderOut` drops the child-window link. Parent is kept in [popupParents]
+    /// so [showPopupWindow] can call `addChildWindow` again.
+    func hidePopupWindow(_ window: NSWindow, viewId: Int64) {
+        window.orderOut(nil)
+    }
+
+    /// Re-parents a popup after hide. Without this, `orderFront` shows an
+    /// independent window: parent clicks stack above it, and Mission Control
+    /// lists it separately.
+    func showPopupWindow(_ window: NSWindow, viewId: Int64) {
+        window.alphaValue = windowStates[viewId]?.opacity ?? 1.0
+        if let parent = popupParents[viewId] {
+            if window.parent !== parent {
+                parent.addChildWindow(window, ordered: .above)
+            }
+        } else {
+            window.orderFront(nil)
+        }
+    }
+
     private var regularWindowCount: Int {
         windows.keys.filter { windowStates[$0]?.isPopup != true }.count
     }
@@ -1027,8 +1047,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         case "show":
             DispatchQueue.main.async {
                 if self.windowStates[viewId]?.isPopup == true {
-                    window.alphaValue = self.windowStates[viewId]?.opacity ?? 1.0
-                    window.orderFront(nil)
+                    self.showPopupWindow(window, viewId: viewId)
                 } else {
                     self.focusWindow(window)
                 }
@@ -1037,7 +1056,11 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
         case "hide":
             DispatchQueue.main.async {
-                window.orderOut(nil)
+                if self.windowStates[viewId]?.isPopup == true {
+                    self.hidePopupWindow(window, viewId: viewId)
+                } else {
+                    window.orderOut(nil)
+                }
             }
             result(nil)
 

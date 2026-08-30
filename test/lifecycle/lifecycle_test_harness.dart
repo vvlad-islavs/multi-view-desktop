@@ -23,8 +23,10 @@ class InstantViewAnimator extends ViewAnimator {
     Duration duration = const Duration(milliseconds: 180),
     Curve curve = Curves.easeOutCubic,
     int? fps,
+    bool Function()? isCurrent,
   }) async {
     onValue(from);
+    if (isCurrent != null && !isCurrent()) return;
     onValue(to);
   }
 }

@@ -352,10 +352,13 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   @override
-  Future<void> closePopup(int viewId, {AnimationSettings? animation}) async {
+  Future<void> closePopup(int viewId, {AnimationSettings? animation, bool destroy = true}) async {
     if (!_registry.isPopup(viewId)) return;
     _lifecycle.animationController.stageSoftOverride(viewId, ViewAnimationType.closePopup, animation);
-    await _lifecycle.popupOwner.close(viewId);
+    await _lifecycle.popupOwner.fadeOut(viewId);
+    if (destroy) {
+      _lifecycle.closeService.destroyPopup(viewId);
+    }
   }
 
   @override

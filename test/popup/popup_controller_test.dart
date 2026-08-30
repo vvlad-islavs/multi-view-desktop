@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
@@ -110,6 +112,30 @@ void main() {
       await controller.close();
       expect(dropped, 1);
       expect(controller.isOpen, isFalse);
+      controller.dispose();
+    });
+
+    test('open during close still invokes onOpen', () async {
+      final controller = PopupController();
+      final dropGate = Completer<void>();
+      var opens = 0;
+      controller.attach(
+        onOpen: (_) async => opens++,
+        onClose: (_) async {},
+        dropSession: (_) async => dropGate.future,
+      );
+
+      await controller.open();
+      expect(opens, 1);
+
+      final closing = controller.close();
+      await controller.open();
+      expect(controller.isOpen, isTrue);
+      expect(opens, 2);
+
+      dropGate.complete();
+      await closing;
+      expect(controller.isOpen, isTrue);
       controller.dispose();
     });
 

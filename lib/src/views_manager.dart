@@ -42,9 +42,10 @@ abstract class ViewsManager {
   void hidePopup(int viewId);
 
   /// Fades out (when enabled) then destroys a popup created by [createPopup].
-
-  /// Fades out (when enabled) then destroys a popup created by [createPopup].
-  Future<void> closePopup(int viewId, {AnimationSettings? animation});
+  ///
+  /// Pass [destroy] `false` to only run the close fade so a later [open] can
+  /// keep the same native session.
+  Future<void> closePopup(int viewId, {AnimationSettings? animation, bool destroy = true});
 
   /// Destroys a popup created by [createPopup] without close fade.
   Future<void> destroyPopup(int viewId);

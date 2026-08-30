@@ -20,6 +20,10 @@ class ViewAnimator {
   ViewAnimator();
 
   /// Interpolates from [from] to [to] over [duration] and invokes [onValue] each tick.
+  ///
+  /// When [isCurrent] returns false, the future completes immediately and further
+  /// ticks (including the final [to] value) are skipped so a newer animation
+  /// can take over.
   Future<void> animate({
     required void Function(double value) onValue,
     double from = 0.0,
@@ -27,6 +31,7 @@ class ViewAnimator {
     Duration duration = const Duration(milliseconds: 180),
     Curve curve = Curves.easeOutCubic,
     int? fps,
+    bool Function()? isCurrent,
   }) {
     if (fps != null) {
       return _animateWithTimer(
@@ -36,6 +41,7 @@ class ViewAnimator {
         duration: duration,
         curve: curve,
         fps: fps,
+        isCurrent: isCurrent,
       );
     }
     return _animatePerDisplayFrame(
@@ -44,6 +50,7 @@ class ViewAnimator {
       to: to,
       duration: duration,
       curve: curve,
+      isCurrent: isCurrent,
     );
   }
 
@@ -54,14 +61,22 @@ class ViewAnimator {
     required Duration duration,
     required Curve curve,
     required int fps,
+    bool Function()? isCurrent,
   }) async {
     final completer = Completer<void>();
+    bool live() => isCurrent == null || isCurrent();
+    if (!live()) return;
     onValue(from);
     final totalMs = duration.inMilliseconds.clamp(1, 60000);
     final tickMs = math.max(1, (1000 / fps.clamp(1, 1000)).round());
     final start = DateTime.now();
     Timer? timer;
     timer = Timer.periodic(Duration(milliseconds: tickMs), (_) {
+      if (!live()) {
+        timer?.cancel();
+        if (!completer.isCompleted) completer.complete();
+        return;
+      }
       final elapsed = DateTime.now().difference(start).inMilliseconds;
       final progress = (elapsed / totalMs).clamp(0.0, 1.0);
       final eased = curve.transform(progress);
@@ -81,11 +96,13 @@ class ViewAnimator {
     required double to,
     required Duration duration,
     required Curve curve,
+    bool Function()? isCurrent,
   }) async {
     final binding = SchedulerBinding.instance;
     if (binding.schedulerPhase != SchedulerPhase.idle) {
       await binding.endOfFrame;
     }
+    if (isCurrent != null && !isCurrent()) return;
 
     final completer = Completer<void>();
     final totalMicros = duration.inMicroseconds.clamp(1, 60000000);
@@ -106,6 +123,10 @@ class ViewAnimator {
       binding.scheduleFrame();
       binding.endOfFrame.then((_) {
         if (completer.isCompleted) return;
+        if (isCurrent != null && !isCurrent()) {
+          if (!completer.isCompleted) completer.complete();
+          return;
+        }
 
         final progress = (elapsedMicros(binding.currentSystemFrameTimeStamp) / totalMicros).clamp(0.0, 1.0);
         final eased = curve.transform(progress);
