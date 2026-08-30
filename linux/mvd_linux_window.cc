@@ -767,7 +767,18 @@ void MvdLinuxWindow::Show() {
   // the coordinates in the X11 MapRequest (PPosition hint).
   ApplyPendingMove();
   gtk_widget_show(GTK_WIDGET(window));
-  gtk_window_present(window);
+  if (is_popup) {
+    // Like Windows owner HWND / macOS addChildWindow: above the parent only.
+    GtkWindow* parent = gtk_window_get_transient_for(window);
+    GdkWindow* self_gdk = gtk_widget_get_window(GTK_WIDGET(window));
+    GdkWindow* parent_gdk =
+        parent ? gtk_widget_get_window(GTK_WIDGET(parent)) : nullptr;
+    if (self_gdk && parent_gdk) {
+      gdk_window_restack(self_gdk, parent_gdk, TRUE);
+    }
+  } else {
+    gtk_window_present(window);
+  }
   SeedConfigureBaseline();
   MVD_LOG("Show  DONE  view_id=%" G_GINT64_FORMAT, view_id);
 }
@@ -909,8 +920,12 @@ void MvdLinuxWindow::SetBounds(FlValue* args) {
   FlValue* x = fl_value_lookup_string(args, "x");
   FlValue* y = fl_value_lookup_string(args, "y");
   if (x && y) {
-    gtk_window_move(window, static_cast<gint>(fl_value_get_float(x)),
-                    static_cast<gint>(fl_value_get_float(y)));
+    pending_move_x = static_cast<gint>(fl_value_get_float(x));
+    pending_move_y = static_cast<gint>(fl_value_get_float(y));
+    has_pending_move = true;
+    if (gtk_widget_get_visible(GTK_WIDGET(window))) {
+      ApplyPendingMove();
+    }
   }
   FlValue* w = fl_value_lookup_string(args, "width");
   FlValue* h = fl_value_lookup_string(args, "height");
@@ -1150,9 +1165,14 @@ bool MvdLinuxWindow::IsMinimizable() {
 // Updates type hint and taskbar-skip hints from stored state.
 void MvdLinuxWindow::ApplyWindowTypeHint() {
   if (!window) return;
-  gtk_window_set_type_hint(
-      window,
-      is_minimizable ? GDK_WINDOW_TYPE_HINT_NORMAL : GDK_WINDOW_TYPE_HINT_DIALOG);
+  if (is_popup) {
+    gtk_window_set_type_hint(window, GDK_WINDOW_TYPE_HINT_DIALOG);
+  } else {
+    gtk_window_set_type_hint(
+        window,
+        is_minimizable ? GDK_WINDOW_TYPE_HINT_NORMAL
+                       : GDK_WINDOW_TYPE_HINT_DIALOG);
+  }
   gtk_window_set_skip_taskbar_hint(window, is_skip_taskbar ? TRUE : FALSE);
   gtk_window_set_skip_pager_hint(window, is_skip_taskbar ? TRUE : FALSE);
 }
@@ -1282,28 +1302,9 @@ void MvdLinuxWindow::SetTitleBarStyle(const gchar* style, bool wbv) {
       }
     }
 
-    // When the header bar is hidden the CSD frame still has rounded top
-    // corners, but Flutter's GL content is rectangular and protrudes past
-    // them. Fix: override the CSS border-radius of the window content area
-    // to 0, which makes the inner visible area square-cornered so it matches
-    // Flutter's rectangular rendering. The outer shadow decoration is
-    // separate and remains unchanged.
-    if (!csd_radius_provider) {
-      csd_radius_provider = gtk_css_provider_new();
-      // Use PRIORITY_USER (800) so our rule beats the theme (PRIORITY_THEME=200)
-      // and application-level providers (PRIORITY_APPLICATION=600).
-      // Target both window.csd (background) and decoration (shadow/border) nodes
-      // since Adwaita rounds corners on both elements independently.
-      gtk_style_context_add_provider(
-          gtk_widget_get_style_context(GTK_WIDGET(window)),
-          GTK_STYLE_PROVIDER(csd_radius_provider),
-          GTK_STYLE_PROVIDER_PRIORITY_USER);
-    }
-    gtk_css_provider_load_from_data(
-        csd_radius_provider,
-        hidden ? "window.csd { border-radius: 0; }\n"
-                 "decoration { border-radius: 0; }" : "",
-        -1, nullptr);
+    // Hidden title bar: Flutter is rectangular, so force CSD radius to 0.
+    // Popups use ApplyCsdCornerRadius(>0) so the native clip matches Flutter.
+    ApplyCsdCornerRadius(hidden ? 0 : -1);
 
     // Clear the shadow cache: it was measured with the header bar visible and
     // includes the header bar height in the GDK-GTK delta. After toggling
@@ -1352,6 +1353,50 @@ void MvdLinuxWindow::SetTitleBarStyle(const gchar* style, bool wbv) {
   // }
 }
 
+
+void MvdLinuxWindow::ApplyCsdCornerRadius(int radius_px) {
+  if (!window) {
+    return;
+  }
+  if (!csd_radius_provider) {
+    csd_radius_provider = gtk_css_provider_new();
+    // PRIORITY_USER (800) beats theme (200) and application (600).
+    gtk_style_context_add_provider(
+        gtk_widget_get_style_context(GTK_WIDGET(window)),
+        GTK_STYLE_PROVIDER(csd_radius_provider),
+        GTK_STYLE_PROVIDER_PRIORITY_USER);
+  }
+  if (radius_px < 0) {
+    gtk_css_provider_load_from_data(csd_radius_provider, "", -1, nullptr);
+    return;
+  }
+  g_autofree gchar* css = g_strdup_printf(
+      "window, window.csd, decoration, decoration:backdrop {\n"
+      "  border-radius: %dpx;\n"
+      "  border: none;\n"
+      "  outline: none;\n"
+      "}\n"
+      "window.csd {\n"
+      "  box-shadow: none;\n"
+      "}\n"
+      ".titlebar, headerbar {\n"
+      "  min-height: 0;\n"
+      "  padding: 0;\n"
+      "  margin: 0;\n"
+      "  border: none;\n"
+      "  outline: none;\n"
+      "  background: none;\n"
+      "  box-shadow: none;\n"
+      "}\n",
+      radius_px);
+  gtk_css_provider_load_from_data(csd_radius_provider, css, -1, nullptr);
+  if (GtkWidget* titlebar = gtk_window_get_titlebar(window)) {
+    gtk_style_context_add_provider(
+        gtk_widget_get_style_context(titlebar),
+        GTK_STYLE_PROVIDER(csd_radius_provider),
+        GTK_STYLE_PROVIDER_PRIORITY_USER);
+  }
+}
 
 FlValue* MvdLinuxWindow::GetTitleBarStyle() {
   const char* style = title_bar_style ? title_bar_style : "normal";

@@ -144,6 +144,9 @@ class MvdLinuxWindow {
   void SetTitle(const gchar* t);
   void SetTitleBarStyle(const gchar* style, bool window_button_visibility);
   FlValue* GetTitleBarStyle();
+  /// CSD clip radius. `0` is square (hidden title bar), `>0` rounds popup
+  /// chrome, `<0` restores the theme default.
+  void ApplyCsdCornerRadius(int radius_px);
   bool IsSkipTaskbar();
   void SetSkipTaskbar(bool v);
   double GetOpacity();

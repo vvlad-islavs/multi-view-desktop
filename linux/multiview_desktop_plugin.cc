@@ -604,16 +604,29 @@ static int64_t create_popup_window_impl(const PopupCreateParams& params) {
     return -1;
   }
 
-  GtkWindow* window =
-      GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(app)));
-  gtk_window_set_decorated(window, FALSE);
+  // Analog of Windows WS_POPUP + owner, not GtkApplicationWindow: those
+  // default their title to the application id (com.example...) and draw CSD.
+  GtkWindow* window = GTK_WINDOW(gtk_window_new(GTK_WINDOW_TOPLEVEL));
+  gtk_window_set_title(window, "");
+  // Custom titlebar enables CSD (shadow + CSS radius). Keep it hidden so
+  // GTK does not draw the caption slot / outline above the content.
+  GtkWidget* titlebar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_widget_set_size_request(titlebar, 0, 0);
+  gtk_window_set_titlebar(window, titlebar);
+  gtk_widget_set_no_show_all(titlebar, TRUE);
+  gtk_widget_hide(titlebar);
+  gtk_window_set_deletable(window, FALSE);
   gtk_window_set_default_size(window, params.width, params.height);
-  gtk_window_set_type_hint(window, GDK_WINDOW_TYPE_HINT_POPUP_MENU);
+  // DIALOG + transient_for: stacked above the parent only, not globally.
+  gtk_window_set_type_hint(window, GDK_WINDOW_TYPE_HINT_DIALOG);
   gtk_window_set_skip_taskbar_hint(window, TRUE);
   gtk_window_set_skip_pager_hint(window, TRUE);
   gtk_window_set_transient_for(window, parent_wm->window);
-  gtk_window_set_keep_above(window, TRUE);
+  gtk_window_set_modal(window, FALSE);
   gtk_window_set_resizable(window, FALSE);
+  gtk_window_set_focus_on_map(window, FALSE);
+  gtk_window_set_accept_focus(window, FALSE);
+  gtk_window_set_position(window, GTK_WIN_POS_NONE);
 
   FlView* view = fl_view_new_for_engine(engine);
   GdkRGBA background_color;
@@ -632,9 +645,12 @@ static int64_t create_popup_window_impl(const PopupCreateParams& params) {
     wm->is_pre_confirm = true;
     wm->is_confirm_close = true;
     wm->SetSkipTaskbar(true);
+    // Same 8px as the example popup / Win11 DWMWCP_ROUND. Clips black
+    // corners without dropping the CSD shadow (unlike an RGBA visual).
+    wm->ApplyCsdCornerRadius(8);
   }
 
-  gtk_widget_show(GTK_WIDGET(window));
+  // Stay unmapped until Dart calls show, after setPopupBounds.
   emit_view_created(view_id, params.token);
   return view_id;
 }
