@@ -79,4 +79,34 @@ void main() {
 
     expect(reported, const Size(140, 70));
   });
+
+  testWidgets('Overlay.wrap lets Slider build without a MaterialApp Overlay', (tester) async {
+    await tester.pumpWidget(
+      Material(
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: MediaQuery(
+            data: const MediaQueryData(),
+            child: Theme(
+              data: ThemeData.light(),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: PopupContentSizer(
+                  maxSize: const Size(400, 300),
+                  onSize: (_) {},
+                  child: Overlay.wrap(
+                    alwaysSizeToContent: true,
+                    child: Slider(value: 1, min: 0.2, max: 1, onChanged: (_) {}),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(Slider), findsOneWidget);
+  });
 }

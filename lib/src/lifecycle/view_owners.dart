@@ -154,8 +154,10 @@ class DialogOwner extends ViewOwnerBase {
     // modal is ignore showOnInit because need complete create to correct show
     if (modal) {
       await Future<void>.delayed(const Duration(milliseconds: 35));
-      if (Platform.isMacOS) {
-        ffi.completeModalDialogCreate(viewId);
+      ffi.completeModalDialogCreate(viewId);
+      //enable animation only on windows, macos don't support cause has his own animation
+      if (Platform.isWindows) {
+        await showWithFadeIn(viewId);
       }
     }
 
@@ -174,7 +176,7 @@ class DialogOwner extends ViewOwnerBase {
   @override
   Future<void> close(int viewId) async {
     final isModal = host.registry.isModalDialog(viewId);
-    if (isModal) return;
+    if (isModal && !Platform.isWindows) return;
     return fadeOut(viewId);
   }
 }
@@ -258,8 +260,7 @@ class ModalDialogOwner extends ViewOwnerBase {
 /// Popup owner. Open fade runs on first show (after layout); close fades then destroys.
 @internal
 class PopupOwner extends ViewOwnerBase {
-  PopupOwner(super.host)
-    : super(fade: host.popupOpenCloseAnimation, openCloseType: ViewAnimationType.createPopup);
+  PopupOwner(super.host) : super(fade: host.popupOpenCloseAnimation, openCloseType: ViewAnimationType.createPopup);
 
   int open({
     required int parentId,

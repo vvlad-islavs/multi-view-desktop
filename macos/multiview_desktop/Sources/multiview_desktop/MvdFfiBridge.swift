@@ -40,13 +40,29 @@ private var _eventCb: MvdEventCallback?
 /// True after Dart has installed an FFI event sink at least once.
 /// Used so teardown (`cb == nil`) does not fall back to MethodChannel.
 private var _eventCbInstalled = false
+private var _eventCbGeneration: UInt64 = 0
 
 @_cdecl("mvd_set_event_callback")
 public func mvdSetEventCallback(_ cb: MvdEventCallback?) {
     _eventCb = cb
+    _eventCbGeneration += 1
     if cb != nil {
         _eventCbInstalled = true
     }
+}
+
+@_cdecl("mvd_event_callback_generation")
+public func mvdEventCallbackGeneration() -> Int64 {
+    Int64(_eventCbGeneration)
+}
+
+@_cdecl("mvd_detach_isolate_callbacks")
+public func mvdDetachIsolateCallbacks(_ token: UnsafeMutableRawPointer?) {
+    guard let token else { return }
+    let gen = UInt64(UInt(bitPattern: OpaquePointer(token)))
+    guard gen == _eventCbGeneration else { return }
+    _eventCb = nil
+    mvdSetScreenEventCallback(nil)
 }
 
 func mvdFfiEventsAttached() -> Bool {

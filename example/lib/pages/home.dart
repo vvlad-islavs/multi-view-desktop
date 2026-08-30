@@ -46,7 +46,64 @@ class _HomePageState extends State<HomePage> with WindowListener {
   final GlobalKey _dialogKey = GlobalKey();
 
   final PopupController _popupController = PopupController();
-  final PopupController _popupController2 = PopupController();
+
+  static const _popupCurves = <String, Curve>{
+    'linear': Curves.linear,
+    'decelerate': Curves.decelerate,
+    'fastLinearToSlowEaseIn': Curves.fastLinearToSlowEaseIn,
+    'fastEaseInToSlowEaseOut': Curves.fastEaseInToSlowEaseOut,
+    'ease': Curves.ease,
+    'easeIn': Curves.easeIn,
+    'easeInToLinear': Curves.easeInToLinear,
+    'easeInSine': Curves.easeInSine,
+    'easeInQuad': Curves.easeInQuad,
+    'easeInCubic': Curves.easeInCubic,
+    'easeInQuart': Curves.easeInQuart,
+    'easeInQuint': Curves.easeInQuint,
+    'easeInExpo': Curves.easeInExpo,
+    'easeInCirc': Curves.easeInCirc,
+    'easeInBack': Curves.easeInBack,
+    'easeOut': Curves.easeOut,
+    'linearToEaseOut': Curves.linearToEaseOut,
+    'easeOutSine': Curves.easeOutSine,
+    'easeOutQuad': Curves.easeOutQuad,
+    'easeOutCubic': Curves.easeOutCubic,
+    'easeOutQuart': Curves.easeOutQuart,
+    'easeOutQuint': Curves.easeOutQuint,
+    'easeOutExpo': Curves.easeOutExpo,
+    'easeOutCirc': Curves.easeOutCirc,
+    'easeOutBack': Curves.easeOutBack,
+    'easeInOut': Curves.easeInOut,
+    'easeInOutSine': Curves.easeInOutSine,
+    'easeInOutQuad': Curves.easeInOutQuad,
+    'easeInOutCubic': Curves.easeInOutCubic,
+    'easeInOutCubicEmphasized': Curves.easeInOutCubicEmphasized,
+    'easeInOutQuart': Curves.easeInOutQuart,
+    'easeInOutQuint': Curves.easeInOutQuint,
+    'easeInOutExpo': Curves.easeInOutExpo,
+    'easeInOutCirc': Curves.easeInOutCirc,
+    'easeInOutBack': Curves.easeInOutBack,
+    'fastOutSlowIn': Curves.fastOutSlowIn,
+    'slowMiddle': Curves.slowMiddle,
+    'bounceIn': Curves.bounceIn,
+    'bounceOut': Curves.bounceOut,
+    'bounceInOut': Curves.bounceInOut,
+    'elasticIn': Curves.elasticIn,
+    'elasticOut': Curves.elasticOut,
+    'elasticInOut': Curves.elasticInOut,
+  };
+
+  static const _popupDurationsMs = <int>[100, 150, 300, 500, 1000, 2000];
+
+  String _popupCurveName = 'easeOutCubic';
+  int _popupDurationMs = 150;
+
+  AnimationSettings get _popupAnimation {
+    return AnimationSettings(
+      duration: Duration(milliseconds: _popupDurationMs),
+      curve: _popupCurves[_popupCurveName],
+    );
+  }
 
   // final GlobalKey _modelessDialogKey = GlobalKey();
 
@@ -420,94 +477,69 @@ class _HomePageState extends State<HomePage> with WindowListener {
                       );
                     },
                   ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'Popup curve', isDense: true),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                isDense: true,
+                                isExpanded: true,
+                                value: _popupCurveName,
+                                items: [
+                                  for (final name in _popupCurves.keys)
+                                    DropdownMenuItem(value: name, child: Text(name)),
+                                ],
+                                onChanged: (value) {
+                                  if (value == null) return;
+                                  setState(() => _popupCurveName = value);
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'Popup duration', isDense: true),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<int>(
+                                isDense: true,
+                                isExpanded: true,
+                                value: _popupDurationMs,
+                                items: [
+                                  for (final ms in _popupDurationsMs)
+                                    DropdownMenuItem(value: ms, child: Text('${ms}ms')),
+                                ],
+                                onChanged: (value) {
+                                  if (value == null) return;
+                                  setState(() => _popupDurationMs = value);
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   PopupView(
                     controller: _popupController,
                     positioner: PopupPositioner(
                       parentAnchor: PopupPositionerAnchor.bottomLeft,
                       childAnchor: PopupPositionerAnchor.top,
                     ),
-                    builder: (ctx) {
-                      return SizedBox(
-                        width: 900,
-                        child: Material(
-                          elevation: 8,
-                          borderRadius: BorderRadius.circular(8),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: SingleChildScrollView(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const _PopupDemoTimer(),
-                                  const SizedBox(height: 8),
-                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Theme and context come from the parent via ViewAnchor.',
-                                    style: Theme.of(ctx).textTheme.bodySmall,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                    child: _tile(
-                      'default popupView',
-                      subtitle: 'Native popup anchored to this row',
-                      onTap: () => _popupController.toggle(),
+                    builder: (ctx) => _PopupDemoBody(
+                      controller: _popupController,
+                      windowLabel: 'Popup of window $currentId',
+                      animationOf: () => _popupAnimation,
                     ),
-                  ),
-                  PopupView(
-                    controller: _popupController2,
-                    positioner: PopupPositioner(
-                      parentAnchor: PopupPositionerAnchor.bottomLeft,
-                      childAnchor: PopupPositionerAnchor.top,
-                    ),
-                    builder: (ctx) {
-                      return SizedBox(
-                        width: 900,
-                        child: Material(
-                          elevation: 8,
-                          borderRadius: BorderRadius.circular(8),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: SingleChildScrollView(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const _PopupDemoTimer(),
-                                  const SizedBox(height: 8),
-                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Theme and context come from the parent via ViewAnchor.',
-                                    style: Theme.of(ctx).textTheme.bodySmall,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: TextButton(onPressed: _popupController2.close, child: const Text('Close')),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
                     child: _tile(
-                      'popupView with custom animation',
-                      subtitle: 'Native popup anchored to this row',
-                      onTap: () => _popupController2.toggle(
-                        animation: AnimationSettings(duration: Duration(seconds: 2), curve: Curves.elasticIn),
-                      ),
+                      'popupView',
+                      subtitle: 'Native popup; open/close uses the curve and duration above',
+                      onTap: () => _popupController.toggle(animation: _popupAnimation),
                     ),
                   ),
                   _tile(
@@ -941,6 +973,132 @@ class _AlignmentGridState extends State<_AlignmentGrid> {
 
 /// Lives in the popup child tree. Kept across ListView unmount of [PopupView]
 /// because [PopupController] hosts that tree until [PopupController.close].
+class _PopupDemoBody extends StatefulWidget {
+  const _PopupDemoBody({
+    required this.controller,
+    required this.windowLabel,
+    required this.animationOf,
+  });
+
+  final PopupController controller;
+  final String windowLabel;
+  final AnimationSettings Function() animationOf;
+
+  @override
+  State<_PopupDemoBody> createState() => _PopupDemoBodyState();
+}
+
+class _PopupDemoBodyState extends State<_PopupDemoBody> {
+  double _opacity = 1;
+  bool _hasShadow = true;
+  Color? _background;
+  bool _ignoreMouse = false;
+
+  PopupViewController get _view => widget.controller.viewController;
+
+  void _setOpacity(double value) {
+    setState(() => _opacity = value);
+    _view.setOpacity(value);
+  }
+
+  void _setShadow(bool value) {
+    setState(() => _hasShadow = value);
+    _view.setHasShadow(value);
+  }
+
+  void _setBackground(Color? color) {
+    setState(() => _background = color);
+    _view.setBackgroundColor(color ?? const Color(0x00000000));
+  }
+
+  Future<void> _clickThroughBriefly() async {
+    setState(() => _ignoreMouse = true);
+    _view.setIgnoreMouseEvents(true);
+    await Future<void>.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+    _view.setIgnoreMouseEvents(false);
+    setState(() => _ignoreMouse = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: 320,
+      child: Material(
+        elevation: 8,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _PopupDemoTimer(),
+              const SizedBox(height: 8),
+              Text(widget.windowLabel, style: theme.textTheme.titleSmall),
+              const SizedBox(height: 4),
+              Text(
+                'controller.viewController: opacity, shadow, background, click-through.',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              Text('Opacity ${_opacity.toStringAsFixed(2)}', style: theme.textTheme.labelMedium),
+              Slider(
+                value: _opacity,
+                min: 0.2,
+                max: 1,
+                onChanged: _setOpacity,
+              ),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Native shadow'),
+                value: _hasShadow,
+                onChanged: _setShadow,
+              ),
+              Text('Background', style: theme.textTheme.labelMedium),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 8,
+                children: [
+                  ChoiceChip(
+                    label: const Text('clear'),
+                    selected: _background == null,
+                    onSelected: (_) => _setBackground(null),
+                  ),
+                  ChoiceChip(
+                    label: const Text('amber'),
+                    selected: _background == const Color(0x66FFC107),
+                    onSelected: (_) => _setBackground(const Color(0x66FFC107)),
+                  ),
+                  ChoiceChip(
+                    label: const Text('blue'),
+                    selected: _background == const Color(0x662196F3),
+                    onSelected: (_) => _setBackground(const Color(0x662196F3)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: _ignoreMouse ? null : _clickThroughBriefly,
+                child: Text(_ignoreMouse ? 'Click-through for 2s…' : 'Ignore mouse 2s'),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => widget.controller.close(animation: widget.animationOf()),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _PopupDemoTimer extends StatefulWidget {
   const _PopupDemoTimer();
 

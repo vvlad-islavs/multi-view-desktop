@@ -342,6 +342,8 @@ FLUTTER_PLUGIN_EXPORT void mvd_set_screen_event_callback(
   g_screen_event_cb = cb;
 }
 
+void mvd_linux_clear_screen_event_callback(void) { g_screen_event_cb = nullptr; }
+
 FLUTTER_PLUGIN_EXPORT int32_t mvd_get_cursor_screen_point(double) {
   double x = 0;
   double y = 0;

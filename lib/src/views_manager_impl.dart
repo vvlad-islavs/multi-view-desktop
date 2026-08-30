@@ -484,9 +484,9 @@ class _ViewsManagerImpl implements ViewsManager {
       extra: {'initRealId': _initRealId},
     );
     _setAnchor(viewId, force: true);
-    _applyOptionsToInitialAnchor();
 
     globalRootState.addWindowView(viewId, homeBuilder, parentContext: null, parentId: null);
+    _applyOptionsToInitialAnchor();
   }
 
   void registerWindow(
@@ -885,7 +885,20 @@ class _ViewsManagerImpl implements ViewsManager {
   void _applyOptionsToInitialAnchor() {
     if (realAnchorId == null) return;
     applyOptions(realAnchorId!, opts: config.globalWindowOptions);
-    _proxies.state.show(realAnchorId!);
+
+    final viewId = realAnchorId!;
+    _lifecycle.windowOwner.trackUntilFirstFrame(viewId, parentId: null, isDialog: false);
+    unawaited(_showInitialAnchorAfterFirstFrame(viewId));
+  }
+
+  Future<void> _showInitialAnchorAfterFirstFrame(int viewId) async {
+    await _lifecycle.windowOwner.waitFirstFrame(viewId);
+    final binding = WidgetsBinding.instance;
+    if (binding.schedulerPhase != SchedulerPhase.idle) {
+      await binding.endOfFrame;
+    }
+    if (realAnchorId != viewId || !_registry.windows.containsKey(viewId)) return;
+    _proxies.state.show(viewId);
   }
 
   // ===========================================================================

@@ -49,6 +49,8 @@ double OverlapArea(double ax, double ay, double aw, double ah, double bx,
 std::shared_ptr<MvdLinuxWindow> Win(int64_t id) { return MvdLinuxWindow::Find(id); }
 
 MvdEventCallback g_event_cb = nullptr;
+bool g_event_cb_installed = false;
+uint64_t g_event_cb_generation = 0;
 
 }  // namespace
 
@@ -56,10 +58,33 @@ extern "C" {
 
 FLUTTER_PLUGIN_EXPORT void mvd_set_event_callback(MvdEventCallback cb) {
   g_event_cb = cb;
+  ++g_event_cb_generation;
+  if (cb) {
+    g_event_cb_installed = true;
+  }
+}
+
+FLUTTER_PLUGIN_EXPORT int64_t mvd_event_callback_generation() {
+  return static_cast<int64_t>(g_event_cb_generation);
+}
+
+FLUTTER_PLUGIN_EXPORT void mvd_detach_isolate_callbacks(void* token) {
+  const auto gen = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(token));
+  if (gen != g_event_cb_generation) {
+    return;
+  }
+  g_event_cb = nullptr;
+  mvd_linux_clear_screen_event_callback();
 }
 
 FLUTTER_PLUGIN_EXPORT int32_t mvd_emit_event(const char* event_name,
                                              int64_t view_id, int64_t arg) {
+  if (g_event_cb_installed) {
+    if (g_event_cb && event_name) {
+      g_event_cb(event_name, view_id, arg);
+    }
+    return 1;
+  }
   if (!g_event_cb || !event_name) {
     return 0;
   }
@@ -89,7 +114,9 @@ FLUTTER_PLUGIN_EXPORT int64_t mvd_create_modal_dialog(
                                 static_cast<int>(x), static_cast<int>(y));
 }
 
-FLUTTER_PLUGIN_EXPORT void mvd_complete_modal_dialog(int64_t) {}
+FLUTTER_PLUGIN_EXPORT void mvd_complete_modal_dialog(int64_t view_id) {
+  mvd_linux_complete_modal_dialog(view_id);
+}
 
 FLUTTER_PLUGIN_EXPORT int64_t mvd_create_popup(int64_t token, int64_t parent_id,
                                             double w, double h) {
@@ -316,7 +343,26 @@ FLUTTER_PLUGIN_EXPORT void mvd_destroy_window(int64_t id) {
 FLUTTER_PLUGIN_EXPORT void mvd_focus(int64_t id) {
   if (auto wm = Win(id)) wm->Focus();
 }
-FLUTTER_PLUGIN_EXPORT void mvd_blur(int64_t) {}
+FLUTTER_PLUGIN_EXPORT void mvd_blur(int64_t id) {
+  GtkWindow* other = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(MvdLinuxWindow::registry_mtx);
+    auto it = MvdLinuxWindow::windows.find(id);
+    if (it == MvdLinuxWindow::windows.end() || !it->second ||
+        !it->second->window) {
+      return;
+    }
+    for (const auto& p : MvdLinuxWindow::windows) {
+      if (p.first != id && p.second->window && p.second->IsVisible()) {
+        other = p.second->window;
+        break;
+      }
+    }
+  }
+  if (other) {
+    gtk_window_present(other);
+  }
+}
 FLUTTER_PLUGIN_EXPORT void mvd_set_pre_confirm(int64_t id, int32_t v) {
   if (auto wm = Win(id)) wm->is_pre_confirm = v != 0;
 }

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:multiview_desktop/src/log/mvd_log.dart';
 import 'package:multiview_desktop/src/popup/element_position_tracker.dart';
@@ -75,6 +76,8 @@ class _PopupViewState extends State<PopupView> {
   int _parentScrollDepth = 0;
   bool _parentScrolling = false;
   LocalElementPositionTracker? _tracker;
+  Rect? _pendingPlaced;
+  bool _boundsCommitScheduled = false;
 
   PopupController get _controller => widget.controller;
 
@@ -343,15 +346,38 @@ class _PopupViewState extends State<PopupView> {
     final dy = (pf.height - contentSize.height).clamp(0.0, double.infinity);
     final screenAnchor = anchor.shift(Offset(pf.left + dx, pf.top + dy));
 
-    final placed = _positioner.placeWindow(
+    _pendingPlaced = _positioner.placeWindow(
       childSize: _controller.contentSize,
       anchorRect: screenAnchor,
       parentRect: pf,
       displayRect: _cachedDisplayRect,
     );
+    _commitPopupBoundsWhenIdle();
+  }
 
-    _proxies.position.setPopupBounds(viewId, placed);
-    _reveal(allowFade: true);
+  /// Native [setPopupBounds] can synchronously pump a Flutter frame. That
+  /// must not run during layout, paint, or post-frame callbacks.
+  ///
+  /// Same rule as view-close deferral: wait for [SchedulerBinding.endOfFrame]
+  /// so the scheduler is [SchedulerPhase.idle].
+  void _commitPopupBoundsWhenIdle() {
+    void commit() {
+      _boundsCommitScheduled = false;
+      final viewId = _controller.viewId;
+      final placed = _pendingPlaced;
+      if (viewId == null || placed == null || !mounted) return;
+      _proxies.position.setPopupBounds(viewId, placed);
+      _reveal(allowFade: true);
+    }
+
+    final binding = WidgetsBinding.instance;
+    if (binding.schedulerPhase == SchedulerPhase.idle) {
+      commit();
+      return;
+    }
+    if (_boundsCommitScheduled) return;
+    _boundsCommitScheduled = true;
+    binding.endOfFrame.then((_) => commit());
   }
 
   @override
@@ -402,7 +428,10 @@ class _PopupOverlayHost extends StatelessWidget {
           child: PopupContentSizer(
             maxSize: maxSize,
             onSize: controller.reportContentSize,
-            child: content,
+            child: Overlay.wrap(
+              alwaysSizeToContent: true,
+              child: content,
+            ),
           ),
         ),
       ),

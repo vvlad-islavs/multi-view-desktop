@@ -28,7 +28,9 @@ typedef _SetScreenEventD = void Function(Pointer<NativeFunction<_ScreenEventN>>)
 class ScreenFfi {
   ScreenFfi._() : _lib = null;
 
-  ScreenFfi._native(this._lib);
+  ScreenFfi._native(this._lib) {
+    clearOldNativeCallbacks();
+  }
 
   static final ScreenFfi instance = _create();
 
@@ -91,6 +93,16 @@ class ScreenFfi {
     if (fn == null || fn() == 0) return null;
     final json = _readStr(_str);
     return json.isEmpty ? null : json;
+  }
+
+  /// Drops a previous isolate's screen-event NativeCallable after hot restart.
+  void clearOldNativeCallbacks() {
+    if (!_supported) return;
+    final setFn = _lookupSetEvent();
+    if (setFn == null) return;
+    setFn(nullptr);
+    _eventCallable?.close();
+    _eventCallable = null;
   }
 
   void addEventListener(void Function(String type) listener) {

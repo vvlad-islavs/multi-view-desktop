@@ -67,10 +67,18 @@ void mvd_linux_set_anchor_view_id(int64_t view_id);
 
 void mvd_linux_set_terminate_after_last(int terminate);
 
+void mvd_linux_complete_modal_dialog(int64_t view_id);
+
 typedef void (*MvdEventCallback)(const char* event_name, int64_t view_id,
                                  int64_t arg);
 
 void mvd_set_event_callback(MvdEventCallback cb);
+
+int64_t mvd_event_callback_generation(void);
+
+void mvd_detach_isolate_callbacks(void* token);
+
+void mvd_linux_clear_screen_event_callback(void);
 
 int32_t mvd_emit_event(const char* event_name, int64_t view_id, int64_t arg);
 

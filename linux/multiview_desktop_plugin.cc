@@ -512,9 +512,6 @@ static void dialog_first_frame_cb(gpointer /*user_data*/, FlView* view) {
       wm->ClampToParentBounds();
     }
   }
-  GtkWidget* top = gtk_widget_get_toplevel(GTK_WIDGET(view));
-  gtk_widget_show(top);
-  gtk_widget_grab_focus(GTK_WIDGET(view));
 }
 
 static int64_t create_modal_dialog_impl(const DialogCreateParams& params) {
@@ -578,14 +575,6 @@ static int64_t create_modal_dialog_impl(const DialogCreateParams& params) {
     if (wm->is_modal) {
       wm->ClampToParentBounds();
     }
-  }
-
-  if (params.is_modal) {
-    gtk_widget_show(GTK_WIDGET(window));
-    gtk_widget_show(GTK_WIDGET(view));
-    gtk_window_present(window);
-    gtk_widget_grab_focus(GTK_WIDGET(view));
-    MvdLinuxWindow::UpdateModalStateLayer(params.parent_id);
   }
 
   emit_view_created(view_id, params.token);
@@ -915,6 +904,7 @@ static void method_cb(FlMethodChannel*, FlMethodCall* method_call, gpointer) {
       response = ok_int(view_id);
     }
   } else if (g_strcmp0(method, "completeModalDialogCreate") == 0) {
+    mvd_linux_complete_modal_dialog(int64_from_map(args, "viewId"));
     response = ok_null();
   } else if (g_strcmp0(method, "createPopupWindow") == 0) {
     const int64_t parent_id = int64_from_map(args, "parentId");
@@ -1064,6 +1054,17 @@ void mvd_linux_set_anchor_view_id(int64_t view_id) { g_anchor_view_id = view_id;
 
 void mvd_linux_set_terminate_after_last(int terminate) {
   g_terminate_after_last_window_closed = terminate != 0;
+}
+
+void mvd_linux_complete_modal_dialog(int64_t view_id) {
+  auto wm = MvdLinuxWindow::Find(view_id);
+  if (!wm) {
+    return;
+  }
+  wm->Show();
+  if (wm->is_modal && wm->modal_owner_view_id >= 0) {
+    MvdLinuxWindow::UpdateModalStateLayer(wm->modal_owner_view_id);
+  }
 }
 
 void mvd_linux_register_primary(GtkWindow* window, FlView* view) {

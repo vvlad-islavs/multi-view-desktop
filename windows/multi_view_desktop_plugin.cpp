@@ -2,6 +2,8 @@
 
 #include <windows.h>
 
+#include <cstdint>
+
 #include <flutter/dart_project.h>
 #include <flutter/flutter_engine.h>
 #include <flutter_windows.h>
@@ -18,6 +20,11 @@
 #include "multi_view_desktop.h"
 #include "mvd_windows_screen.h"
 #include "mvd_windows_taskbar_menu.h"
+
+extern "C" {
+void mvd_set_event_callback(void (*cb)(const char*, int64_t, int64_t));
+void mvd_set_screen_event_callback(void (*cb)(const char*));
+}
 
 namespace multi_view_desktop {
 
@@ -157,6 +164,8 @@ namespace multi_view_desktop {
         if (g_plugin_instance == this) {
             g_plugin_instance = nullptr;
         }
+        mvd_set_event_callback(nullptr);
+        mvd_set_screen_event_callback(nullptr);
     }
 
     void MultiViewDesktopPlugin::EmitEvent(const std::string &event_name,
@@ -171,6 +180,10 @@ namespace multi_view_desktop {
             LPARAM lparam) {
         if (MvdWindowsHandleTaskbarMenuMessage(message, wparam, lparam)) {
             return 0;
+        }
+
+        if (message == WM_DISPLAYCHANGE) {
+            MvdWindowsNotifyDisplayChange();
         }
 
         auto &impl = MultiViewDesktop::Instance();
@@ -392,6 +405,7 @@ namespace multi_view_desktop {
             return;
         }
         if (method == "completeModalDialogCreate") {
+            impl.CompleteModalDialog(MultiViewDesktop::Int64FromMap(args, "viewId"));
             result->Success();
             return;
         }

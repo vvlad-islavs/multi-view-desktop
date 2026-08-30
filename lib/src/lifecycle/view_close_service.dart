@@ -148,7 +148,8 @@ class ViewCloseService {
     final isDialog = registry.isDialog(viewId);
     if (isDialog) {
       onDialogCloseResult?.call(viewId, dialogRes);
-      if (registry.isModalDialog(viewId)) {
+      // destroy only on macos
+      if (registry.isModalDialog(viewId) && Platform.isMacOS) {
         await _awaitSchedulerIdle();
         delegate.invoke<void>(viewId, () => ffi.destroyModalDialog(viewId), dialogSupports: true);
         delegate.disposeView(viewId);

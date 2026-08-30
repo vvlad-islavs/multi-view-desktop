@@ -63,6 +63,12 @@ typedef _VBoolD = void Function(int);
 typedef _EventCbN = Void Function(Pointer<Char>, Int64, Int64);
 typedef _SetEventCbN = Void Function(Pointer<NativeFunction<_EventCbN>>);
 typedef _SetEventCbD = void Function(Pointer<NativeFunction<_EventCbN>>);
+typedef _ScreenEventN = Void Function(Pointer<Char>);
+typedef _SetScreenEventN = Void Function(Pointer<NativeFunction<_ScreenEventN>>);
+typedef _SetScreenEventD = void Function(Pointer<NativeFunction<_ScreenEventN>>);
+typedef _I64N = Int64 Function();
+typedef _I64D = int Function();
+typedef _DetachIsolateN = Void Function(Pointer<Void>);
 
 const _kNoViewId = -1;
 
@@ -73,10 +79,12 @@ const _kStrCap = 8192;
 ///
 /// Channel handlers keep working. This bridge calls the same native functions.
 @internal
-abstract class FfiBridge {
+abstract class FfiBridge implements Finalizable {
   FfiBridge._() : _lib = null;
 
-  FfiBridge._native(this._lib);
+  FfiBridge._native(this._lib) {
+    clearOldNativeCallbacks();
+  }
 
   static final FfiBridge instance = _create();
 
@@ -188,6 +196,7 @@ abstract class FfiBridge {
 
   NativeCallable<_EventCbN>? _eventCallable;
   dynamic Function(MethodCall)? _eventHandler;
+  NativeFinalizer? _isolateDetachFinalizer;
 
   void _writeStr(Uint8List buf, String s) {
     final units = utf8.encode(s);
@@ -225,9 +234,45 @@ abstract class FfiBridge {
     try {
       _eventCallable = NativeCallable<_EventCbN>.isolateLocal(_dispatchNativeEvent);
       _setEventCallbackN(_eventCallable!.nativeFunction);
+      _refreshIsolateDetachFinalizer();
     } on ArgumentError {
       _eventCallable?.close();
       _eventCallable = null;
+    }
+  }
+
+  /// Nulls native Dart callbacks left by a previous isolate (hot restart).
+  ///
+  /// [NativeCallable] is deleted with the isolate; the C pointer is not.
+  /// The next native emit (`setAlwaysOnTop` → `WM_*` → `mvd_emit_event`)
+  /// would fatal: "Callback invoked after it has been deleted".
+  void clearOldNativeCallbacks() {
+    if (!_supported) return;
+    _setEventCallbackN(nullptr);
+    _clearScreenEventCallback();
+    _refreshIsolateDetachFinalizer();
+  }
+
+  void _clearScreenEventCallback() {
+    try {
+      _lib!.lookupFunction<_SetScreenEventN, _SetScreenEventD>('mvd_set_screen_event_callback')(nullptr);
+    } on ArgumentError {
+      // Older plugin binary without the screen FFI sink.
+    }
+  }
+
+  void _refreshIsolateDetachFinalizer() {
+    if (!_supported) return;
+    try {
+      _isolateDetachFinalizer ??= NativeFinalizer(
+        _lib!.lookup<NativeFunction<_DetachIsolateN>>('mvd_detach_isolate_callbacks').cast(),
+      );
+      _isolateDetachFinalizer!.detach(this);
+      final generation = _lib!.lookupFunction<_I64N, _I64D>('mvd_event_callback_generation')();
+      if (generation == 0) return;
+      _isolateDetachFinalizer!.attach(this, Pointer.fromAddress(generation), detach: this);
+    } on ArgumentError {
+      // Older plugin binary without isolate-detach symbols.
     }
   }
 
@@ -237,9 +282,7 @@ abstract class FfiBridge {
   /// crashes in `windowShouldClose` with "Callback invoked after it has been deleted".
   void closeIsolateLocal() {
     _eventHandler = null;
-    if (_supported) {
-      _setEventCallbackN(nullptr);
-    }
+    clearOldNativeCallbacks();
     _eventCallable?.close();
     _eventCallable = null;
   }

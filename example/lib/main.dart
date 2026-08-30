@@ -19,7 +19,7 @@ void main() {
     config: MultiAppConfig(
       fileLogParams: const LogParams(enable: true, sizeKb: 1024 * 10),
       generalParams: MultiPlatformParams(
-        animation: ViewAnimationConfig.all(),
+        animation: ViewAnimationConfig.all(fps: 60, modalFadeInOnOpen: true, modalFadeOutOnClose: true),
         enableDynamicAnchor: true,
         closeMode: CloseMode.softCascade,
         menuItems: [

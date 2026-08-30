@@ -17,6 +17,8 @@ constexpr int kStrCap = 8192;
 
 double g_screen_rect[4] = {0, 0, 0, 0};
 char g_screen_str[kStrCap] = {};
+int g_monitor_count = -1;
+void (*g_screen_event_cb)(const char*) = nullptr;
 
 struct MwmMonitorData {
   RECT geometry{};
@@ -298,7 +300,29 @@ void MvdWindowsRegisterScreenRetriever(
         HandleScreenCall(call, std::move(result));
       });
   *out_channel = std::move(screen_channel);
+  std::vector<MwmMonitorData> monitors;
+  EnumDisplayMonitors(nullptr, nullptr, MwmEnumMonitorsProc,
+                      reinterpret_cast<LPARAM>(&monitors));
+  g_monitor_count = static_cast<int>(monitors.size());
 }
+
+void MvdWindowsNotifyDisplayChange() {
+  std::vector<MwmMonitorData> monitors;
+  EnumDisplayMonitors(nullptr, nullptr, MwmEnumMonitorsProc,
+                      reinterpret_cast<LPARAM>(&monitors));
+  const int count = static_cast<int>(monitors.size());
+  if (g_monitor_count < 0) {
+    g_monitor_count = count;
+    return;
+  }
+  if (count != g_monitor_count && g_screen_event_cb) {
+    g_screen_event_cb(count > g_monitor_count ? "display-added"
+                                             : "display-removed");
+  }
+  g_monitor_count = count;
+}
+
+void MvdWindowsClearScreenEventCallback() { g_screen_event_cb = nullptr; }
 
 }  // namespace multi_view_desktop
 
@@ -307,8 +331,6 @@ extern "C" {
 FLUTTER_PLUGIN_EXPORT double* mvd_screen_rect_buf_ptr() { return g_screen_rect; }
 
 FLUTTER_PLUGIN_EXPORT char* mvd_screen_str_buf_ptr() { return g_screen_str; }
-
-static void (*g_screen_event_cb)(const char*) = nullptr;
 
 FLUTTER_PLUGIN_EXPORT void mvd_set_screen_event_callback(
     void (*cb)(const char*)) {

@@ -14,6 +14,10 @@ void MvdWindowsRegisterScreenRetriever(
     std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>*
         out_channel);
 
+void MvdWindowsNotifyDisplayChange();
+
+void MvdWindowsClearScreenEventCallback();
+
 }  // namespace multi_view_desktop
 
 #endif  // MVD_WINDOWS_SCREEN_H_

@@ -73,6 +73,8 @@ class ViewTaskbarProxy extends ViewNativeProxy {
     );
   }
 
+  /// Real native view id. [MultiViewDesktop.allWindowViewIds] is public/shifted
+  /// (1 on Windows) and would fail [_viewExistChecker] (registry key is 0).
   @visibleForTesting
-  int? get firstAvailableId => MultiViewDesktop.allWindowViewIds.firstOrNull;
+  int? get firstAvailableId => host.windowViewIds().firstOrNull;
 }

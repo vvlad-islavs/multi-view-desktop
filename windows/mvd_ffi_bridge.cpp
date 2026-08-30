@@ -4,6 +4,7 @@
 #include "include/multi_view_desktop/multi_view_desktop.h"
 #include "multi_view_desktop.h"
 #include "mvd_windows_taskbar_menu.h"
+#include "mvd_windows_screen.h"
 
 #include <algorithm>
 #include <cmath>
@@ -111,6 +112,12 @@ EM SizeArgs(double w, double h) {
 
 using MvdEventCallback = void (*)(const char*, int64_t, int64_t);
 MvdEventCallback g_event_cb = nullptr;
+bool g_event_cb_installed = false;
+uint64_t g_event_cb_generation = 0;
+
+void ClearEventCallback() {
+  g_event_cb = nullptr;
+}
 
 }  // namespace
 
@@ -118,10 +125,33 @@ extern "C" {
 
 FLUTTER_PLUGIN_EXPORT void mvd_set_event_callback(MvdEventCallback cb) {
   g_event_cb = cb;
+  ++g_event_cb_generation;
+  if (cb) {
+    g_event_cb_installed = true;
+  }
+}
+
+FLUTTER_PLUGIN_EXPORT int64_t mvd_event_callback_generation() {
+  return static_cast<int64_t>(g_event_cb_generation);
+}
+
+FLUTTER_PLUGIN_EXPORT void mvd_detach_isolate_callbacks(void* token) {
+  const auto gen = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(token));
+  if (gen != g_event_cb_generation) {
+    return;
+  }
+  ClearEventCallback();
+  multi_view_desktop::MvdWindowsClearScreenEventCallback();
 }
 
 FLUTTER_PLUGIN_EXPORT int32_t mvd_emit_event(const char* event_name,
                                              int64_t view_id, int64_t arg) {
+  if (g_event_cb_installed) {
+    if (g_event_cb && event_name) {
+      g_event_cb(event_name, view_id, arg);
+    }
+    return 1;
+  }
   if (!g_event_cb || !event_name) {
     return 0;
   }
@@ -174,7 +204,9 @@ FLUTTER_PLUGIN_EXPORT int64_t mvd_create_modal_dialog(
   return multi_view_desktop::MultiViewDesktop::Instance().CreateModalDialogWindow(args);
 }
 
-FLUTTER_PLUGIN_EXPORT void mvd_complete_modal_dialog(int64_t) {}
+FLUTTER_PLUGIN_EXPORT void mvd_complete_modal_dialog(int64_t view_id) {
+  multi_view_desktop::MultiViewDesktop::Instance().CompleteModalDialog(view_id);
+}
 
 FLUTTER_PLUGIN_EXPORT int64_t mvd_create_popup(int64_t token, int64_t parent_id,
                                             double w, double h) {
@@ -217,8 +249,16 @@ FLUTTER_PLUGIN_EXPORT int32_t mvd_is_hide_app_from_taskbar() {
 }
 
 FLUTTER_PLUGIN_EXPORT void mvd_set_progress_bar(double progress) {
-  auto* window = multi_view_desktop::MultiViewDesktop::Instance().FindByViewId(
-      multi_view_desktop::MultiViewDesktop::Instance().main_view_id());
+  auto& impl = multi_view_desktop::MultiViewDesktop::Instance();
+  auto* window = impl.FindByViewId(impl.main_view_id());
+  if (!window) {
+    for (const auto& entry : impl.windows_) {
+      if (entry.second && !entry.second->is_popup_) {
+        window = entry.second.get();
+        break;
+      }
+    }
+  }
   if (window) {
     window->SetProgressBar(progress);
   }
