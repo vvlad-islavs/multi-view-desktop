@@ -7,7 +7,9 @@ import 'utils/calc_window_position.dart';
 // MethodChannel method names (must match native MultiviewDesktopImpl).
 const String kMethodCreateWindow = 'createWindow';
 const String kMethodCreateModalDialog = 'createModalDialog';
+const String kMethodCreatePopupWindow = 'createPopupWindow';
 const String kMethodSetSize = 'setSize';
+const String kMethodSetPopupBounds = 'setPopupBounds';
 const String kMethodSetMinimumSize = 'setMinimumSize';
 const String kMethodSetMaximumSize = 'setMaximumSize';
 const String kMethodGetBounds = 'getBounds';
@@ -143,6 +145,18 @@ class NativeChannel {
     });
   }
 
+  /// Creates a borderless popup attached to `parentId`.
+  ///
+  /// Native sends `viewCreated` when the popup Flutter view is ready.
+  Future<void> createPopupWindowRequest({required int token, required int parentId, required Size windowSize}) async {
+    await _staticChannel.invokeMethod<void>(kMethodCreatePopupWindow, {
+      'token': token,
+      'width': windowSize.width,
+      'height': windowSize.height,
+      'parentId': parentId,
+    });
+  }
+
   Future<bool?> checkWindowExist(int viewId) async {
     return await _staticChannel.invokeMethod<bool>(kMethodCheckExist, _args(viewId));
   }
@@ -156,6 +170,17 @@ class NativeChannel {
       kMethodSetSize,
       _args(viewId, {'width': size.width, 'height': size.height}),
     );
+  }
+
+  /// Sets size and position in a single atomic native call.
+  /// Prefer this over separate [setSize] + [setPosition] for popups because
+  /// each native `setFrame` triggers a Flutter resize synchronization cycle.
+  Future<bool> setPopupBounds(int viewId, {required Rect bounds}) async {
+    return await _staticChannel.invokeMethod<bool>(
+          kMethodSetPopupBounds,
+          _args(viewId, {'x': bounds.left, 'y': bounds.top, 'width': bounds.width, 'height': bounds.height}),
+        ) ??
+        false;
   }
 
   Future<void> setMinSize(int viewId, {required Size size}) async {

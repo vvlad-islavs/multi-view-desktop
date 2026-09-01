@@ -26,6 +26,8 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with WindowListener {
   final GlobalKey _dialogKey = GlobalKey();
 
+  final PopupController _popupController = PopupController();
+
   // final GlobalKey _modelessDialogKey = GlobalKey();
 
   // Window state mirrors
@@ -103,6 +105,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
     _commSub?.cancel();
     _broadcastSub?.cancel();
     _msgController.dispose();
+    _popupController.dispose();
     super.dispose();
   }
 
@@ -199,8 +202,12 @@ class _HomePageState extends State<HomePage> with WindowListener {
         // }
       }
     }
-    final accept = await context.openDialog<bool?>(
+    // you may get entry with id and future result right after dialog created
+    final entry = await context.openDialogEntry<bool?>(
+      // or only result after dialog close
+      // final result = await context.openDialog<bool?>(
       (ctx, id) {
+        MultiViewDesktop.getIdByContext(context);
         ctx.viewController.focus();
         return AlertViewDialog(
           key: _dialogKey,
@@ -222,6 +229,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
       ),
     );
 
+    final accept = await entry.result;
     if (!mounted) return;
     debugPrint('диалог завершен: $accept');
     if (accept == true) {
@@ -413,6 +421,77 @@ class _HomePageState extends State<HomePage> with WindowListener {
                         parentContext: context,
                       );
                     },
+                  ),
+                  PopupView(
+                    controller: _popupController,
+                    builder: (ctx) {
+                      return SizedBox(
+                        height: 200,
+                        child: Material(
+                          elevation: 8,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Theme and context come from the parent via ViewAnchor.',
+                                    style: Theme.of(ctx).textTheme.bodySmall,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
+                                  ),
+                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Theme and context come from the parent via ViewAnchor.',
+                                    style: Theme.of(ctx).textTheme.bodySmall,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
+                                  ),
+                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Theme and context come from the parent via ViewAnchor.',
+                                    style: Theme.of(ctx).textTheme.bodySmall,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
+                                  ),
+                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Theme and context come from the parent via ViewAnchor.',
+                                    style: Theme.of(ctx).textTheme.bodySmall,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                    child: _tile(
+                      'popupView',
+                      subtitle: 'Native popup anchored to this row',
+                      onTap: () => _popupController.toggle(),
+                    ),
                   ),
                   _tile(
                     'openDialog',

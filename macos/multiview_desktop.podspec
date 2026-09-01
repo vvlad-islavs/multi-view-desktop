@@ -12,7 +12,7 @@ Single-engine multi-window Flutter desktop library based on ViewCollection.
   s.source_files     = 'multiview_desktop/Sources/multiview_desktop/**/*'
   s.dependency 'FlutterMacOS'
 
-  s.platform = :osx, '10.14'
+  s.platform = :osx, '12.0'
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
   s.swift_version = '5.0'
 end

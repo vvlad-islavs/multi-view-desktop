@@ -89,6 +89,12 @@ class _DialogEntry<T> extends _ViewEntry {
   }
 }
 
+class _PopupEntry {
+  _PopupEntry({required this.parentId});
+
+  final int parentId;
+}
+
 // ---------------------------------------------------------------------------
 // Global accessor for MultiViewDesktop and openWindow().
 // ---------------------------------------------------------------------------
@@ -392,6 +398,10 @@ class _CreateCompleter<T> {
     return _CreateCompleter(completer: Completer<T?>(), token: token, isDialog: true, parentId: parentId);
   }
 
+  factory _CreateCompleter.popup(int token, {required int parentId}) {
+    return _CreateCompleter(completer: Completer<T?>(), token: token, isDialog: false, parentId: parentId);
+  }
+
   void complete([T? resId]) => completer.complete(resId);
 
   bool get isCompleted => completer.isCompleted;
@@ -496,6 +506,7 @@ class _ViewsManagerImpl implements ViewsManager {
 
   final Map<int, _WindowEntry> _windows = {};
   final Map<int, _DialogEntry> _dialogs = {};
+  final Map<int, _PopupEntry> _popups = {};
 
   final ValueNotifier<List<int>> _windowsNotifier = ValueNotifier([]);
   final ValueNotifier<List<int>> _dialogsNotifier = ValueNotifier([]);
@@ -738,7 +749,12 @@ class _ViewsManagerImpl implements ViewsManager {
 
     final String eventName = call.arguments['eventName'] as String;
 
-    if (eventName == 'viewCreated') {
+    if (eventName == 'popup-closed') {
+      final int? viewId = call.arguments['viewId'] as int?;
+      if (viewId != null) {
+        _unregisterPopup(viewId);
+      }
+    } else if (eventName == 'viewCreated') {
       final int viewId = call.arguments['viewId'] as int;
       final int token = call.arguments['token'] as int;
       final maybeParentId = _childCreatePending[token];
@@ -786,6 +802,7 @@ class _ViewsManagerImpl implements ViewsManager {
   Future<void> _onConfirmClose(int viewId) async {
     final isDialog = _dialogs.containsKey(viewId);
     final isModalDialog = isDialog && (_dialogs[viewId]?.isModal ?? false);
+    await _destroyPopupsByParent(viewId);
     await _removeAllDialogsByParent(viewId);
 
     await _disposeView(viewId);
@@ -1203,6 +1220,7 @@ class _ViewsManagerImpl implements ViewsManager {
     if (isDialog) {
       _modalStateService.unregisterDialog((entry?.value as _DialogEntry).parentId, realDialogId: viewId);
     }
+    await _destroyPopupsByParent(viewId);
     // Clean up the modal notifier for this view (it may have been a parent itself).
     _modalStateService.disposeView(viewId);
     _dialogModalPublicNotifiers.remove(viewId)?.dispose();
@@ -1258,6 +1276,81 @@ class _ViewsManagerImpl implements ViewsManager {
     final dialogId = await _createDialog(opts: comparedOpts, parentId: parentRealId, onCreated: onCreated);
 
     return dialogId;
+  }
+
+  @override
+  Future<int> createPopup({required int parentRealId, required Size size}) async {
+    if (!_windows.containsKey(parentRealId) && !_dialogs.containsKey(parentRealId)) {
+      throw ArgumentError.value(parentRealId, 'Parent error', 'Parent window is not registered');
+    }
+
+    final int token = _nextToken++;
+    _createCompleters[token] = _CreateCompleter.popup(token, parentId: parentRealId);
+
+    await _waitAllCreatingViews(excludeTokens: [token]);
+
+    try {
+      await _nativeChannel.createPopupWindowRequest(token: token, parentId: parentRealId, windowSize: size);
+    } catch (e, st) {
+      _createCompleters[token]?.complete(_CreateViewError.unhandled.code);
+      _createCompleters.remove(token);
+      throw Exception('Failed to create popup window, tokenId: $token. Error: $e, stack: $st');
+    }
+
+    final newViewId = await _waitCompleter(token);
+    _createCompleters.remove(token);
+
+    if (_CreateViewError.values.map((e) => e.code).contains(newViewId)) {
+      final error = _CreateViewError.values.firstWhere(
+        (e) => e.code == newViewId,
+        orElse: () => _CreateViewError.unhandled,
+      );
+      throw Exception(error.message(token));
+    }
+
+    _popups[newViewId!] = _PopupEntry(parentId: parentRealId);
+    await _nativeChannel.setPreConfirmClose(newViewId, true);
+    await _nativeChannel.setPreventClose(newViewId, isPreventClose: false);
+    await _nativeChannel.setConfirmClose(newViewId, isConfirm: true);
+    // will be shown after positioned
+    // await _nativeChannel.show(newViewId);
+    return newViewId;
+  }
+
+  @override
+  Future<void> destroyPopup(int viewId) async {
+    if (!_popups.containsKey(viewId)) return;
+    try {
+      await _nativeChannel.destroyModalDialog(viewId);
+    } on PlatformException catch (e) {
+      if (e.code != 'NO_WINDOW') rethrow;
+    }
+    _unregisterPopup(viewId);
+  }
+
+  @override
+  Future<bool> positionPopup(int viewId, Rect bounds) async {
+    if (!_popups.containsKey(viewId) || !_hasLiveFlutterView(viewId)) return false;
+    try {
+      return await _nativeChannel.setPopupBounds(viewId, bounds: bounds);
+    } on PlatformException catch (e) {
+      if (e.code != 'NO_WINDOW') rethrow;
+    }
+    return false;
+  }
+
+  void _unregisterPopup(int viewId) {
+    _popups.remove(viewId);
+  }
+
+  List<int> _directPopupChildIds(int parentId) =>
+      _popups.entries.where((e) => e.value.parentId == parentId).map((e) => e.key).toList();
+
+  Future<void> _destroyPopupsByParent(int parentId) async {
+    final ids = _directPopupChildIds(parentId);
+    for (final id in ids) {
+      await destroyPopup(id);
+    }
   }
 
   Future<void> _createComplete(int token, int newViewId) async {
@@ -2106,8 +2199,9 @@ class _ViewsManagerImpl implements ViewsManager {
   }
 
   Future<T?> _viewExistChecker<T>(int viewId, Future<T> Function() func, {bool dialogSupports = false}) async {
+    final isManaged = _windows.containsKey(viewId) || _dialogs.containsKey(viewId) || _popups.containsKey(viewId);
     if (dialogSupports) {
-      if (!_windows.containsKey(viewId) && !_dialogs.containsKey(viewId)) return null;
+      if (!isManaged) return null;
     } else {
       if (!_windows.containsKey(viewId)) return null;
     }

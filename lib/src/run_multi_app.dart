@@ -297,3 +297,40 @@ Future<T?> openDialog<T>(
   required BuildContext parentContext,
   DialogOptions? options,
 }) => MultiViewDesktop.addDialog(childBuilder, parentContext: parentContext, options: options);
+
+class DialogEntry<T> {
+  final int id;
+  final Future<T?> result;
+
+  const DialogEntry({required this.id, required this.result});
+}
+
+/// Opens a dialog window tied to `parentContext`.
+///
+/// Returns a `DialogEntry` with view ID and result `future` that completes when the dialog is closed via `closeDialog`
+/// or `MvdContext.closeDialog`. The optional result value comes from that close
+/// call.
+///
+/// Unlike `openWindow`, `parentContext` is required. Dialogs cannot enter
+/// full-screen mode.
+///
+/// ```dart
+/// runMultiApp(
+///   home: (context, id) => DialogModalLayer(child: MyHomeScreen()),
+/// );
+/// ```
+///
+/// ```dart
+/// final result = await openDialog<String>(
+///   (context, id) => const SettingsDialog(),
+///   parentContext: context,
+///   options: DialogOptions(title: 'Settings', modal: true),
+/// );
+/// // later, inside the dialog:
+/// await MultiViewDesktop.of(context).closeDialog('saved');
+/// ```
+Future<DialogEntry<T?>> openDialogEntry<T>(
+  Widget Function(BuildContext context, int publicId) childBuilder, {
+  required BuildContext parentContext,
+  DialogOptions? options,
+}) => MultiViewDesktop.addDialogEntry(childBuilder, parentContext: parentContext, options: options);

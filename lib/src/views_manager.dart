@@ -17,6 +17,15 @@ abstract class ViewsManager {
     required Future<void> Function(int) onCreated,
   });
 
+  /// Creates a borderless popup owned by `parentRealId`. Returns the real view id.
+  Future<int> createPopup({required int parentRealId, required Size size});
+
+  /// Destroys a popup created by [createPopup].
+  Future<void> destroyPopup(int viewId);
+
+  /// Moves and optionally resizes a popup to [bounds] in logical screen space.
+  Future<bool> positionPopup(int viewId, Rect bounds);
+
   WindowInfo windowType(int viewId);
 
   Future<void> closeView<T>(int viewId, {T? dialogRes});

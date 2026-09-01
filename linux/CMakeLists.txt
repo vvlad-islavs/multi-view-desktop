@@ -9,6 +9,7 @@ add_library(${PLUGIN_NAME} SHARED
   "mvd_linux_taskbar_menu.cc"
   "mvd_linux_window.cc"
   "mvd_linux_runner.cc"
+  "mvd_ffi_bridge.cc"
 )
 
 apply_standard_settings(${PLUGIN_NAME})

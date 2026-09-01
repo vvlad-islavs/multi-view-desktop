@@ -44,3 +44,38 @@ class ViewScope extends InheritedWidget {
   @override
   bool updateShouldNotify(ViewScope oldWidget) => viewId != oldWidget.viewId;
 }
+
+@internal
+class InternalViewScope extends InheritedWidget {
+  const InternalViewScope({
+    super.key,
+    required this.viewId,
+    required super.child,
+  });
+
+  final int viewId;
+
+  /// Returns the `ViewScope` above `context`, or `null` if the tree was not
+  /// created with `runMultiApp`.
+  @internal
+  static InternalViewScope? maybeOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<InternalViewScope>();
+  }
+
+  /// Returns the `ViewScope` above `context`.
+  ///
+  /// Throws in debug mode if `runMultiApp` was not used as the entry point.
+  @internal
+  static InternalViewScope of(BuildContext context) {
+    final scope = maybeOf(context);
+    assert(
+    scope != null,
+    'No InternalViewScope found in context. '
+        'Make sure runMultiApp() is used as the app entry point.',
+    );
+    return scope!;
+  }
+
+  @override
+  bool updateShouldNotify(InternalViewScope oldWidget) => viewId != oldWidget.viewId;
+}

@@ -67,6 +67,19 @@ private class WindowState {
     var isMaximized: Bool = false
     /// window: `false` until cascade / pre-close logic finishes.
     var isPreConfirm: Bool = false
+    /// Borderless child popup; skips soft-close and last-window accounting.
+    var isPopup: Bool = false
+    /// Last opacity requested by Dart. `show` must not clobber this.
+    var opacity: CGFloat = 1.0
+}
+
+// MARK: - MVDPopupWindow
+
+/// Borderless popup that never becomes key or main, so it cannot steal
+/// focus from the parent window.
+class MVDPopupWindow: NSWindow {
+    override var canBecomeKey: Bool  { false }
+    override var canBecomeMain: Bool { false }
 }
 
 // MARK: - MultiviewDesktopImpl
@@ -101,6 +114,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     /// Maps a sheet (modal dialog) viewId to the NSWindow it is attached to.
     /// Populated in [createModalDialogWindow]; cleared when the sheet is dismissed.
     private var sheetParents: [Int64: NSWindow] = [:]
+    /// Maps a popup viewId to its parent NSWindow.
+    private var popupParents: [Int64: NSWindow] = [:]
     private var channel: FlutterMethodChannel?
     private var activationObserver: NSObjectProtocol?
 
@@ -335,6 +350,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             createSecondaryWindow(args: args, result: result)
         case "createModalDialog":
             createModalDialogWindow(args: args, result: result)
+        case "createPopupWindow":
+            createPopupWindow(args: args, result: result)
         case "applicationShouldTerminateResponse":
             let terminate = args["terminate"] as? Bool ?? false
             replyToApplicationShouldTerminate(terminate: terminate)
@@ -568,7 +585,94 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         result(nil)
     }
 
-    // MARK: - Soft close
+    // MARK: - Popup window
+
+    /// Creates a borderless popup attached as a child of `parentId`.
+    ///
+    /// Mirrors Flutter's `createPopupWindow`: never key, auxiliary collection
+    /// behavior, transparent until Dart shows it.
+    private func createPopupWindow(args: [String: Any], result: FlutterResult) {
+        guard let engine else {
+            result(FlutterError(code: "NO_ENGINE", message: "Engine not available", details: nil))
+            return
+        }
+
+        let token = args["token"] as? Int ?? 0
+        let parentId = int64(from: args, key: "parentId")
+
+        guard let parentWindow = windows[parentId] else {
+            result(FlutterError(
+                code: "NO_PARENT",
+                message: "No parent window for viewId \(parentId)",
+                details: nil
+            ))
+            return
+        }
+
+        let width = args["width"] as? CGFloat ?? 240
+        let height = args["height"] as? CGFloat ?? 320
+
+        let newController = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
+        // Popup is never the key window; track mouse while the app is active.
+        newController.mouseTrackingMode = .inActiveApp
+        let viewId = newController.viewIdentifier
+
+        let newWindow = MVDPopupWindow(
+            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        newWindow.isReleasedWhenClosed = false
+        newWindow.contentViewController = newController
+        newWindow.setContentSize(NSSize(width: width, height: height))
+        newWindow.styleMask = .borderless
+        newWindow.hasShadow = true
+        newWindow.isOpaque = false
+        newWindow.backgroundColor = .clear
+        newWindow.level = .popUpMenu
+        if #available(macOS 13.0, *) {
+            newWindow.collectionBehavior = .auxiliary
+        } else {
+            newWindow.collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
+        }
+        newWindow.alphaValue = 0.0
+        newWindow.isExcludedFromWindowsMenu = true
+        if let flutterVC = newWindow.contentViewController as? FlutterViewController {
+            flutterVC.backgroundColor = .clear
+        }
+
+        registerWindow(newWindow, viewId: viewId)
+        windowStates[viewId]?.isPopup = true
+        windowStates[viewId]?.isPreConfirm = true
+        windowStates[viewId]?.isConfirmClose = true
+        popupParents[viewId] = parentWindow
+
+        parentWindow.addChildWindow(newWindow, ordered: .above)
+
+        DispatchQueue.main.async { [weak self] in
+            self?.channel?.invokeMethod(
+                "onEvent",
+                arguments: ["eventName": "viewCreated", "viewId": Int(viewId), "token": token]
+            )
+        }
+
+        result(nil)
+    }
+
+    private var regularWindowCount: Int {
+        windows.keys.filter { windowStates[$0]?.isPopup != true }.count
+    }
+
+    private func closePopupWindow(_ window: NSWindow, viewId: Int64) {
+        window.ignoresMouseEvents = false
+        if let parent = popupParents[viewId] {
+            parent.removeChildWindow(window)
+            popupParents.removeValue(forKey: viewId)
+        }
+        window.alphaValue = 0
+        window.close()
+    }
 
     /// Emits the next soft-close event for [viewId].
     ///
@@ -623,6 +727,10 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             return true
         }
 
+        if windowStates[viewId]?.isPopup == true {
+            return true
+        }
+
         if !advanceSoftClose(viewId: viewId) {
             return false
         }
@@ -637,13 +745,24 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             return
         }
 
-        if windows.count <= 1 {
+        if windowStates[viewId]?.isPopup != true && regularWindowCount <= 1 {
             isClosingLastWindow = true
         }
 
         if let parentWindow = sheetParents[viewId] {
             parentWindow.endSheet(closingWindow)
             sheetParents.removeValue(forKey: viewId)
+        }
+
+        if popupParents[viewId] != nil {
+            if let parent = popupParents[viewId] {
+                parent.removeChildWindow(closingWindow)
+            }
+            popupParents.removeValue(forKey: viewId)
+            channel?.invokeMethod(
+                "onEvent",
+                arguments: ["eventName": "popup-closed", "viewId": Int(viewId)]
+            )
         }
 
         windows.removeValue(forKey: viewId)
@@ -773,16 +892,20 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
         switch call.method {
 
-
-
         case "closeWindow":
-            requestSoftClose(viewId: viewId, window: window)
+            if windowStates[viewId]?.isPopup == true {
+                closePopupWindow(window, viewId: viewId)
+            } else {
+                requestSoftClose(viewId: viewId, window: window)
+            }
             result(nil)
 
         case "destroyWindow":
-            // Synchronous forced destruction; bypasses windowShouldClose entirely.
-            // Modal sheets must endSheet before close so the parent is unblocked.
-            closeSheetWindow(window, viewId: viewId)
+            if windowStates[viewId]?.isPopup == true {
+                closePopupWindow(window, viewId: viewId)
+            } else {
+                closeSheetWindow(window, viewId: viewId)
+            }
             result(nil)
 
         case "isPreventClose":
@@ -870,7 +993,12 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
         case "show":
             DispatchQueue.main.async {
-                self.focusWindow(window)
+                if self.windowStates[viewId]?.isPopup == true {
+                    window.alphaValue = self.windowStates[viewId]?.opacity ?? 1.0
+                    window.orderFront(nil)
+                } else {
+                    self.focusWindow(window)
+                }
             }
             result(nil)
 
@@ -959,6 +1087,30 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
                 window.setFrameOrigin(frameRect.origin)
             }
             result(nil)
+
+        case "setPopupBounds":
+            // Atomic position + size update.
+            // When size is unchanged, use setFrameOrigin so that
+            // FlutterView.setFrameSize is never called → ResizeSynchronizer
+            // is not triggered → no Impeller texture-size crash on macOS.
+            let w = args?["width"] as? CGFloat ?? window.frame.width
+            let h = args?["height"] as? CGFloat ?? window.frame.height
+            let x = args?["x"] as? CGFloat ?? window.frame.topLeft.x
+            let y = args?["y"] as? CGFloat ?? window.frame.topLeft.y
+            let tolerance: CGFloat = 0.5
+            let sizeChanged =
+                abs(window.frame.width  - w) > tolerance ||
+                abs(window.frame.height - h) > tolerance
+            var f = window.frame
+            if sizeChanged {
+                f.size   = NSSize(width: w, height: h)
+                f.topLeft = CGPoint(x: x, y: y)
+                window.setFrame(f, display: false)
+            } else {
+                f.topLeft = CGPoint(x: x, y: y)
+                window.setFrameOrigin(f.origin)
+            }
+            result(true)
 
         case "center":
             window.center()
@@ -1066,10 +1218,12 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             result(nil)
 
         case "getOpacity":
-            result(Double(window.alphaValue))
+            result(Double(windowStates[viewId]?.opacity ?? window.alphaValue))
 
         case "setOpacity":
-            window.alphaValue = CGFloat(args?["opacity"] as? Double ?? 1.0)
+            let opacity = CGFloat(args?["opacity"] as? Double ?? 1.0)
+            windowStates[viewId]?.opacity = opacity
+            window.alphaValue = opacity
             result(nil)
 
         case "setBrightness":
@@ -1082,12 +1236,19 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             let r = args?["backgroundColorR"] as? Int ?? 255
             let g = args?["backgroundColorG"] as? Int ?? 255
             let b = args?["backgroundColorB"] as? Int ?? 255
-            window.backgroundColor = NSColor(
+            let color = NSColor(
                 calibratedRed: CGFloat(r) / 255,
                 green: CGFloat(g) / 255,
                 blue: CGFloat(b) / 255,
                 alpha: CGFloat(a) / 255
             )
+            window.backgroundColor = color
+            if a < 255 {
+                window.isOpaque = false
+            }
+            if let flutterVC = window.contentViewController as? FlutterViewController {
+                flutterVC.backgroundColor = color
+            }
             result(nil)
 
         case "isVisibleOnAllWorkspaces":

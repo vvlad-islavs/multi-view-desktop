@@ -260,7 +260,21 @@ namespace multi_view_desktop {
         return hwnd;
     }
 
-    void MultiViewDesktop::CenterDialogOnOwner(HWND dialog_hwnd, HWND owner_hwnd) {
+    HWND MultiViewDesktop::CreatePopupHostWindow(int client_width,
+                                                 int client_height,
+                                                 HWND owner_hwnd) {
+        RegisterMultiViewHostWindowClass();
+        const DWORD style = WS_POPUP | WS_CLIPCHILDREN;
+        const DWORD ex_style = WS_EX_TOOLWINDOW | WS_EX_LAYERED;
+        HWND hwnd = CreateWindowEx(
+                ex_style, kMultiViewHostWindowClassName, L"", style, 0, 0,
+                client_width, client_height, owner_hwnd, nullptr,
+                GetModuleHandle(nullptr), nullptr);
+        if (hwnd) {
+            SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+        }
+        return hwnd;
+    }
         if (!dialog_hwnd || !owner_hwnd) {
             return;
         }
@@ -921,6 +935,80 @@ void MultiViewDesktop::CreateModalDialogWindow(
     }
 }
 
+}
+
+void MultiViewDesktop::CreatePopupWindow(const flutter::EncodableMap &args) {
+    if (!engine_) {
+        return;
+    }
+
+    const int token = static_cast<int>(Int64FromMap(args, "token"));
+    const int64_t parent_id = Int64FromMap(args, "parentId");
+    const double width = DoubleFromMap(args, "width", 240);
+    const double height = DoubleFromMap(args, "height", 320);
+
+    MultiViewDesktop *parent = FindByViewId(parent_id);
+    if (parent == nullptr) {
+        return;
+    }
+
+    const double scale = DefaultMonitorScaleFactor();
+    const int client_width = static_cast<int>(width * scale);
+    const int client_height = static_cast<int>(height * scale);
+
+    HWND parent_hwnd = parent->native_window;
+    HWND host_hwnd =
+            CreatePopupHostWindow(client_width, client_height, parent_hwnd);
+    if (!host_hwnd) {
+        return;
+    }
+
+    FlutterDesktopViewControllerProperties properties = {
+            client_width,
+            client_height,
+    };
+    FlutterDesktopViewControllerRef view_controller =
+            FlutterDesktopEngineCreateViewController(engine_, &properties);
+    if (!view_controller) {
+        DestroyWindow(host_hwnd);
+        return;
+    }
+
+    const int64_t flutter_view_id =
+            static_cast<int64_t>(FlutterDesktopViewControllerGetViewId(view_controller));
+    FlutterDesktopViewRef view = FlutterDesktopViewControllerGetView(view_controller);
+    HWND flutter_hwnd = FlutterDesktopViewGetHWND(view);
+    SetParent(flutter_hwnd, host_hwnd);
+
+    RegisterWindow(host_hwnd, flutter_view_id, view_controller);
+    auto *window = FindByViewId(flutter_view_id);
+    if (window) {
+        window->pixel_ratio_ = scale;
+        window->is_popup_ = true;
+        window->is_pre_confirm_ = true;
+        window->is_confirm_close_ = true;
+        window->SetAsFrameless();
+        flutter::EncodableMap skip_args = {
+                {flutter::EncodableValue("isSkipTaskbar"), flutter::EncodableValue(true)}};
+        window->SetSkipTaskbar(skip_args);
+    }
+    ResizeFlutterContent(window);
+    ShowWindow(host_hwnd, SW_SHOWNOACTIVATE);
+    FlutterDesktopViewControllerForceRedraw(view_controller);
+
+    if (channel_) {
+        channel_->InvokeMethod(
+                "onEvent",
+                std::make_unique<flutter::EncodableValue>(flutter::EncodableMap{
+                        {flutter::EncodableValue("eventName"),
+                                flutter::EncodableValue("viewCreated")},
+                        {flutter::EncodableValue("viewId"),
+                                flutter::EncodableValue(flutter_view_id)},
+                        {flutter::EncodableValue("token"), flutter::EncodableValue(token)},
+                }));
+    }
+}
+
 HWND MultiViewDesktop::GetMainWindow() {
     return native_window;
 }
@@ -1037,6 +1125,11 @@ void MultiViewDesktop::Show() {
     if ((gwlStyle & WS_VISIBLE) == 0) {
         SetWindowLong(hWnd, GWL_STYLE, gwlStyle);
         ::SetWindowPos(hWnd, HWND_TOP, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
+    }
+
+    if (is_popup_) {
+        ShowWindow(GetMainWindow(), SW_SHOWNOACTIVATE);
+        return;
     }
 
     ShowWindowAsync(GetMainWindow(), SW_SHOW);
@@ -1344,6 +1437,20 @@ void MultiViewDesktop::SetPosition(const flutter::EncodableMap &args) {
     SetWindowPos(hwnd, nullptr, left, top, rect.right - rect.left,
                  rect.bottom - rect.top,
                  SWP_NOZORDER | SWP_NOOWNERZORDER);
+}
+
+void MultiViewDesktop::SetPopupBounds(const flutter::EncodableMap &args) {
+    HWND hwnd = GetMainWindow();
+    const double x = DoubleFromMap(args, "x", 0);
+    const double y = DoubleFromMap(args, "y", 0);
+    const double width = DoubleFromMap(args, "width", 0);
+    const double height = DoubleFromMap(args, "height", 0);
+    const int left = static_cast<int>(x * pixel_ratio_);
+    const int top = static_cast<int>(y * pixel_ratio_);
+    const int w = static_cast<int>(width * pixel_ratio_);
+    const int h = static_cast<int>(height * pixel_ratio_);
+    SetWindowPos(hwnd, nullptr, left, top, w, h,
+                 SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE);
 }
 
 void MultiViewDesktop::Center() {

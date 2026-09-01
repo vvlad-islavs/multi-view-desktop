@@ -343,6 +343,11 @@ namespace multi_view_desktop {
                 }
             }
         } else if (message == WM_CLOSE) {
+            if (window->is_popup_) {
+                impl.DestroyEntry(view_id);
+                EmitEvent("popup-closed", view_id);
+                return 0;
+            }
             if (!window->is_pre_confirm_) {
                 EmitEvent("preconfirm-close", view_id);
                 return 0;
@@ -364,6 +369,14 @@ namespace multi_view_desktop {
                    "windows=%zu",
                    static_cast<long long>(view_id), impl.windows_.size());
             if (impl.windows_.empty() &&
+            bool has_regular = false;
+            for (const auto &entry : impl.windows_) {
+                if (!entry.second->is_popup_) {
+                    has_regular = true;
+                    break;
+                }
+            }
+            if (!has_regular &&
                 MultiViewDesktop::terminate_after_last_window_closed_) {
                 MvdLog("HandleWindowProc WM_CLOSE PostQuitMessage(0) last window");
                 PostQuitMessage(0);
@@ -398,6 +411,11 @@ namespace multi_view_desktop {
         }
         if (method == "createModalDialog") {
             impl.CreateModalDialogWindow(args);
+            result->Success();
+            return;
+        }
+        if (method == "createPopupWindow") {
+            impl.CreatePopupWindow(args);
             result->Success();
             return;
         }
@@ -560,6 +578,9 @@ namespace multi_view_desktop {
             result->Success();
         } else if (method == "setPosition") {
             window->SetPosition(args);
+            result->Success();
+        } else if (method == "setPopupBounds") {
+            window->SetPopupBounds(args);
             result->Success();
         } else if (method == "center") {
             window->Center();

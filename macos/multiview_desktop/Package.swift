@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
   name: "multiview_desktop",
   platforms: [
-    .macOS("10.14"),
+    .macOS("12.0"),
   ],
   products: [
     .library(name: "multiview-desktop", targets: ["multiview_desktop"]),
