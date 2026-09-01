@@ -221,12 +221,12 @@ The example `windows/runner/flutter_window.cpp` and `flutter_window.h` are repla
 
 `flutter_controller_` is replaced entirely by the plugin. Leaving the field in the header will cause a compile error because `flutter::FlutterViewController` is no longer included.
 
-**`windows/runner/flutter_window.cpp`**: replace the standard Flutter engine initialization with the multiview_desktop API:
+**`windows/runner/flutter_window.cpp`**: keep `flutter/generated_plugin_registrant.h`. The library owns the engine, so pass `RegisterPlugins` into `MultiViewDesktopCreateMainView` (do not call `RegisterPlugins(flutter_controller_->engine())`). The callback runs after the primary view exists so plugins that need `GetView()` can register. Then parent the Flutter HWND with `SetChildContent`:
 
 ```diff
  #include "flutter_window.h"
  #include <optional>
--#include "flutter/generated_plugin_registrant.h"
+ #include "flutter/generated_plugin_registrant.h"
 +#include <multiview_desktop/multi_view_desktop_plugin.h>
 
  FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -255,7 +255,7 @@ The example `windows/runner/flutter_window.cpp` and `flutter_window.h` are repla
 -
 -  flutter_controller_->ForceRedraw();
 +  MultiViewDesktopPrepareEngine(project_, GetHandle());
-+  MultiViewDesktopCreateMainView(GetHandle(), width, height);
++  MultiViewDesktopCreateMainView(GetHandle(), width, height, RegisterPlugins);
 +  const HWND flutter_hwnd =
 +      MultiViewDesktopGetFlutterHwnd(MultiViewDesktopGetMainViewId());
 +  if (flutter_hwnd != nullptr) {
@@ -304,6 +304,8 @@ The example `windows/runner/flutter_window.cpp` and `flutter_window.h` are repla
    return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
  }
 ```
+
+`MultiViewDesktopHandleWindowProc` replaces `flutter_controller_->HandleTopLevelWindowProc`. It forwards HWND messages to plugins that use `RegisterTopLevelWindowProcDelegate` (tray, etc.) and runs MVD close handling. Do not call the engine API yourself: the engine treats `WM_CLOSE` as process exit.
 
 **`windows/runner/main.cpp`**: disable quit-on-close for the primary window:
 

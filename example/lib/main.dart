@@ -1,17 +1,42 @@
 import 'dart:developer';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
 import 'package:multiview_desktop/multiview_desktop.dart';
+import 'package:tray_manager/tray_manager.dart';
 import 'pages/home.dart';
 import 'l10n/example_localizations.dart';
 import 'theme/app_themes.dart';
 import 'utils/theme_config.dart';
 
+Future<void> initSystemTray() async {
+  String path = Platform.isWindows ? 'assets/app_icon.ico' : 'assets/app_icon.png';
+
+  await trayManager.setIcon(path);
+  await trayManager.setToolTip('toolTip');
+
+
+  // create context menu
+  final Menu menu = Menu(
+    items: [
+      MenuItem(label: 'Hide', key: 'hide_window'),
+      MenuItem(label: 'Show', key: 'show_window'),
+      MenuItem(label: 'Exit', key: 'exit_app'),
+    ],
+  );
+
+  await trayManager.setContextMenu(menu);
+}
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runMultiApp(
-    home: (globalScopeContext, id) => const MainWindowRoot(),
+    home: (globalScopeContext, id) {
+      initSystemTray();
+
+      return const MainWindowRoot();
+    },
     globalScope: (child) {
       //any providers...
       return child;
@@ -144,10 +169,12 @@ class MainWindowRoot extends StatefulWidget {
   State<MainWindowRoot> createState() => _MainWindowRootState();
 }
 
-class _MainWindowRootState extends State<MainWindowRoot> {
+class _MainWindowRootState extends State<MainWindowRoot> with TrayListener {
   @override
   void initState() {
     super.initState();
+    trayManager.addListener(this);
+
     themeConfig.addListener(_onThemeChanged);
 
     // MultiViewDesktop.communicator.onBroadcast.listen((msg) {
@@ -171,12 +198,42 @@ class _MainWindowRootState extends State<MainWindowRoot> {
 
   @override
   void dispose() {
+    trayManager.removeListener(this);
+
     themeConfig.removeListener(_onThemeChanged);
     super.dispose();
   }
 
   void _onThemeChanged() {
     if (mounted) setState(() {});
+  }
+
+  @override
+  void onTrayIconMouseDown() {
+    // do something, for example pop up the menu
+    trayManager.popUpContextMenu();
+  }
+
+  @override
+  void onTrayIconRightMouseDown() {
+    // do something
+  }
+
+  @override
+  void onTrayIconRightMouseUp() {
+    // do something
+  }
+
+  @override
+  void onTrayMenuItemClick(MenuItem menuItem) {
+    final mvd = MultiViewDesktop.of(context);
+    if (menuItem.key == 'show_window') {
+      mvd.show();
+    } else if (menuItem.key == 'exit_app') {
+      MultiViewDesktop.closeApp();
+    } else if (menuItem.key == 'hide_window') {
+      mvd.hide();
+    }
   }
 
   @override

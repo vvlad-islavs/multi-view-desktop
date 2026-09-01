@@ -2,6 +2,7 @@
 
 #include <optional>
 
+#include "flutter/generated_plugin_registrant.h"
 #include <multiview_desktop/multi_view_desktop_plugin.h>
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -19,7 +20,7 @@ bool FlutterWindow::OnCreate() {
   const int height = frame.bottom - frame.top;
 
   MultiViewDesktopPrepareEngine(project_, GetHandle());
-  MultiViewDesktopCreateMainView(GetHandle(), width, height);
+  MultiViewDesktopCreateMainView(GetHandle(), width, height, RegisterPlugins);
   const HWND flutter_hwnd =
       MultiViewDesktopGetFlutterHwnd(MultiViewDesktopGetMainViewId());
   if (flutter_hwnd != nullptr) {

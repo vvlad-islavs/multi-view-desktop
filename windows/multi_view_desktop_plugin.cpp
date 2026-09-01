@@ -8,9 +8,12 @@
 #include <flutter/method_channel.h>
 #include <flutter/method_result_functions.h>
 #include <flutter/plugin_registrar_windows.h>
+#include <flutter/plugin_registry.h>
 #include <flutter/standard_method_codec.h>
 
+#include <cstdarg>
 #include <cmath>
+#include <cstdio>
 #include <memory>
 #include <optional>
 #include <string>
@@ -18,6 +21,11 @@
 
 #include "multi_view_desktop.h"
 #include "mvd_windows_taskbar_menu.h"
+
+namespace {
+void MvdLog(const char* fmt, ...);
+bool MvdIsEngineLifecycleMessage(UINT message);
+}  // namespace
 
 namespace multi_view_desktop {
 
@@ -109,7 +117,6 @@ namespace multi_view_desktop {
 
     private:
         flutter::PluginRegistrarWindows *registrar_;
-        int window_proc_id_ = -1;
         std::unique_ptr <flutter::MethodChannel<flutter::EncodableValue>>
                 screen_retriever_channel_;
 
@@ -156,15 +163,9 @@ namespace multi_view_desktop {
                     HandleScreenRetrieverMethodCall(call, std::move(result));
                 });
         screen_retriever_channel_ = std::move(screen_channel);
-
-        window_proc_id_ = registrar_->RegisterTopLevelWindowProcDelegate(
-                [this](HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
-                    return HandleWindowProc(hwnd, message, wparam, lparam);
-                });
     }
 
     MultiViewDesktopPlugin::~MultiViewDesktopPlugin() {
-        registrar_->UnregisterTopLevelWindowProcDelegate(window_proc_id_);
         if (g_plugin_instance == this) {
             g_plugin_instance = nullptr;
         }
@@ -354,9 +355,17 @@ namespace multi_view_desktop {
                 EmitEvent("confirm-close", view_id);
                 return 0;
             }
+            MvdLog("HandleWindowProc WM_CLOSE DestroyEntry view_id=%lld hwnd=%p "
+                   "controller=%p windows=%zu",
+                   static_cast<long long>(view_id), hwnd, window->controller,
+                   impl.windows_.size());
             impl.DestroyEntry(view_id);
+            MvdLog("HandleWindowProc WM_CLOSE DestroyEntry returned view_id=%lld "
+                   "windows=%zu",
+                   static_cast<long long>(view_id), impl.windows_.size());
             if (impl.windows_.empty() &&
                 MultiViewDesktop::terminate_after_last_window_closed_) {
+                MvdLog("HandleWindowProc WM_CLOSE PostQuitMessage(0) last window");
                 PostQuitMessage(0);
             }
             return 0;
@@ -473,8 +482,10 @@ namespace multi_view_desktop {
             result->Success();
         } else if (method == "destroyWindow") {
             auto &impl = MultiViewDesktop::Instance();
+            MvdLog("destroyWindow method view_id=%lld windows=%zu",
+                   static_cast<long long>(view_id), impl.windows_.size());
             impl.DestroyEntry(view_id);
-          
+            MvdLog("destroyWindow method returned windows=%zu", impl.windows_.size());
             result->Success();
         } else if (method == "isPreventClose") {
             result->Success(flutter::EncodableValue(window->IsPreventClose()));
@@ -830,6 +841,149 @@ std::optional <LRESULT> HandleWindowProcForHwnd(HWND hwnd,
 
 }  // namespace multi_view_desktop
 
+namespace {
+
+void MvdLog(const char* fmt, ...) {
+#if !MVD_DEBUG_LOG
+    (void)fmt;
+#else
+    char body[1536];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(body, sizeof(body), fmt, args);
+    va_end(args);
+
+    SYSTEMTIME st{};
+    GetLocalTime(&st);
+    char line[1792];
+    snprintf(line, sizeof(line),
+             "[%02u:%02u:%02u.%03u][tid=%lu] %s\n",
+             st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+             GetCurrentThreadId(), body);
+
+    OutputDebugStringA(line);
+    fputs(line, stderr);
+    fflush(stderr);
+
+    static FILE* file = nullptr;
+    static bool file_init = false;
+    if (!file_init) {
+        file_init = true;
+        wchar_t dir[MAX_PATH] = {};
+        if (GetTempPathW(MAX_PATH, dir) != 0) {
+            wchar_t path[MAX_PATH] = {};
+            if (swprintf_s(path, L"%smvd_window_proc.log", dir) > 0) {
+                if (_wfopen_s(&file, path, L"a") != 0) {
+                    file = nullptr;
+                }
+                if (file) {
+                    fprintf(file, "----- session start -----\n");
+                    fflush(file);
+                }
+            }
+        }
+    }
+    if (file) {
+        fputs(line, file);
+        fflush(file);
+    }
+#endif
+}
+
+const char* MvdMessageName(UINT message) {
+    switch (message) {
+        case WM_CLOSE:
+            return "WM_CLOSE";
+        case WM_DESTROY:
+            return "WM_DESTROY";
+        case WM_NCDESTROY:
+            return "WM_NCDESTROY";
+        case WM_QUIT:
+            return "WM_QUIT";
+        case WM_QUERYENDSESSION:
+            return "WM_QUERYENDSESSION";
+        case WM_ENDSESSION:
+            return "WM_ENDSESSION";
+        case WM_SYSCOMMAND:
+            return "WM_SYSCOMMAND";
+        case WM_NCCALCSIZE:
+            return "WM_NCCALCSIZE";
+        case WM_NCHITTEST:
+            return "WM_NCHITTEST";
+        case WM_SIZE:
+            return "WM_SIZE";
+        case WM_SIZING:
+            return "WM_SIZING";
+        case WM_SHOWWINDOW:
+            return "WM_SHOWWINDOW";
+        case WM_ACTIVATE:
+            return "WM_ACTIVATE";
+        case WM_NCACTIVATE:
+            return "WM_NCACTIVATE";
+        case WM_DPICHANGED:
+            return "WM_DPICHANGED";
+        case WM_GETMINMAXINFO:
+            return "WM_GETMINMAXINFO";
+        case WM_EXITSIZEMOVE:
+            return "WM_EXITSIZEMOVE";
+        case WM_MOVING:
+            return "WM_MOVING";
+        default:
+            return nullptr;
+    }
+}
+
+bool MvdIsEngineLifecycleMessage(UINT message) {
+    switch (message) {
+        case WM_CLOSE:
+        case WM_DESTROY:
+        case WM_NCDESTROY:
+        case WM_QUIT:
+        case WM_QUERYENDSESSION:
+        case WM_ENDSESSION:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool MvdShouldLogMessage(UINT message, WPARAM wparam) {
+#if !MVD_DEBUG_LOG
+    (void)message;
+    (void)wparam;
+    return false;
+#else
+    switch (message) {
+        case WM_CLOSE:
+        case WM_DESTROY:
+        case WM_NCDESTROY:
+        case WM_QUIT:
+        case WM_QUERYENDSESSION:
+        case WM_ENDSESSION:
+        case WM_SYSCOMMAND:
+            return true;
+        default:
+            return false;
+    }
+#endif
+}
+
+class EnginePluginRegistry : public flutter::PluginRegistry {
+ public:
+  explicit EnginePluginRegistry(FlutterDesktopEngineRef engine)
+      : engine_(engine) {}
+
+  FlutterDesktopPluginRegistrarRef GetRegistrarForPlugin(
+      const std::string& plugin_name) override {
+    return FlutterDesktopEngineGetPluginRegistrar(engine_, plugin_name.c_str());
+  }
+
+ private:
+  FlutterDesktopEngineRef engine_;
+};
+
+}  // namespace
+
 void MultiViewDesktopPluginRegisterWithRegistrar(
         FlutterDesktopPluginRegistrarRef registrar) {
     multi_view_desktop::MultiViewDesktopPlugin::RegisterWithRegistrar(
@@ -872,18 +1026,30 @@ HWND MultiViewDesktopGetFlutterHwnd(int64_t view_id) {
     return view == nullptr ? nullptr : FlutterDesktopViewGetHWND(view);
 }
 
-void MultiViewDesktopCreateMainView(HWND host_window, int width, int height) {
+void MultiViewDesktopCreateMainView(
+        HWND host_window,
+        int width,
+        int height,
+        void (*register_plugins)(flutter::PluginRegistry *registry)) {
     auto &impl = multi_view_desktop::MultiViewDesktop::Instance();
+    MvdLog("CreateMainView engine=%p windows=%zu main_view_id=%lld",
+           impl.engine(), impl.windows_.size(),
+           static_cast<long long>(impl.main_view_id()));
+
     FlutterDesktopViewControllerProperties properties = {width, height};
     FlutterDesktopViewControllerRef controller =
             FlutterDesktopEngineCreateViewController(impl.engine(), &properties);
     if (!controller) {
+        MvdLog("CreateMainView FAIL: FlutterDesktopEngineCreateViewController returned null");
         return;
     }
     const int64_t view_id =
             static_cast<int64_t>(FlutterDesktopViewControllerGetViewId(controller));
     FlutterDesktopViewRef view = FlutterDesktopViewControllerGetView(controller);
     HWND flutter_hwnd = FlutterDesktopViewGetHWND(view);
+    MvdLog("CreateMainView controller=%p view_id=%lld view=%p flutter_hwnd=%p",
+           controller, static_cast<long long>(view_id), view, flutter_hwnd);
+
     if (host_window) {
         SetParent(flutter_hwnd, host_window);
         RECT rect{};
@@ -892,16 +1058,32 @@ void MultiViewDesktopCreateMainView(HWND host_window, int width, int height) {
                      rect.bottom - rect.top,
                      SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
         impl.RegisterMain(host_window, view_id, controller);
+        MvdLog("CreateMainView RegisterMain host=%p view_id=%lld",
+               host_window, static_cast<long long>(view_id));
         if (auto *main_window = impl.FindByViewId(view_id)) {
             multi_view_desktop::MultiViewDesktop::ResizeFlutterContent(main_window);
         }
     } else {
         impl.RegisterMain(flutter_hwnd, view_id, controller);
+        MvdLog("CreateMainView RegisterMain (no host) flutter_hwnd=%p view_id=%lld",
+               flutter_hwnd, static_cast<long long>(view_id));
     }
 
-    MultiViewDesktopPluginRegisterWithRegistrar(
-            FlutterDesktopEngineGetPluginRegistrar(impl.engine(),
-                                                   "MultiViewDesktopPlugin"));
+    if (register_plugins) {
+        MvdLog("CreateMainView calling register_plugins callback...");
+        EnginePluginRegistry registry(impl.engine());
+        register_plugins(&registry);
+        MvdLog("CreateMainView register_plugins callback returned");
+    } else {
+        MvdLog("CreateMainView no callback; registering MultiViewDesktopPlugin only");
+        MultiViewDesktopPluginRegisterWithRegistrar(
+                FlutterDesktopEngineGetPluginRegistrar(impl.engine(),
+                                                       "MultiViewDesktopPlugin"));
+        MvdLog("CreateMainView MultiViewDesktopPlugin registered");
+    }
+    MvdLog("CreateMainView exit windows=%zu main_view_id=%lld",
+           impl.windows_.size(),
+           static_cast<long long>(impl.main_view_id()));
 }
 
 bool MultiViewDesktopHandleWindowProc(HWND hwnd,
@@ -909,11 +1091,102 @@ bool MultiViewDesktopHandleWindowProc(HWND hwnd,
                                       WPARAM wparam,
                                       LPARAM lparam,
                                       LRESULT *result) {
+    auto &impl = multi_view_desktop::MultiViewDesktop::Instance();
+    const bool log = MvdShouldLogMessage(message, wparam);
+    const char *msg_name = MvdMessageName(message);
+    char msg_buf[32];
+    if (msg_name == nullptr) {
+        snprintf(msg_buf, sizeof(msg_buf), "0x%04X", message);
+        msg_name = msg_buf;
+    }
+
+    multi_view_desktop::MultiViewDesktop *by_hwnd = impl.FindByHwnd(hwnd);
+    multi_view_desktop::MultiViewDesktop *window = by_hwnd;
+    bool used_main_fallback = false;
+    const bool lifecycle = MvdIsEngineLifecycleMessage(message);
+    // Close/destroy must not fall back to the main controller — the engine
+    // would treat that WM_CLOSE as process exit.
+    if (window == nullptr && !lifecycle) {
+        window = impl.FindByViewId(impl.main_view_id());
+        used_main_fallback = window != nullptr;
+    }
+
+    if (log) {
+        MvdLog("HandleWindowProc ENTER hwnd=%p %s wparam=0x%llX lparam=0x%llX "
+               "windows=%zu main_view_id=%lld by_hwnd=%p view_id=%lld "
+               "controller=%p fallback=%d lifecycle=%d result_ptr=%p",
+               hwnd, msg_name,
+               static_cast<unsigned long long>(wparam),
+               static_cast<unsigned long long>(lparam),
+               impl.windows_.size(),
+               static_cast<long long>(impl.main_view_id()),
+               by_hwnd,
+               window ? static_cast<long long>(window->view_id) : -1LL,
+               window ? window->controller : nullptr,
+               used_main_fallback ? 1 : 0,
+               lifecycle ? 1 : 0,
+               result);
+        if (message == WM_SYSCOMMAND) {
+            MvdLog("HandleWindowProc WM_SYSCOMMAND cmd=0x%04X (SC_CLOSE=0x%04X)",
+                   static_cast<unsigned>(wparam & 0xFFF0),
+                   static_cast<unsigned>(SC_CLOSE));
+        }
+    }
+
+    // Pump RegisterTopLevelWindowProcDelegate plugins (tray, …). Skip
+    // close/destroy: the engine lifecycle_manager would quit the process.
+    if (!lifecycle && window != nullptr && window->controller != nullptr) {
+        if (log) {
+            MvdLog("HandleWindowProc BEFORE HandleTopLevelWindowProc "
+                   "controller=%p view_id=%lld",
+                   window->controller,
+                   static_cast<long long>(window->view_id));
+        }
+        const bool handled = FlutterDesktopViewControllerHandleTopLevelWindowProc(
+                window->controller, hwnd, message, wparam, lparam, result);
+        if (log || handled) {
+            MvdLog("HandleWindowProc AFTER HandleTopLevelWindowProc hwnd=%p %s "
+                   "handled=%d *result=%lld windows=%zu",
+                   hwnd, msg_name, handled ? 1 : 0,
+                   (handled && result) ? static_cast<long long>(*result) : -1LL,
+                   impl.windows_.size());
+        }
+        if (handled) {
+            MvdLog("HandleWindowProc RETURN true (consumed by Flutter/plugin "
+                   "delegate) — MVD HandleWindowProcForHwnd SKIPPED for %s hwnd=%p",
+                   msg_name, hwnd);
+            return true;
+        }
+    } else if (log && lifecycle) {
+        MvdLog("HandleWindowProc skip HandleTopLevelWindowProc for lifecycle %s "
+               "(MVD owns close/destroy)",
+               msg_name);
+    } else if (log) {
+        MvdLog("HandleWindowProc skip HandleTopLevelWindowProc "
+               "(window=%p controller=%p)",
+               window, window ? window->controller : nullptr);
+    }
+
+    if (log) {
+        MvdLog("HandleWindowProc BEFORE HandleWindowProcForHwnd hwnd=%p %s",
+               hwnd, msg_name);
+    }
     const auto optional = multi_view_desktop::HandleWindowProcForHwnd(
             hwnd, message, wparam, lparam);
     if (optional.has_value()) {
         *result = *optional;
+        if (log) {
+            MvdLog("HandleWindowProc AFTER HandleWindowProcForHwnd hwnd=%p %s "
+                   "handled=1 *result=%lld windows=%zu RETURN true",
+                   hwnd, msg_name, static_cast<long long>(*result),
+                   impl.windows_.size());
+        }
         return true;
+    }
+    if (log) {
+        MvdLog("HandleWindowProc AFTER HandleWindowProcForHwnd hwnd=%p %s "
+               "handled=0 windows=%zu RETURN false",
+               hwnd, msg_name, impl.windows_.size());
     }
     return false;
 }

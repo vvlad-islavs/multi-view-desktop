@@ -19,6 +19,10 @@
 #define STATE_MINIMIZED 2
 #define STATE_FULLSCREEN_ENTERED 3
 
+#ifndef MVD_DEBUG_LOG
+#define MVD_DEBUG_LOG 0
+#endif
+
 // Internal multi-view API (not yet in the public Flutter Windows SDK).
 typedef struct {
   int width;

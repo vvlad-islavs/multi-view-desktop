@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <codecvt>
+#include <cstdio>
 #include <dwmapi.h>
 #include <map>
 #include <memory>
@@ -529,17 +530,72 @@ void MultiViewDesktop::DestroyEntry(int64_t target_view_id) {
     const int64_t modal_owner_id =
             it->second->is_modal_ ? it->second->modal_owner_view_id_ : -1;
     HWND host_window = it->second->native_window;
-    if (it->second->controller) {
-        FlutterDesktopViewControllerDestroy(it->second->controller);
-        it->second->controller = nullptr;
+    FlutterDesktopViewControllerRef doomed_controller = it->second->controller;
+    // Drop the pointer first: host WndProc can re-enter during teardown.
+    it->second->controller = nullptr;
+
+#if MVD_DEBUG_LOG
+    char line[256];
+    snprintf(line, sizeof(line),
+             "[MVD] DestroyEntry begin view_id=%lld hwnd=%p controller=%p windows=%zu\n",
+             static_cast<long long>(target_view_id), host_window, doomed_controller,
+             windows_.size());
+    OutputDebugStringA(line);
+    fputs(line, stderr);
+    fflush(stderr);
+#endif
+
+    HWND flutter_hwnd = nullptr;
+    if (doomed_controller != nullptr) {
+        FlutterDesktopViewRef view =
+                FlutterDesktopViewControllerGetView(doomed_controller);
+        if (view != nullptr) {
+            flutter_hwnd = FlutterDesktopViewGetHWND(view);
+        }
     }
+
+    // Unparent before destroy. While the view is still a child, teardown
+    // kills the raster surface and re-enters our WndProc mid-destroy.
+    if (flutter_hwnd != nullptr && flutter_hwnd != host_window &&
+        IsWindow(flutter_hwnd)) {
+        ShowWindow(flutter_hwnd, SW_HIDE);
+        SetParent(flutter_hwnd, nullptr);
+#if MVD_DEBUG_LOG
+        OutputDebugStringA("[MVD] DestroyEntry unparented flutter hwnd\n");
+        fputs("[MVD] DestroyEntry unparented flutter hwnd\n", stderr);
+        fflush(stderr);
+#endif
+    }
+
+    if (doomed_controller != nullptr) {
+        FlutterDesktopViewControllerDestroy(doomed_controller);
+#if MVD_DEBUG_LOG
+        OutputDebugStringA("[MVD] DestroyEntry controller destroyed\n");
+        fputs("[MVD] DestroyEntry controller destroyed\n", stderr);
+        fflush(stderr);
+#endif
+    }
+
     windows_.erase(it);
-    if (host_window != nullptr && IsWindow(host_window)) {
+
+    if (host_window != nullptr && host_window != flutter_hwnd &&
+        IsWindow(host_window)) {
         if (host_window == main_host_window_) {
             main_host_window_ = nullptr;
         }
+#if MVD_DEBUG_LOG
+        OutputDebugStringA("[MVD] DestroyEntry DestroyWindow host\n");
+        fputs("[MVD] DestroyEntry DestroyWindow host\n", stderr);
+        fflush(stderr);
+#endif
         DestroyWindow(host_window);
+#if MVD_DEBUG_LOG
+        OutputDebugStringA("[MVD] DestroyEntry DestroyWindow returned\n");
+        fputs("[MVD] DestroyEntry DestroyWindow returned\n", stderr);
+        fflush(stderr);
+#endif
     }
+
     if (modal_owner_id >= 0) {
         MultiViewDesktop *owner = FindByViewId(modal_owner_id);
         if (owner != nullptr && owner->native_window != nullptr) {
@@ -548,6 +604,11 @@ void MultiViewDesktop::DestroyEntry(int64_t target_view_id) {
             FocusHostWindow(GetActiveModalFocusTarget(owner_hwnd));
         }
     }
+#if MVD_DEBUG_LOG
+    OutputDebugStringA("[MVD] DestroyEntry end\n");
+    fputs("[MVD] DestroyEntry end\n", stderr);
+    fflush(stderr);
+#endif
 }
 
 void MultiViewDesktop::EmitEvent(const std::string &event_name,

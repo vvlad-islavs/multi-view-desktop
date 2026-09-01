@@ -23,6 +23,7 @@ FLUTTER_PLUGIN_EXPORT void MultiViewDesktopPluginRegisterWithRegistrar(
 
 namespace flutter {
 class DartProject;
+class PluginRegistry;
 }  // namespace flutter
 
 // Runner integration (mirrors macOS MultiviewDesktopPlugin.prepareEngine).
@@ -32,9 +33,13 @@ FLUTTER_PLUGIN_EXPORT void MultiViewDesktopPrepareEngine(
 
 FLUTTER_PLUGIN_EXPORT FlutterDesktopEngineRef MultiViewDesktopGetEngineRef();
 
-FLUTTER_PLUGIN_EXPORT void MultiViewDesktopCreateMainView(HWND host_window,
-                                                          int width,
-                                                          int height);
+// register_plugins is the app's RegisterPlugins. Called after the primary
+// view exists so plugins that need GetView() (tray, …) can register.
+FLUTTER_PLUGIN_EXPORT void MultiViewDesktopCreateMainView(
+    HWND host_window,
+    int width,
+    int height,
+    void (*register_plugins)(flutter::PluginRegistry* registry) = nullptr);
 
 FLUTTER_PLUGIN_EXPORT int64_t MultiViewDesktopGetMainViewId();
 
