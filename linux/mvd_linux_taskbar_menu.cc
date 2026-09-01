@@ -1,5 +1,6 @@
 #include "mvd_linux_taskbar_menu.h"
 
+#include "mvd_linux_internal.h"
 #include "mvd_linux_log.h"
 
 #include <flutter_linux/flutter_linux.h>
@@ -19,6 +20,9 @@ std::vector<std::string> g_taskbar_action_names;
 std::vector<std::string> g_desktop_action_ids;
 
 void emit_taskbar_menu_item_selected(int id) {
+  if (mvd_emit_event("taskbarMenuItemSelected", -1, id)) {
+    return;
+  }
   if (!g_event_channel) {
     return;
   }

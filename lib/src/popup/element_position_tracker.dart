@@ -25,6 +25,10 @@ class LocalElementPositionTracker {
   /// Invoked when the global position of the tracked element changes.
   void Function(Rect rect)? onGlobalRectChange;
 
+  /// Invoked when the element can no longer report a rect (detached, no
+  /// size, or unmounted). The tracker unsubscribes after this.
+  VoidCallback? onLost;
+
   final BuildContext element;
   Rect? _lastReportedRect;
 
@@ -32,20 +36,27 @@ class LocalElementPositionTracker {
     if (!element.mounted) {
       return null;
     }
-    final RenderObject? renderBox = element.findRenderObject();
-    if (renderBox is! RenderBox) {
+    final RenderObject? renderObject = element.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.attached || !renderObject.hasSize) {
       return null;
     }
 
-    final Matrix4 transform = renderBox.getTransformTo(null);
-    final Rect rect = Offset.zero & renderBox.size;
-    return MatrixUtils.transformRect(transform, rect);
+    try {
+      final Matrix4 transform = renderObject.getTransformTo(null);
+      final Rect rect = Offset.zero & renderObject.size;
+      return MatrixUtils.transformRect(transform, rect);
+    } catch (_) {
+      return null;
+    }
   }
 
   void _updateSelf() {
     final Rect? rect = _getGlobalRect();
     if (rect == null) {
-      _ElementPositionTrackerManager.instance.remove(this);
+      if (_lastReportedRect != null) {
+        _lastReportedRect = null;
+        onLost?.call();
+      }
       return;
     }
     if (_lastReportedRect != rect) {

@@ -8,7 +8,7 @@ import 'app_shell/app_entry_kind.dart';
 import 'app_shell/view_shell_overrides.dart';
 /// Finds `MaterialApp` / `CupertinoApp` / `WidgetsApp` in the main view tree.
 abstract final class AppEntryPointFinder {
-  /// Walks **up** from `context` and keeps the outermost recognized entry widget.
+  /// Walks up from `context` and keeps the outermost recognized entry widget.
   static AppShellSnapshot? findOutermostUpstream(BuildContext context) {
     AppShellSnapshot? material;
     AppShellSnapshot? cupertino;
@@ -29,7 +29,7 @@ abstract final class AppEntryPointFinder {
     return material ?? cupertino ?? widgets;
   }
 
-  /// Walks **down** from `root` and returns the shallowest recognized entry widget.
+  /// Walks down from `root` and returns the shallowest recognized entry widget.
   static AppShellSnapshot? findShallowestInSubtree(Element root) {
     AppShellSnapshot? material;
     AppShellSnapshot? cupertino;

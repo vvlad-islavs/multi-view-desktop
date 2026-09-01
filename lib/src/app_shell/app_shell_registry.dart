@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:multiview_desktop/src/log/mvd_log.dart';
 
 import 'app_shell_patch.dart';
 import 'app_shell_snapshot.dart';
@@ -14,6 +15,11 @@ class AppShellRegistry extends ChangeNotifier {
 
   void replace(AppShellSnapshot? next) {
     if (_snapshot == next) return;
+    MvdLog.instance.info('shell', 'appShell snapshot replaced', {
+      'kind': next?.kind.name,
+      'themeMode': next?.themeMode,
+      'locale': next?.locale,
+    });
     _snapshot = next;
     notifyListeners();
   }

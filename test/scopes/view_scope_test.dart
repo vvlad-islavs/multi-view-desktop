@@ -71,6 +71,51 @@ void main() {
       expect(ViewScope.maybeOf(innerContext), isNull);
     });
   });
+
+  group('InternalViewScope', () {
+    testWidgets('maybeOf returns scope when present', (tester) async {
+      late BuildContext innerContext;
+
+      await tester.pumpWidget(
+        InternalViewScope(
+          viewId: 17,
+          child: Builder(
+            builder: (context) {
+              innerContext = context;
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(InternalViewScope.maybeOf(innerContext)?.viewId, 17);
+      expect(ViewScope.maybeOf(innerContext), isNull);
+    });
+
+    testWidgets('ViewScope under InternalViewScope still resolves to the parent window', (tester) async {
+      late BuildContext innerContext;
+
+      await tester.pumpWidget(
+        ViewScope(
+          viewId: 1,
+          child: InternalViewScope(
+            viewId: 17,
+            child: Builder(
+              builder: (context) {
+                innerContext = context;
+                return const SizedBox();
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(InternalViewScope.of(innerContext).viewId, 17);
+      expect(ViewScope.of(innerContext).viewId, 1);
+    });
+  });
 }
 
 class _ViewScopeHost extends StatefulWidget {

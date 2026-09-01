@@ -2,6 +2,8 @@
 
 #include <windows.h>
 
+#include <cstdint>
+
 #include <flutter/dart_project.h>
 #include <flutter/flutter_engine.h>
 #include <flutter_windows.h>
@@ -20,7 +22,13 @@
 #include <vector>
 
 #include "multi_view_desktop.h"
+#include "mvd_windows_screen.h"
 #include "mvd_windows_taskbar_menu.h"
+
+extern "C" {
+void mvd_set_event_callback(void (*cb)(const char*, int64_t, int64_t));
+void mvd_set_screen_event_callback(void (*cb)(const char*));
+}
 
 namespace {
 void MvdLog(const char* fmt, ...);
@@ -130,10 +138,6 @@ namespace multi_view_desktop {
                 int64_t view_id,
                 std::unique_ptr <flutter::MethodResult<flutter::EncodableValue>> result);
 
-        void HandleScreenRetrieverMethodCall(
-                const flutter::MethodCall <flutter::EncodableValue> &method_call,
-                std::unique_ptr <flutter::MethodResult<flutter::EncodableValue>> result);
-
         void EmitEvent(const std::string &event_name, int64_t view_id);
     };
 
@@ -154,21 +158,16 @@ namespace multi_view_desktop {
                     HandleMethodCall(call, std::move(result));
                 });
 
-        auto screen_channel =
-                std::make_unique < flutter::MethodChannel < flutter::EncodableValue >> (
-                        registrar->messenger(), "multiview_desktop/screen_retriever",
-                                &flutter::StandardMethodCodec::GetInstance());
-        screen_channel->SetMethodCallHandler(
-                [this](const auto &call, auto result) {
-                    HandleScreenRetrieverMethodCall(call, std::move(result));
-                });
-        screen_retriever_channel_ = std::move(screen_channel);
+        MvdWindowsRegisterScreenRetriever(registrar->messenger(),
+                                          &screen_retriever_channel_);
     }
 
     MultiViewDesktopPlugin::~MultiViewDesktopPlugin() {
         if (g_plugin_instance == this) {
             g_plugin_instance = nullptr;
         }
+        mvd_set_event_callback(nullptr);
+        mvd_set_screen_event_callback(nullptr);
     }
 
     void MultiViewDesktopPlugin::EmitEvent(const std::string &event_name,
@@ -183,6 +182,10 @@ namespace multi_view_desktop {
             LPARAM lparam) {
         if (MvdWindowsHandleTaskbarMenuMessage(message, wparam, lparam)) {
             return 0;
+        }
+
+        if (message == WM_DISPLAYCHANGE) {
+            MvdWindowsNotifyDisplayChange();
         }
 
         auto &impl = MultiViewDesktop::Instance();
@@ -405,18 +408,20 @@ namespace multi_view_desktop {
             return;
         }
         if (method == "createWindow") {
-            impl.CreateSecondaryWindow(args);
-            result->Success();
+            result->Success(flutter::EncodableValue(impl.CreateSecondaryWindow(args)));
             return;
         }
         if (method == "createModalDialog") {
-            impl.CreateModalDialogWindow(args);
+            result->Success(flutter::EncodableValue(impl.CreateModalDialogWindow(args)));
+            return;
+        }
+        if (method == "completeModalDialogCreate") {
+            impl.CompleteModalDialog(MultiViewDesktop::Int64FromMap(args, "viewId"));
             result->Success();
             return;
         }
         if (method == "createPopupWindow") {
-            impl.CreatePopupWindow(args);
-            result->Success();
+            result->Success(flutter::EncodableValue(impl.CreatePopupWindow(args)));
             return;
         }
         if (method == "setTerminateAfterLastWindowClosed") {
@@ -662,193 +667,6 @@ namespace multi_view_desktop {
             result->NotImplemented();
         }
     }
-
-    struct MwmMonitorData {
-        RECT geometry;
-        RECT workarea;
-        HMONITOR handle;
-        int index;
-    };
-
-    static BOOL CALLBACK
-    MwmEnumMonitorsProc(HMONITOR
-    monitor, HDC, LPRECT,
-    LPARAM lparam
-    ) {
-    auto *list = reinterpret_cast<std::vector <MwmMonitorData> *>(lparam);
-    MONITORINFO info;
-    info.
-    cbSize = sizeof(MONITORINFO);
-    if (
-    GetMonitorInfo(monitor, &info
-    )) {
-    MwmMonitorData data;
-    data.
-    handle = monitor;
-    data.
-    geometry = info.rcMonitor;
-    data.
-    workarea = info.rcWork;
-    data.
-    index = static_cast<int>(list->size());
-    list->
-    push_back(data);
-}
-return
-TRUE;
-}
-
-static UINT MwmGetDpiForMonitor(HMONITOR monitor) {
-    using GetDpiForMonitorFn =
-    HRESULT(WINAPI * )(HMONITOR, int, UINT * , UINT * );
-    static GetDpiForMonitorFn fn = []() -> GetDpiForMonitorFn {
-        HMODULE module = LoadLibraryW(L"shcore.dll");
-        return module ? reinterpret_cast<GetDpiForMonitorFn>(
-                GetProcAddress(module, "GetDpiForMonitor"))
-                      : nullptr;
-    }();
-    UINT dpi_x = 96;
-    UINT dpi_y = 96;
-    if (fn) {
-        fn(monitor, 0, &dpi_x, &dpi_y);
-    }
-    return dpi_x;
-}
-
-static std::string MwmWcharToUtf8(const wchar_t *wstr) {
-    const int len =
-            WideCharToMultiByte(CP_UTF8, 0, wstr, -1, nullptr, 0, nullptr, nullptr);
-    if (len <= 0) {
-        return {};
-    }
-    std::string buf(static_cast<size_t>(len - 1), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, wstr, -1, buf.data(), len, nullptr, nullptr);
-    return buf;
-}
-
-static flutter::EncodableMap MwmMonitorToMap(const MwmMonitorData &data) {
-    constexpr double k_base_dpi = 96.0;
-    const double scale = MwmGetDpiForMonitor(data.handle) / k_base_dpi;
-    const double vis_x = std::round(data.workarea.left / scale);
-    const double vis_y = std::round(data.workarea.top / scale);
-    const double vis_w =
-            std::round((data.workarea.right - data.workarea.left) / scale);
-    const double vis_h =
-            std::round((data.workarea.bottom - data.workarea.top) / scale);
-    const double w = std::round(data.geometry.right / scale - vis_x);
-    const double h = std::round(data.geometry.bottom / scale - vis_y);
-
-    std::string name;
-    std::string id;
-    MONITORINFOEX info_ex;
-    info_ex.cbSize = sizeof(MONITORINFOEX);
-    if (GetMonitorInfo(data.handle, &info_ex)) {
-        name = MwmWcharToUtf8(info_ex.szDevice);
-        DISPLAY_DEVICE display_device;
-        display_device.cb = sizeof(DISPLAY_DEVICE);
-        int idx = 0;
-        while (EnumDisplayDevices(info_ex.szDevice, idx, &display_device, 0)) {
-            if ((display_device.StateFlags & DISPLAY_DEVICE_ACTIVE) &&
-                (display_device.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP)) {
-                const std::wstring dev_name(display_device.DeviceName);
-                if (dev_name.find(info_ex.szDevice) == 0) {
-                    id = MwmWcharToUtf8(display_device.DeviceID);
-                    break;
-                }
-            }
-            ++idx;
-        }
-    }
-
-    return flutter::EncodableMap{
-            {flutter::EncodableValue("id"),          flutter::EncodableValue(id)},
-            {flutter::EncodableValue("name"),        flutter::EncodableValue(name)},
-            {flutter::EncodableValue("size"),
-                                                     flutter::EncodableValue(flutter::EncodableMap{
-                                                             {flutter::EncodableValue(
-                                                                     "width"),  flutter::EncodableValue(
-                                                                     w)},
-                                                             {flutter::EncodableValue(
-                                                                     "height"), flutter::EncodableValue(
-                                                                     h)},
-                                                     })},
-            {flutter::EncodableValue("visiblePosition"),
-                                                     flutter::EncodableValue(flutter::EncodableMap{
-                                                             {flutter::EncodableValue(
-                                                                     "dx"), flutter::EncodableValue(
-                                                                     vis_x)},
-                                                             {flutter::EncodableValue(
-                                                                     "dy"), flutter::EncodableValue(
-                                                                     vis_y)},
-                                                     })},
-            {flutter::EncodableValue("visibleSize"),
-                                                     flutter::EncodableValue(flutter::EncodableMap{
-                                                             {flutter::EncodableValue(
-                                                                     "width"),  flutter::EncodableValue(
-                                                                     vis_w)},
-                                                             {flutter::EncodableValue(
-                                                                     "height"), flutter::EncodableValue(
-                                                                     vis_h)},
-                                                     })},
-            {flutter::EncodableValue("scaleFactor"), flutter::EncodableValue(scale)},
-    };
-}
-
-void MultiViewDesktopPlugin::HandleScreenRetrieverMethodCall(
-        const flutter::MethodCall <flutter::EncodableValue> &method_call,
-        std::unique_ptr <flutter::MethodResult<flutter::EncodableValue>> result) {
-    const std::string &method = method_call.method_name();
-    double device_pixel_ratio = 1.0;
-    if (method_call.arguments() && !method_call.arguments()->IsNull()) {
-        if (const auto *args = std::get_if<flutter::EncodableMap>(method_call.arguments())) {
-            const auto it = args->find(flutter::EncodableValue("devicePixelRatio"));
-            if (it != args->end()) {
-                if (const auto *value = std::get_if<double>(&it->second)) {
-                    device_pixel_ratio = *value;
-                }
-            }
-        }
-    }
-
-    if (method == "getCursorScreenPoint") {
-        POINT point;
-        GetCursorPos(&point);
-        result->Success(flutter::EncodableValue(flutter::EncodableMap{
-                {flutter::EncodableValue("dx"),
-                        flutter::EncodableValue(point.x / device_pixel_ratio)},
-                {flutter::EncodableValue("dy"),
-                        flutter::EncodableValue(point.y / device_pixel_ratio)},
-        }));
-    } else if (method == "getPrimaryDisplay") {
-        const HMONITOR primary =
-                MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
-        MONITORINFO info;
-        info.cbSize = sizeof(MONITORINFO);
-        if (GetMonitorInfo(primary, &info)) {
-            MwmMonitorData data;
-            data.handle = primary;
-            data.geometry = info.rcMonitor;
-            data.workarea = info.rcWork;
-            result->Success(flutter::EncodableValue(MwmMonitorToMap(data)));
-        } else {
-            result->Error("NO_MONITOR", "No monitors found");
-        }
-    } else if (method == "getAllDisplays") {
-        std::vector <MwmMonitorData> monitors;
-        EnumDisplayMonitors(nullptr, nullptr, MwmEnumMonitorsProc,
-                            reinterpret_cast<LPARAM>(&monitors));
-        flutter::EncodableList list;
-        for (const auto &monitor: monitors) {
-            list.push_back(flutter::EncodableValue(MwmMonitorToMap(monitor)));
-        }
-        result->Success(flutter::EncodableValue(flutter::EncodableMap{
-                {flutter::EncodableValue("displays"), flutter::EncodableValue(list)},
-        }));
-    } else {
-        result->NotImplemented();
-    }
-}
-
 
 std::optional <LRESULT> HandleWindowProcForHwnd(HWND hwnd,
                                                 UINT message,

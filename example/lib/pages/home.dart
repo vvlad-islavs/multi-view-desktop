@@ -1,10 +1,9 @@
-// ignore_for_file: avoid_print, use_build_context_synchronously
+// ignore_for_file: use_build_context_synchronously
 
 import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-
 import 'package:multiview_desktop/multiview_desktop.dart';
 
 import '../utils/theme_config.dart';
@@ -15,6 +14,26 @@ import '../l10n/example_localizations.dart';
 // ---------------------------------------------------------------------------
 // HomePage
 // ---------------------------------------------------------------------------
+class ConfirmDialog extends StatefulWidget {
+  const ConfirmDialog({super.key});
+
+  @override
+  State<ConfirmDialog> createState() => _ConfirmDialogState();
+}
+
+class _ConfirmDialogState extends State<ConfirmDialog> {
+  @override
+  Widget build(BuildContext ctx) {
+    return AlertViewDialog(
+      title: 'Close window?',
+      content: 'This window has preventClose enabled.',
+      actions: [
+        TextButton(onPressed: () => ctx.closeDialog(), child: const Text('Cancel')),
+        TextButton(onPressed: () => ctx.closeDialog<bool>(true), child: const Text('Close')),
+      ],
+    );
+  }
+}
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -27,6 +46,64 @@ class _HomePageState extends State<HomePage> with WindowListener {
   final GlobalKey _dialogKey = GlobalKey();
 
   final PopupController _popupController = PopupController();
+
+  static const _popupCurves = <String, Curve>{
+    'linear': Curves.linear,
+    'decelerate': Curves.decelerate,
+    'fastLinearToSlowEaseIn': Curves.fastLinearToSlowEaseIn,
+    'fastEaseInToSlowEaseOut': Curves.fastEaseInToSlowEaseOut,
+    'ease': Curves.ease,
+    'easeIn': Curves.easeIn,
+    'easeInToLinear': Curves.easeInToLinear,
+    'easeInSine': Curves.easeInSine,
+    'easeInQuad': Curves.easeInQuad,
+    'easeInCubic': Curves.easeInCubic,
+    'easeInQuart': Curves.easeInQuart,
+    'easeInQuint': Curves.easeInQuint,
+    'easeInExpo': Curves.easeInExpo,
+    'easeInCirc': Curves.easeInCirc,
+    'easeInBack': Curves.easeInBack,
+    'easeOut': Curves.easeOut,
+    'linearToEaseOut': Curves.linearToEaseOut,
+    'easeOutSine': Curves.easeOutSine,
+    'easeOutQuad': Curves.easeOutQuad,
+    'easeOutCubic': Curves.easeOutCubic,
+    'easeOutQuart': Curves.easeOutQuart,
+    'easeOutQuint': Curves.easeOutQuint,
+    'easeOutExpo': Curves.easeOutExpo,
+    'easeOutCirc': Curves.easeOutCirc,
+    'easeOutBack': Curves.easeOutBack,
+    'easeInOut': Curves.easeInOut,
+    'easeInOutSine': Curves.easeInOutSine,
+    'easeInOutQuad': Curves.easeInOutQuad,
+    'easeInOutCubic': Curves.easeInOutCubic,
+    'easeInOutCubicEmphasized': Curves.easeInOutCubicEmphasized,
+    'easeInOutQuart': Curves.easeInOutQuart,
+    'easeInOutQuint': Curves.easeInOutQuint,
+    'easeInOutExpo': Curves.easeInOutExpo,
+    'easeInOutCirc': Curves.easeInOutCirc,
+    'easeInOutBack': Curves.easeInOutBack,
+    'fastOutSlowIn': Curves.fastOutSlowIn,
+    'slowMiddle': Curves.slowMiddle,
+    'bounceIn': Curves.bounceIn,
+    'bounceOut': Curves.bounceOut,
+    'bounceInOut': Curves.bounceInOut,
+    'elasticIn': Curves.elasticIn,
+    'elasticOut': Curves.elasticOut,
+    'elasticInOut': Curves.elasticInOut,
+  };
+
+  static const _popupDurationsMs = <int>[100, 150, 300, 500, 1000, 2000];
+
+  String _popupCurveName = 'easeOutCubic';
+  int _popupDurationMs = 150;
+
+  AnimationSettings get _popupAnimation {
+    return AnimationSettings(
+      duration: Duration(milliseconds: _popupDurationMs),
+      curve: _popupCurves[_popupCurveName],
+    );
+  }
 
   // final GlobalKey _modelessDialogKey = GlobalKey();
 
@@ -65,18 +142,16 @@ class _HomePageState extends State<HomePage> with WindowListener {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _refreshState();
       final parentContext = ParentWindowScope.of(context).parentContext;
       final currMvd = MultiViewDesktop.of(context);
       final windowInfo = currMvd.getWindowInfo();
-      unawaited(
-        currMvd.setTitle(
-          parentContext != null && parentContext.mounted
-              ? '${windowInfo.isDialog ? 'Dialog' : 'Window'} $currentId, parent: ${MultiViewDesktop.getIdByContext(parentContext)}'
-              : 'Window $currentId',
-        ),
+      currMvd.setTitle(
+        parentContext != null && parentContext.mounted
+            ? '${windowInfo.isDialog ? 'Dialog' : 'Window'} $currentId, parent: ${MultiViewDesktop.getIdByContext(parentContext)}'
+            : 'Window $currentId',
       );
       MultiViewDesktop.allWindowIdsNotifier.addListener(_viewListener);
 
@@ -95,7 +170,6 @@ class _HomePageState extends State<HomePage> with WindowListener {
   }
 
   void _viewListener() {
-    // debugPrint('allViews from notif: ${MultiViewDesktop.allWindowIdsNotifier.value}');
     sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
   }
 
@@ -109,30 +183,30 @@ class _HomePageState extends State<HomePage> with WindowListener {
     super.dispose();
   }
 
-  Future<T?> _safeFuture<T>(Future<T> Function() future) async {
+  T? _safe<T>(T Function() get) {
     if (!mounted) return null;
-    return future();
+    return get();
   }
 
-  Future<void> _refreshState() async {
+  void _refreshState() {
     if (!mounted) return;
     final win = MultiViewDesktop.of(context);
-    final hideTaskbar = await _safeFuture(win.isHideAppTabFromTaskbar);
-    final fs = await _safeFuture(win.isFullScreen);
-    final max = await _safeFuture(win.isMaximized);
-    final top = await _safeFuture(win.isAlwaysOnTop);
-    final res = await _safeFuture(win.isResizable);
-    final mov = await _safeFuture(win.isMovable);
-    final mini = await _safeFuture(win.isMinimizable);
-    final maxi = await _safeFuture(win.isMaximizable);
-    final clos = await _safeFuture(win.isClosable);
-    final prev = await _safeFuture(win.isPreventClose);
-    final skip = await _safeFuture(win.macos.isHideFromCollection);
-    final op = await _safeFuture(win.getOpacity);
-    final visibleOnAllWorkspaces = await _safeFuture(win.macos.isVisibleOnAllWorkspaces);
-    final ignoreMouseEvents = await _safeFuture(win.isIgnoreMouseEvents);
-    final shadow = await _safeFuture(win.hasShadow);
-    final titleBarStyle = await _safeFuture(win.getTitleBarStyle);
+    final hideTaskbar = _safe(win.isHideAppTabFromTaskbar);
+    final fs = _safe(win.isFullScreen);
+    final max = _safe(win.isMaximized);
+    final top = _safe(win.isAlwaysOnTop);
+    final res = _safe(win.isResizable);
+    final mov = _safe(win.isMovable);
+    final mini = _safe(win.isMinimizable);
+    final maxi = _safe(win.isMaximizable);
+    final clos = _safe(win.isClosable);
+    final prev = _safe(win.isPreventClose);
+    final skip = _safe(win.macos.isHideFromCollection);
+    final op = _safe(win.getOpacity);
+    final visibleOnAllWorkspaces = _safe(win.macos.isVisibleOnAllWorkspaces);
+    final ignoreMouseEvents = _safe(win.isIgnoreMouseEvents);
+    final shadow = _safe(win.hasShadow);
+    final titleBarStyle = _safe(win.getTitleBarStyle);
     if (!mounted) return;
     setState(() {
       _isFullScreen = fs ?? _isFullScreen;
@@ -181,8 +255,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
   void onWindowLeaveFullScreen() => setState(() => _isFullScreen = false);
 
   @override
-  void onWindowClose() async {
-    if (!mounted) return;
+  Future<bool> onWindowClose() async {
+    if (!mounted) return true;
     final win = MultiViewDesktop.of(context);
     win.focus();
     // Show a confirmation dialog. can accept (remove preventClose and
@@ -190,15 +264,15 @@ class _HomePageState extends State<HomePage> with WindowListener {
 
     if (_dialogKey.currentContext?.mounted ?? false) {
       _dialogKey.currentContext?.viewController.focus();
-      return;
+      return true;
     }
 
+    // close all other dialogs
     final allDialogs = DialogScope.of(context).value;
-    debugPrint('allDialog UI: $allDialogs');
     if (allDialogs.isNotEmpty) {
       for (final dialog in allDialogs) {
         // if (dialog.isModal) {
-        await MultiViewDesktop.fromId(dialog.id).closeDialog();
+        MultiViewDesktop.fromId(dialog.id).closeDialog();
         // }
       }
     }
@@ -207,17 +281,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
       // or only result after dialog close
       // final result = await context.openDialog<bool?>(
       (ctx, id) {
-        MultiViewDesktop.getIdByContext(context);
-        ctx.viewController.focus();
-        return AlertViewDialog(
-          key: _dialogKey,
-          title: 'Close window?',
-          content: 'This window has preventClose enabled.',
-          actions: [
-            TextButton(onPressed: () => ctx.closeDialog(), child: const Text('Cancel')),
-            TextButton(onPressed: () => ctx.closeDialog<bool>(true), child: const Text('Close')),
-          ],
-        );
+        return ConfirmDialog(key: _dialogKey);
       },
       options: DialogOptions(
         size: const Size(340, 220),
@@ -230,14 +294,15 @@ class _HomePageState extends State<HomePage> with WindowListener {
     );
 
     final accept = await entry.result;
-    if (!mounted) return;
-    debugPrint('диалог завершен: $accept');
+    if (!mounted) return true;
     if (accept == true) {
-      await win.setPreventClose(false);
-      await win.closeWindow();
+      win.setPreventClose(false);
+      win.closeWindow();
     } else {
-      await win.cancelCascadeClose();
+      // win.cancelCascadeClose();
     }
+
+    return accept == true;
   }
 
   // Helpers ------------------------------------------------------------------
@@ -245,16 +310,13 @@ class _HomePageState extends State<HomePage> with WindowListener {
   void _progressBarExample() async {
     final progressLimit = 100;
     final progressStep = 5;
-    debugPrint('Progress example started');
     for (int i = 0; i < progressLimit; i += progressStep) {
       final progress = i / 100;
-      debugPrint('Progress: $progress');
-      await MultiViewDesktop.setProgressBar(progress);
+      MultiViewDesktop.setProgressBar(progress);
       await Future.delayed(Duration(milliseconds: 100));
     }
-    debugPrint('Progress completed');
     await Future.delayed(const Duration(milliseconds: 1000));
-    await MultiViewDesktop.setProgressBar(-1);
+    MultiViewDesktop.setProgressBar(-1);
   }
 
   void _log(String entry) => setState(() => _messageLog.insert(0, '[self] $entry'));
@@ -291,7 +353,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
     );
   }
 
-  Widget _switchTile(String title, bool value, Future<void> Function(bool) onChanged) {
+  Widget _switchTile(String title, bool value, FutureOr<void> Function(bool) onChanged) {
     return _tile(
       title,
       trailing: Switch(
@@ -318,14 +380,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
           appBar: _titleBarHidden
               ? null
               : AppBar(
-                  title: FutureBuilder(
-                    future: MultiViewDesktop.of(context).getTitle(),
-                    builder: (ctx, snap) {
-                      return snap.connectionState == ConnectionState.waiting
-                          ? SizedBox.shrink()
-                          : Text(snap.data ?? '');
-                    },
-                  ),
+                  title: Text(MultiViewDesktop.of(context).getTitle()),
                   backgroundColor: Theme.of(context).colorScheme.inversePrimary,
                 ),
           body: ListView(
@@ -352,10 +407,10 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   ListenableBuilder(
                     listenable: sharedConfig,
                     builder: (context, _) {
-                      return _switchTile('hideAppFromTaskbar', sharedConfig.isHideAppFromTaskbar, (v) async {
-                        await MultiViewDesktop.hideAppFromTaskbar(v);
-                        if (v) await MultiViewDesktop.of(context).focus();
-                        sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
+                      return _switchTile('hideAppFromTaskbar', sharedConfig.isHideAppFromTaskbar, (v) {
+                        MultiViewDesktop.hideAppFromTaskbar(v);
+                        if (v) MultiViewDesktop.of(context).focus();
+                        sharedConfig.isHideAppFromTaskbar = MultiViewDesktop.isHideAppFromTaskbar();
                       });
                     },
                   ),
@@ -368,7 +423,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                       onTap: () async {
                         final picked = await _showModePicker(context, sharedConfig.closeMode);
                         if (picked == null) return;
-                        await MultiViewDesktop.setCloseMode(picked);
+                        MultiViewDesktop.setCloseMode(picked);
                         sharedConfig.closeMode = MultiViewDesktop.getCloseMode();
                       },
                     );
@@ -383,7 +438,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                       onTap: () async {
                         final curr = currentId;
                         if (curr == null) return;
-                        await MultiViewDesktop.setAnchorId(curr);
+                        MultiViewDesktop.setAnchorId(curr);
                         sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
                       },
                     ),
@@ -422,75 +477,69 @@ class _HomePageState extends State<HomePage> with WindowListener {
                       );
                     },
                   ),
-                  PopupView(
-                    controller: _popupController,
-                    builder: (ctx) {
-                      return SizedBox(
-                        height: 200,
-                        child: Material(
-                          elevation: 8,
-                          borderRadius: BorderRadius.circular(8),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: SingleChildScrollView(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Theme and context come from the parent via ViewAnchor.',
-                                    style: Theme.of(ctx).textTheme.bodySmall,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
-                                  ),
-                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Theme and context come from the parent via ViewAnchor.',
-                                    style: Theme.of(ctx).textTheme.bodySmall,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
-                                  ),
-                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Theme and context come from the parent via ViewAnchor.',
-                                    style: Theme.of(ctx).textTheme.bodySmall,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
-                                  ),
-                                  Text('Popup of window $currentId', style: Theme.of(ctx).textTheme.titleSmall),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Theme and context come from the parent via ViewAnchor.',
-                                    style: Theme.of(ctx).textTheme.bodySmall,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: TextButton(onPressed: _popupController.close, child: const Text('Close')),
-                                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'Popup curve', isDense: true),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                isDense: true,
+                                isExpanded: true,
+                                value: _popupCurveName,
+                                items: [
+                                  for (final name in _popupCurves.keys)
+                                    DropdownMenuItem(value: name, child: Text(name)),
                                 ],
+                                onChanged: (value) {
+                                  if (value == null) return;
+                                  setState(() => _popupCurveName = value);
+                                },
                               ),
                             ),
                           ),
                         ),
-                      );
-                    },
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: InputDecorator(
+                            decoration: const InputDecoration(labelText: 'Popup duration', isDense: true),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<int>(
+                                isDense: true,
+                                isExpanded: true,
+                                value: _popupDurationMs,
+                                items: [
+                                  for (final ms in _popupDurationsMs)
+                                    DropdownMenuItem(value: ms, child: Text('${ms}ms')),
+                                ],
+                                onChanged: (value) {
+                                  if (value == null) return;
+                                  setState(() => _popupDurationMs = value);
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  PopupView(
+                    controller: _popupController,
+                    positioner: PopupPositioner(
+                      parentAnchor: PopupPositionerAnchor.bottomLeft,
+                      childAnchor: PopupPositionerAnchor.top,
+                    ),
+                    builder: (ctx) => _PopupDemoBody(
+                      controller: _popupController,
+                      windowLabel: 'Popup of window $currentId',
+                      animationOf: () => _popupAnimation,
+                    ),
                     child: _tile(
                       'popupView',
-                      subtitle: 'Native popup anchored to this row',
-                      onTap: () => _popupController.toggle(),
+                      subtitle: 'Native popup; open/close uses the curve and duration above',
+                      onTap: () => _popupController.toggle(animation: _popupAnimation),
                     ),
                   ),
                   _tile(
@@ -515,7 +564,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                           size: const Size(450, 300),
                           title: ' ',
                           modal: false,
-                          isResizable: false,
+                          isResizable: true,
                           alwaysOnTop: true,
                           showOnInit: true,
                         ),
@@ -532,11 +581,13 @@ class _HomePageState extends State<HomePage> with WindowListener {
                           return const HomePage();
                         },
                         options: DialogOptions(
-                          size: const Size(450, 300),
+                          size: const Size(900, 300),
                           title: ' ',
                           isResizable: false,
                           modal: true,
                           windowButtonVisibility: false,
+                          // is ignoring in modal dialog
+                          showOnInit: false,
                         ),
                         parentContext: context,
                       );
@@ -588,8 +639,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 ),
                 _tile(
                   'getBounds',
-                  onTap: () async {
-                    final b = await MultiViewDesktop.of(context).getBounds();
+                  onTap: () {
+                    final b = MultiViewDesktop.of(context).getBounds();
                     if (!context.mounted) return;
                     _log(
                       'bounds: ${b.left.toInt()},${b.top.toInt()} '
@@ -603,8 +654,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
               // Title bar
               // ----------------------------------------------------------------
               _section('TITLE BAR', [
-                _switchTile('titleBarStyle hidden', _titleBarHidden, (v) async {
-                  await MultiViewDesktop.of(context).setTitleBarStyle(
+                _switchTile('titleBarStyle hidden', _titleBarHidden, (v) {
+                  MultiViewDesktop.of(context).setTitleBarStyle(
                     v ? TitleBarStyle.hidden : TitleBarStyle.normal,
                     closeVisibility: _titleBarButtonVisibility,
                     minimizeVisibility: _titleBarButtonVisibility && !windowInfo.isDialog,
@@ -612,8 +663,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   );
                 }),
                 if (windowInfo.isModal || Platform.isMacOS)
-                  _switchTile('titleBarButtonVisibility', _titleBarButtonVisibility, (v) async {
-                    await MultiViewDesktop.of(context).setTitleBarStyle(
+                  _switchTile('titleBarButtonVisibility', _titleBarButtonVisibility, (v) {
+                    MultiViewDesktop.of(context).setTitleBarStyle(
                       _titleBarHidden ? TitleBarStyle.hidden : TitleBarStyle.normal,
                       closeVisibility: v,
                       minimizeVisibility: v && !windowInfo.isDialog,
@@ -623,9 +674,9 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 _tile(
                   'setAsFrameless',
                   subtitle: 'Remove frame entirely',
-                  onTap: () async {
-                    await MultiViewDesktop.of(context).setAsFrameless();
-                    await _refreshState();
+                  onTap: () {
+                    MultiViewDesktop.of(context).setAsFrameless();
+                    _refreshState();
                   },
                 ),
               ]),
@@ -684,18 +735,14 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 ],
                 if (!windowInfo.isModal)
                   _switchTile('closable', _isClosable, (v) => MultiViewDesktop.of(context).setClosable(v)),
-                _switchTile('ignoreMouseEvents', _ignoreMouseEvents, (v) async {
+                _switchTile('ignoreMouseEvents', _ignoreMouseEvents, (v) {
                   final win = MultiViewDesktop.of(context);
-                  await win.setIgnoreMouseEvents(v, mouseMoveEvents: false);
+                  win.setIgnoreMouseEvents(v, mouseMoveEvents: false);
                   if (!v) return;
                   Future.delayed(Duration(seconds: 5), () => win.setIgnoreMouseEvents(false));
                 }),
                 if (!windowInfo.isDialog)
-                  _switchTile(
-                    'preventClose',
-                    _isPreventClose,
-                    (v) async => await MultiViewDesktop.of(context).setPreventClose(v),
-                  ),
+                  _switchTile('preventClose', _isPreventClose, (v) => MultiViewDesktop.of(context).setPreventClose(v)),
               ]),
 
               // ----------------------------------------------------------------
@@ -711,7 +758,7 @@ class _HomePageState extends State<HomePage> with WindowListener {
                     width: 180,
                     child: Slider(
                       value: _opacity,
-                      min: 0.2,
+                      min: 0.0,
                       max: 1.0,
                       divisions: 8,
                       onChanged: (v) {
@@ -921,5 +968,165 @@ class _AlignmentGridState extends State<_AlignmentGrid> {
         }).toList(),
       ),
     );
+  }
+}
+
+/// Lives in the popup child tree. Kept across ListView unmount of [PopupView]
+/// because [PopupController] hosts that tree until [PopupController.close].
+class _PopupDemoBody extends StatefulWidget {
+  const _PopupDemoBody({
+    required this.controller,
+    required this.windowLabel,
+    required this.animationOf,
+  });
+
+  final PopupController controller;
+  final String windowLabel;
+  final AnimationSettings Function() animationOf;
+
+  @override
+  State<_PopupDemoBody> createState() => _PopupDemoBodyState();
+}
+
+class _PopupDemoBodyState extends State<_PopupDemoBody> {
+  double _opacity = 1;
+  bool _hasShadow = true;
+  Color? _background;
+  bool _ignoreMouse = false;
+
+  PopupViewController get _view => widget.controller.viewController;
+
+  void _setOpacity(double value) {
+    setState(() => _opacity = value);
+    _view.setOpacity(value);
+  }
+
+  void _setShadow(bool value) {
+    setState(() => _hasShadow = value);
+    _view.setHasShadow(value);
+  }
+
+  void _setBackground(Color? color) {
+    setState(() => _background = color);
+    _view.setBackgroundColor(color ?? const Color(0x00000000));
+  }
+
+  Future<void> _clickThroughBriefly() async {
+    setState(() => _ignoreMouse = true);
+    _view.setIgnoreMouseEvents(true);
+    await Future<void>.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+    _view.setIgnoreMouseEvents(false);
+    setState(() => _ignoreMouse = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: 320,
+      child: Material(
+        elevation: 8,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _PopupDemoTimer(),
+              const SizedBox(height: 8),
+              Text(widget.windowLabel, style: theme.textTheme.titleSmall),
+              const SizedBox(height: 4),
+              Text(
+                'controller.viewController: opacity, shadow, background, click-through.',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              Text('Opacity ${_opacity.toStringAsFixed(2)}', style: theme.textTheme.labelMedium),
+              Slider(
+                value: _opacity,
+                min: 0.2,
+                max: 1,
+                onChanged: _setOpacity,
+              ),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Native shadow'),
+                value: _hasShadow,
+                onChanged: _setShadow,
+              ),
+              Text('Background', style: theme.textTheme.labelMedium),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 8,
+                children: [
+                  ChoiceChip(
+                    label: const Text('clear'),
+                    selected: _background == null,
+                    onSelected: (_) => _setBackground(null),
+                  ),
+                  ChoiceChip(
+                    label: const Text('amber'),
+                    selected: _background == const Color(0x66FFC107),
+                    onSelected: (_) => _setBackground(const Color(0x66FFC107)),
+                  ),
+                  ChoiceChip(
+                    label: const Text('blue'),
+                    selected: _background == const Color(0x662196F3),
+                    onSelected: (_) => _setBackground(const Color(0x662196F3)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: _ignoreMouse ? null : _clickThroughBriefly,
+                child: Text(_ignoreMouse ? 'Click-through for 2s…' : 'Ignore mouse 2s'),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => widget.controller.close(animation: widget.animationOf()),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PopupDemoTimer extends StatefulWidget {
+  const _PopupDemoTimer();
+
+  @override
+  State<_PopupDemoTimer> createState() => _PopupDemoTimerState();
+}
+
+class _PopupDemoTimerState extends State<_PopupDemoTimer> {
+  int _seconds = 120;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _seconds = _seconds < 1 ? 120 : _seconds - 1);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Text('Timer: $_seconds');
   }
 }

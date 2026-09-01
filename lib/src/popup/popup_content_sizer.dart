@@ -84,7 +84,10 @@ class RenderPopupContentSizer extends RenderProxyBox {
     _lastReported = size;
     if (_sizeCallbackScheduled) return;
     _sizeCallbackScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // endOfFrame, not addPostFrameCallback: post-frame still runs inside
+    // handleDrawFrame. Native setFrame from that callback re-enters the
+    // scheduler (beginFrame/drawFrame) and trips midFrameMicrotasks/idle asserts.
+    WidgetsBinding.instance.endOfFrame.then((_) {
       _sizeCallbackScheduled = false;
       final reported = _lastReported;
       if (reported != null) {

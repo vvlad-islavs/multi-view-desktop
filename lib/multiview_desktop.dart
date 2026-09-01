@@ -17,8 +17,8 @@
 /// Control the current window via `MultiViewDesktop.of` or `MultiViewDesktop.fromId`:
 /// ```dart
 /// final win = MultiViewDesktop.of(context);
-/// await win.setTitle('Settings');
-/// await win.setTitleBarStyle(TitleBarStyle.hidden);
+/// win.setTitle('Settings');
+/// win.setTitleBarStyle(TitleBarStyle.hidden);
 /// ```
 ///
 /// See also `WindowListener`, `WindowCommunicator`, and `WindowOptions`.
@@ -28,6 +28,7 @@ export 'src/multi_view_desktop.dart';
 export 'src/multi_view_desktop_macos.dart';
 export 'src/resize_edge.dart';
 export 'src/run_multi_app.dart';
+export 'src/view_animation_config.dart' hide ViewGeometryAnimationPolicy, ViewOpenCloseAnimationPolicy;
 export 'src/app_shell/app_shell.dart';
 export 'src/taskbar_menu_item.dart';
 export 'src/title_bar_style.dart';

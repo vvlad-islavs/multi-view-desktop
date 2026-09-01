@@ -20,7 +20,14 @@ extension MvdContext on BuildContext {
   Future<T?> openDialog<T>(
     Widget Function(BuildContext context, int publicId) childBuilder, {
     DialogOptions? options,
-  }) => run_app.openDialog<T>(childBuilder, parentContext: this, options: options);
+    AnimationSettings? animation,
+  }) =>
+      run_app.openDialog<T>(
+        childBuilder,
+        parentContext: this,
+        options: options,
+        animation: animation,
+      );
 
   /// Opens a dialog with this context as the parent window.
   ///
@@ -39,7 +46,14 @@ extension MvdContext on BuildContext {
   Future<DialogEntry<T?>> openDialogEntry<T>(
     Widget Function(BuildContext context, int publicId) childBuilder, {
     DialogOptions? options,
-  }) => run_app.openDialogEntry<T>(childBuilder, parentContext: this, options: options);
+    AnimationSettings? animation,
+  }) =>
+      run_app.openDialogEntry<T>(
+        childBuilder,
+        parentContext: this,
+        options: options,
+        animation: animation,
+      );
 
   /// Closes the dialog for this context.
   ///
@@ -51,7 +65,8 @@ extension MvdContext on BuildContext {
   ///   child: const Text('Save'),
   /// )
   /// ```
-  Future<void> closeDialog<T>([T? res]) => MultiViewDesktop.of(this).closeDialog(res);
+  Future<bool> closeDialog<T>([T? res, AnimationSettings? animation]) =>
+      MultiViewDesktop.of(this).closeDialog(res, animation);
 
   /// `MultiViewDesktop` instance for the window that owns this context.
   ///

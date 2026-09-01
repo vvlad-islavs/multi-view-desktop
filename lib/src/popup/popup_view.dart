@@ -1,22 +1,24 @@
 import 'dart:async';
-import 'dart:ui' show FlutterView, Offset, Rect, Size;
 
+import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
+import 'package:multiview_desktop/src/log/mvd_log.dart';
 import 'package:multiview_desktop/src/popup/element_position_tracker.dart';
-import 'package:multiview_desktop/src/ffi/ffi_bridge.dart';
 import 'package:multiview_desktop/src/popup/popup_content_sizer.dart';
 import 'package:multiview_desktop/src/popup/popup_controller.dart';
 import 'package:multiview_desktop/src/popup/popup_positioner.dart';
+import 'package:multiview_desktop/src/view_animation_config.dart';
+import 'package:multiview_desktop/src/view_manager/view_manager_proxies.dart';
 import 'package:multiview_desktop/src/view_root.dart' show globalRootState;
 import 'package:multiview_desktop/src/view_scope.dart';
 import 'package:multiview_desktop/src/window_listener.dart';
 
-/// Hosts a native popup window anchored to [child] via [ViewAnchor].
+/// Anchors a native popup to [child].
 ///
-/// The popup has no `MaterialApp`, router, or shell of its own. Theme and
-/// inherited widgets from the parent window flow through [ViewAnchor].
-/// Native window size follows the popup content:
-/// wrap the content in [SizedBox] for a fixed size, otherwise it shrink-wraps.
+/// [PopupController] owns the native window and the overlay-hosted child.
+/// This widget tracks the anchor and positions the window. Unmounting hides
+/// the window without closing the session or rebuilding the child.
 ///
 /// ```dart
 /// final controller = PopupController();
@@ -24,7 +26,7 @@ import 'package:multiview_desktop/src/window_listener.dart';
 /// PopupView(
 ///   controller: controller,
 ///   positioner: const PopupPositioner(),
-///   popup: (context) => const MyMenu(),
+///   builder: (context) => const MyMenu(),
 ///   child: TextButton(
 ///     onPressed: controller.toggle,
 ///     child: const Text('Menu'),
@@ -40,10 +42,10 @@ class PopupView extends StatefulWidget {
     this.positioner = const PopupPositioner(),
   });
 
-  /// Opens, closes, and repositions the popup from outside its content.
+  /// Opens, closes, and holds the popup child for the open session.
   final PopupController controller;
 
-  /// Built inside the popup `FlutterView`. Receives parent inherited widgets.
+  /// Built once per [PopupController.open] and reused if this widget remounts.
   final WidgetBuilder builder;
 
   /// Trigger widget the popup is anchored to.
@@ -58,25 +60,16 @@ class PopupView extends StatefulWidget {
 
 class _PopupViewState extends State<PopupView> {
   final GlobalKey _anchorKey = GlobalKey();
+  final ViewManagerProxies _proxies = globalRootState.proxies;
 
-  FlutterView? _flutterView;
-  int? _realViewId;
-  Size _contentSize = const Size(1, 1);
-  Size _maxSize = const Size(800, 600);
   PopupPositioner _positioner = const PopupPositioner();
   Rect? _anchorRect;
-  bool _opening = false;
-  bool _isShown = false;
+  Future<void>? _openWork;
+  bool _dropping = false;
+  Size _maxSize = const Size(800, 600);
 
-  // Cached data that doesn't change on every position tick.
-  // Populated from sync FFI. Refreshed only when the parent window moves/resizes.
   Rect _cachedParentFrame = Rect.zero;
   Rect _cachedDisplayRect = const Rect.fromLTWH(0, 0, 2560, 1440);
-
-  // Set when the parent window moves or resizes so that the next
-  // _applyPositionSync() call refreshes the cached parent frame via FFI.
-  // False during normal scroll — the parent is stationary so the cache is valid,
-  // and we can skip the getFrame / getDisplayRect FFI calls entirely.
   bool _parentFrameDirty = true;
   int? _parentListenerViewId;
   late final _ParentWindowListener _parentListener;
@@ -84,33 +77,41 @@ class _PopupViewState extends State<PopupView> {
   ScrollNotificationObserverState? _scrollObserver;
   int _parentScrollDepth = 0;
   bool _parentScrolling = false;
-
   LocalElementPositionTracker? _tracker;
+  Rect? _pendingPlaced;
+  bool _boundsCommitScheduled = false;
+  int _placeGeneration = 0;
+
+  PopupController get _controller => widget.controller;
 
   @override
   void initState() {
     super.initState();
     _parentListener = _ParentWindowListener(() {
       _parentFrameDirty = true;
+      if (_controller.anchorHidden) return;
       _applyPositionSync();
     });
     _positioner = widget.positioner;
-    widget.controller.attach(onOpen: _open, onClose: _close);
-    if (widget.controller.isOpen) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && widget.controller.isOpen && _flutterView == null) {
-          unawaited(_open());
-        }
-      });
-    }
+    _bindController();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_controller.hasSession) {
+        _adoptSession();
+      } else if (_controller.isOpen) {
+        unawaited(_open(null));
+      }
+    });
   }
 
   @override
   void didUpdateWidget(PopupView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
-      oldWidget.controller.detach();
-      widget.controller.attach(onOpen: _open, onClose: _close);
+      oldWidget.controller
+        ..listenContentSize(null)
+        ..detach();
+      _bindController();
     }
     if (oldWidget.positioner != widget.positioner) {
       _positioner = widget.positioner;
@@ -133,15 +134,74 @@ class _PopupViewState extends State<PopupView> {
   void dispose() {
     _scrollObserver?.removeListener(_onParentScrollNotification);
     _scrollObserver = null;
-    _unregisterParentListener();
-    widget.controller.detach();
-    _tracker?.dispose();
-    _tracker = null;
-    final viewId = _realViewId;
-    if (viewId != null) {
-      unawaited(globalRootState.manager.destroyPopup(viewId));
-    }
+    _unbindPositioning();
+    _controller.listenContentSize(null);
+    _hideNative(reason: 'anchor unmounted', forceNativeHide: true);
+    _controller.detach();
     super.dispose();
+  }
+
+  void _bindController() {
+    _controller.attach(onOpen: _open, onClose: _onUserClose, dropSession: _dropSession);
+    _controller.listenContentSize(_onContentSize);
+  }
+
+  void _adoptSession() {
+    _startTracking();
+    _applyClickThrough();
+    if (_controller.anchorHidden) {
+      MvdLog.instance.info('popup', 'adopt session skipped show, anchor still hidden', {
+        'realId': _controller.viewId,
+      });
+      return;
+    }
+    _applyPositionSync();
+  }
+
+  Future<void> _onUserClose(AnimationSettings? animation) async {
+    _unbindPositioning();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _dropSession(AnimationSettings? animation) async {
+    if (_dropping) return;
+    _dropping = true;
+    try {
+      if (_controller.isOpen) {
+        _resumeSession();
+        return;
+      }
+      final viewId = _controller.viewId;
+      if (viewId != null) {
+        _proxies.input.setIgnoreMouseEvents(viewId, false);
+        await globalRootState.manager.closePopup(viewId, animation: animation, destroy: false);
+      }
+      if (_controller.isOpen) {
+        _resumeSession();
+        return;
+      }
+      if (viewId != null) {
+        await globalRootState.manager.destroyPopup(viewId);
+      }
+      _controller.clearSessionWidgets();
+    } finally {
+      _dropping = false;
+    }
+  }
+
+  /// Re-binds tracking and shows the existing native window after a cancelled close.
+  void _resumeSession() {
+    if (!mounted || !_controller.isOpen || !_controller.hasSession) return;
+    MvdLog.instance.info('popup', 'resume session after cancelled close', {
+      'realId': _controller.viewId,
+    });
+    _controller.clearAnchorHidden();
+    _controller.nativeShown = false;
+    _startTracking();
+    _applyClickThrough();
+    if (mounted) setState(() {});
+    _reveal(allowFade: true);
+    _applyPositionSync();
   }
 
   Size _parentContentSize() {
@@ -151,45 +211,111 @@ class _PopupViewState extends State<PopupView> {
     return logical;
   }
 
-  Future<void> _open() async {
-    if (!mounted || _opening || _flutterView != null) return;
-    _opening = true;
+  Future<void> _open(AnimationSettings? animation) async {
+    while (true) {
+      if (!mounted || !_controller.isOpen) return;
+      if (_controller.hasSession) {
+        _resumeSession();
+        return;
+      }
+      final inFlight = _openWork;
+      if (inFlight != null) {
+        await inFlight;
+        continue;
+      }
+      break;
+    }
+    final work = Completer<void>();
+    _openWork = work.future;
     try {
+      if (!mounted || !_controller.isOpen) return;
+      if (_controller.hasSession) {
+        _resumeSession();
+        return;
+      }
       final parentRealId = ViewScope.of(context).viewId;
+      MvdLog.instance.info('popup', 'open session', {'parentRealId': parentRealId});
       _maxSize = _parentContentSize();
-
-      _cachedParentFrame = FfiBridge.instance.getFrame(parentRealId) ?? Rect.zero;
-      _cachedDisplayRect = FfiBridge.instance.getDisplayRect(_cachedParentFrame) ?? _cachedDisplayRect;
-      _unregisterParentListener();
-      _parentListenerViewId = parentRealId;
+      _cachedParentFrame = _proxies.position.getBounds(parentRealId);
+      _cachedDisplayRect = _proxies.position.getDisplayRect(_cachedParentFrame) ?? _cachedDisplayRect;
       _parentFrameDirty = false;
-      globalRootState.manager.addListener(parentRealId, _parentListener);
-      _tracker?.dispose();
-      _tracker = LocalElementPositionTracker(element: _anchorKey.currentContext ?? context);
-      _anchorRect = _tracker?.getGlobalRect();
 
-      final viewId = await globalRootState.manager.createPopup(parentRealId: parentRealId, size: const Size(1, 1));
-      if (!mounted) {
-        await globalRootState.manager.destroyPopup(viewId);
+      final overlay = Overlay.maybeOf(context, rootOverlay: true);
+      if (overlay == null) {
+        throw FlutterError(
+          'PopupView requires an Overlay ancestor (e.g. MaterialApp) so the '
+          'popup child can outlive the anchor being unmounted.',
+        );
+      }
+
+      _controller.retainContent(_OncePopupChild(builder: widget.builder));
+
+      final viewId = await globalRootState.manager.createPopup(
+        parentRealId: parentRealId,
+        size: const Size(1, 1),
+        animation: animation,
+      );
+      if (!mounted || !_controller.isOpen) {
+        globalRootState.manager.destroyPopup(viewId);
+        _controller.clearSessionWidgets();
+        return;
+      }
+      if (_controller.hasSession) {
+        globalRootState.manager.destroyPopup(viewId);
+        _resumeSession();
         return;
       }
       final flutterView = WidgetsBinding.instance.platformDispatcher.view(id: viewId);
       if (flutterView == null) {
-        await globalRootState.manager.destroyPopup(viewId);
+        MvdLog.instance.error('popup', 'FlutterView missing after createPopup', {'realId': viewId});
+        globalRootState.manager.destroyPopup(viewId);
+        _controller.clearSessionWidgets();
         return;
       }
-      _realViewId = viewId;
-      _flutterView = flutterView;
-      _tracker?.onGlobalRectChange = (rect) {
-        _anchorRect = rect;
-        _applyPositionSync();
-      };
-      _catchUpAncestorScrolling();
+
+      final host = OverlayEntry(
+        builder: (context) => _PopupOverlayHost(controller: _controller, maxSize: _maxSize),
+      );
+      _controller.bindSession(viewId: viewId, flutterView: flutterView, host: host);
+      overlay.insert(host);
+
+      _startTracking();
       _applyClickThrough();
       if (mounted) setState(() {});
     } finally {
-      _opening = false;
+      _openWork = null;
+      if (!work.isCompleted) work.complete();
     }
+  }
+
+  void _startTracking() {
+    _unregisterParentListener();
+    if (!mounted) return;
+    final parentRealId = ViewScope.of(context).viewId;
+    _parentListenerViewId = parentRealId;
+    globalRootState.manager.addListener(parentRealId, _parentListener);
+    _tracker?.dispose();
+    _tracker = LocalElementPositionTracker(element: _anchorKey.currentContext ?? context);
+    _anchorRect = _controller.anchorHidden ? null : _tracker?.getGlobalRect();
+    _tracker?.onGlobalRectChange = (rect) {
+      _anchorRect = rect;
+      _applyPositionSync();
+    };
+    _tracker?.onLost = () {
+      _anchorRect = null;
+      _hideNative(reason: 'tracker lost render object');
+    };
+    _catchUpAncestorScrolling();
+  }
+
+  void _unbindPositioning() {
+    _unregisterParentListener();
+    _parentFrameDirty = true;
+    _tracker?.dispose();
+    _tracker = null;
+    _anchorRect = null;
+    _parentScrollDepth = 0;
+    _parentScrolling = false;
   }
 
   void _unregisterParentListener() {
@@ -201,7 +327,7 @@ class _PopupViewState extends State<PopupView> {
   }
 
   bool _isFromThisPopup(ScrollNotification n) {
-    final popupId = _realViewId;
+    final popupId = _controller.viewId;
     if (popupId == null) return false;
     final origin = n.context;
     if (origin == null || !origin.mounted) return false;
@@ -244,61 +370,111 @@ class _PopupViewState extends State<PopupView> {
   }
 
   void _applyClickThrough() {
-    final id = _realViewId;
-    if (id == null) return;
-    FfiBridge.instance.setIgnoreMouseEvents(id, _parentScrolling);
-  }
-
-  Future<void> _close() async {
-    _unregisterParentListener();
-    _parentFrameDirty = true;
-    _tracker?.dispose();
-    _tracker = null;
-    final viewId = _realViewId;
-    if (viewId != null) {
-      FfiBridge.instance.setIgnoreMouseEvents(viewId, false);
-    }
-    _realViewId = null;
-    _flutterView = null;
-    _anchorRect = null;
-    _contentSize = const Size(1, 1);
-    _isShown = false;
-    _parentScrollDepth = 0;
-    _parentScrolling = false;
-    if (viewId != null) {
-      await globalRootState.manager.destroyPopup(viewId);
-    }
-    if (mounted) setState(() {});
+    _controller.setParentScrolling(_parentScrolling);
   }
 
   void _onContentSize(Size size) {
-    if (!mounted) return;
-    if ((size.width - _contentSize.width).abs() < 0.5 && (size.height - _contentSize.height).abs() < 0.5) {
-      return;
-    }
-    _contentSize = Size(size.width.clamp(1.0, _maxSize.width), size.height.clamp(1.0, _maxSize.height));
+    if (!mounted || _controller.anchorHidden) return;
     _applyPositionSync();
   }
 
-  /// Fully synchronous position update via FFI.
-  ///
-  /// Called directly on every anchor-position or content-size change.
-  /// No Future, no await, no microtask queue involvement — executes inline and
-  /// returns before the caller continues. This keeps the popup in lock-step
-  /// with the display refresh rate (60 Hz, 120 Hz, etc.).
-  void _applyPositionSync() {
-    if (_realViewId == null || _anchorRect == null) return;
-    final viewId = _realViewId;
-    final anchor = _anchorRect;
-    if (viewId == null || anchor == null || !mounted) return;
+  void _reveal({required bool allowFade}) {
+    final viewId = _controller.viewId;
+    if (viewId == null || _controller.nativeShown || _controller.anchorHidden) return;
+    _controller.nativeShown = true;
+    unawaited(globalRootState.manager.showPopup(viewId, animate: allowFade && _controller.takeOpenFade()));
+  }
 
-    // Only refresh parent frame / display rect from FFI when the parent window
-    // actually moved or resized (flagged by _ParentWindowListener).
+  void _hideNative({required String reason, bool forceNativeHide = false}) {
+    _placeGeneration++;
+    _pendingPlaced = null;
+    _controller.markAnchorHidden();
+    final viewId = _controller.viewId;
+    if (viewId == null || !_controller.isOpen) return;
+    if (!_controller.nativeShown && !forceNativeHide) return;
+    MvdLog.instance.info('popup', 'hiding native popup', {'realId': viewId, 'reason': reason});
+    globalRootState.manager.hidePopup(viewId);
+    _controller.nativeShown = false;
+  }
+
+  /// Visible clip of the scroll view: hide as soon as the trigger leaves it.
+  bool _anchorInVisibleClip() {
+    final box = _anchorBox();
+    if (box == null) return false;
+    final anchor = _globalRectOf(box);
+    if (anchor == null || anchor.isEmpty) return false;
+
+    final viewport = RenderAbstractViewport.maybeOf(box);
+    if (viewport is RenderBox) {
+      final visible = _globalRectOf(viewport as RenderBox);
+      if (visible == null) return false;
+      return visible.overlaps(anchor);
+    }
+
+    final view = View.maybeOf(context);
+    if (view == null) return false;
+    final logical = view.physicalSize / view.devicePixelRatio;
+    if (logical.width <= 0 || logical.height <= 0) return false;
+    return (Offset.zero & logical).overlaps(anchor);
+  }
+
+  /// Stricter than [_anchorInVisibleClip]: the trigger's center is inside the
+  /// viewport's painted size. Used to re-show after [PopupController.anchorHidden]
+  /// so cache-extent / remount layout cannot clear the hidden flag.
+  bool _anchorPaintedInViewport() {
+    final box = _anchorBox();
+    if (box == null) return false;
+    final viewport = RenderAbstractViewport.maybeOf(box);
+    if (viewport == null) {
+      return _anchorInVisibleClip();
+    }
+    try {
+      final revealed = viewport.getOffsetToReveal(box, 0.5);
+      if (viewport is! RenderBox) return false;
+      final vpBox = viewport as RenderBox;
+      if (!vpBox.hasSize) return false;
+      return (Offset.zero & vpBox.size).contains(revealed.rect.center);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  RenderBox? _anchorBox() {
+    final ctx = _anchorKey.currentContext;
+    if (ctx == null || !ctx.mounted) return null;
+    final box = ctx.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+    return box;
+  }
+
+  Rect? _globalRectOf(RenderBox box) {
+    if (!box.attached || !box.hasSize) return null;
+    try {
+      return MatrixUtils.transformRect(box.getTransformTo(null), Offset.zero & box.size);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _applyPositionSync() {
+    final viewId = _controller.viewId;
+    if (viewId == null || !mounted) return;
+    if (_anchorRect == null || !_anchorInVisibleClip()) {
+      _hideNative(reason: 'anchor not in view');
+      return;
+    }
+    if (_controller.anchorHidden && !_anchorPaintedInViewport()) {
+      return;
+    }
+    _controller.clearAnchorHidden();
+
+    final anchor = _anchorRect!;
+
     if (_parentFrameDirty) {
-      final pf = FfiBridge.instance.getFrame(ViewScope.of(context).viewId);
-      if (pf == null || _realViewId != viewId) return;
+      final pf = _proxies.position.getBounds(ViewScope.of(context).viewId);
+      if (_controller.viewId != viewId) return;
       _cachedParentFrame = pf;
-      _cachedDisplayRect = FfiBridge.instance.getDisplayRect(pf) ?? _cachedDisplayRect;
+      _cachedDisplayRect = _proxies.position.getDisplayRect(pf) ?? _cachedDisplayRect;
       _parentFrameDirty = false;
     }
 
@@ -308,46 +484,101 @@ class _PopupViewState extends State<PopupView> {
     final dy = (pf.height - contentSize.height).clamp(0.0, double.infinity);
     final screenAnchor = anchor.shift(Offset(pf.left + dx, pf.top + dy));
 
-    final placed = _positioner.placeWindow(
-      childSize: _contentSize,
+    _pendingPlaced = _positioner.placeWindow(
+      childSize: _controller.contentSize,
       anchorRect: screenAnchor,
       parentRect: pf,
       displayRect: _cachedDisplayRect,
     );
+    _commitPopupBoundsWhenIdle();
+  }
 
-    FfiBridge.instance.setFrame(viewId, placed);
-
-    if (!_isShown && _realViewId != null) {
-      _isShown = true;
-      unawaited(globalRootState.manager.show(_realViewId!));
+  /// Native [setPopupBounds] can synchronously pump a Flutter frame. That
+  /// must not run during layout, paint, or post-frame callbacks.
+  ///
+  /// Same rule as view-close deferral: wait for [SchedulerBinding.endOfFrame]
+  /// so the scheduler is [SchedulerPhase.idle].
+  void _commitPopupBoundsWhenIdle() {
+    final generation = _placeGeneration;
+    void commit() {
+      _boundsCommitScheduled = false;
+      if (generation != _placeGeneration) return;
+      final viewId = _controller.viewId;
+      final placed = _pendingPlaced;
+      if (viewId == null || placed == null || !mounted) return;
+      if (!_anchorInVisibleClip()) return;
+      if (_controller.anchorHidden) return;
+      _proxies.position.setPopupBounds(viewId, placed);
+      _reveal(allowFade: true);
     }
+
+    final binding = WidgetsBinding.instance;
+    if (binding.schedulerPhase == SchedulerPhase.idle) {
+      commit();
+      return;
+    }
+    if (_boundsCommitScheduled) return;
+    _boundsCommitScheduled = true;
+    binding.endOfFrame.then((_) => commit());
   }
 
   @override
   Widget build(BuildContext context) {
+    return KeyedSubtree(key: _anchorKey, child: widget.child);
+  }
+}
+
+/// Runs [builder] once in the popup [View], so the child keeps [State]
+/// across anchor remounts (the widget is cached on [PopupController]).
+class _OncePopupChild extends StatefulWidget {
+  const _OncePopupChild({required this.builder});
+
+  final WidgetBuilder builder;
+
+  @override
+  State<_OncePopupChild> createState() => _OncePopupChildState();
+}
+
+class _OncePopupChildState extends State<_OncePopupChild> {
+  Widget? _child;
+
+  @override
+  Widget build(BuildContext context) {
+    return _child ??= widget.builder(context);
+  }
+}
+
+class _PopupOverlayHost extends StatelessWidget {
+  const _PopupOverlayHost({required this.controller, required this.maxSize});
+
+  final PopupController controller;
+  final Size maxSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final flutterView = controller.flutterView;
+    final viewId = controller.viewId;
+    final content = controller.content;
+    if (flutterView == null || viewId == null || content == null) {
+      return const SizedBox.shrink();
+    }
     return ViewAnchor(
-      view: _flutterView == null || _realViewId == null
-          ? null
-          : View(
-              view: _flutterView!,
-              child: ViewScope(
-                viewId: _realViewId!,
-                child: PopupContentSizer(
-                  maxSize: _maxSize,
-                  onSize: _onContentSize,
-                  child: Builder(builder: widget.builder),
-                ),
-              ),
-            ),
-      child: KeyedSubtree(key: _anchorKey, child: widget.child),
+      view: View(
+        view: flutterView,
+        child: InternalViewScope(
+          viewId: viewId,
+          child: PopupContentSizer(
+            maxSize: maxSize,
+            onSize: controller.reportContentSize,
+            child: Overlay.wrap(alwaysSizeToContent: true, child: content),
+          ),
+        ),
+      ),
+      child: const SizedBox.shrink(),
     );
   }
 }
 
-// ─── Parent-window listener ────────────────────────────────────────────────────
-
-/// Minimal [WindowListenerCallbacks] that marks the parent frame cache dirty
-/// whenever the parent window moves or resizes. All other events are no-ops.
 class _ParentWindowListener implements WindowListenerCallbacks {
   const _ParentWindowListener(this._onDirty);
 
@@ -366,7 +597,7 @@ class _ParentWindowListener implements WindowListenerCallbacks {
   void onWindowResized() => _onDirty();
 
   @override
-  void onWindowClose() {}
+  bool onWindowClose() => true;
 
   @override
   void onWindowFocus() {}

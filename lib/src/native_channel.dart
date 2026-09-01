@@ -2,11 +2,12 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 
-import 'utils/calc_window_position.dart';
+import 'utils/window_position_calculator.dart';
 
 // MethodChannel method names (must match native MultiviewDesktopImpl).
 const String kMethodCreateWindow = 'createWindow';
 const String kMethodCreateModalDialog = 'createModalDialog';
+const String kMethodCompleteModalDialogCreate = 'completeModalDialogCreate';
 const String kMethodCreatePopupWindow = 'createPopupWindow';
 const String kMethodSetSize = 'setSize';
 const String kMethodSetPopupBounds = 'setPopupBounds';
@@ -95,8 +96,8 @@ class NativeChannel {
   void setMethodCallHandler(Future<dynamic> Function(MethodCall) handler) =>
       _staticChannel.setMethodCallHandler(handler);
 
-  /// Creates a window; finished when native sends `viewCreated`.
-  Future<void> createWindowRequest({
+  /// Creates a window and returns the new Flutter view id.
+  Future<int> createWindowRequest({
     required int token,
     required String title,
     required String titleBarStyleStr,
@@ -105,7 +106,7 @@ class NativeChannel {
     required Offset? pos,
     int? parentId,
   }) async {
-    await _staticChannel.invokeMethod<void>(kMethodCreateWindow, {
+    final id = await _staticChannel.invokeMethod<int>(kMethodCreateWindow, {
       'token': token,
       'width': windowSize.width,
       'height': windowSize.height,
@@ -115,14 +116,14 @@ class NativeChannel {
       'windowButtonVisibility': windowButtonVisibility,
       'parentId': ?parentId,
     });
+    return id ?? -1;
   }
 
-  /// Creates a dialog attached to `parentId`.
+  /// Creates a dialog attached to `parentId` and returns the new Flutter view id.
   ///
   /// Modal behavior is platform-specific (macOS sheet, Windows owner chain,
-  /// Linux transient window with parent input lock). The native side sends
-  /// `viewCreated` when the dialog is ready, same as `createWindowRequest`.
-  Future<void> createModalDialogRequest({
+  /// Linux transient window with parent input lock).
+  Future<int> createModalDialogRequest({
     required int token,
     required String title,
     required String titleBarStyleStr,
@@ -132,7 +133,7 @@ class NativeChannel {
     required int parentId,
     required bool isModal,
   }) async {
-    await _staticChannel.invokeMethod<void>(kMethodCreateModalDialog, {
+    final id = await _staticChannel.invokeMethod<int>(kMethodCreateModalDialog, {
       'token': token,
       'width': windowSize.width,
       'height': windowSize.height,
@@ -143,18 +144,23 @@ class NativeChannel {
       'windowButtonVisibility': windowButtonVisibility,
       'parentId': parentId,
     });
+    return id ?? -1;
   }
 
-  /// Creates a borderless popup attached to `parentId`.
-  ///
-  /// Native sends `viewCreated` when the popup Flutter view is ready.
-  Future<void> createPopupWindowRequest({required int token, required int parentId, required Size windowSize}) async {
-    await _staticChannel.invokeMethod<void>(kMethodCreatePopupWindow, {
+  /// Attaches a modal dialog as a sheet after its first Flutter frame (macOS only).
+  Future<void> completeModalDialogCreate(int viewId) async {
+    await _staticChannel.invokeMethod<void>(kMethodCompleteModalDialogCreate, _args(viewId));
+  }
+
+  /// Creates a borderless popup attached to `parentId` and returns the new view id.
+  Future<int> createPopupWindowRequest({required int token, required int parentId, required Size windowSize}) async {
+    final id = await _staticChannel.invokeMethod<int>(kMethodCreatePopupWindow, {
       'token': token,
       'width': windowSize.width,
       'height': windowSize.height,
       'parentId': parentId,
     });
+    return id ?? -1;
   }
 
   Future<bool?> checkWindowExist(int viewId) async {
@@ -172,9 +178,8 @@ class NativeChannel {
     );
   }
 
-  /// Sets size and position in a single atomic native call.
-  /// Prefer this over separate [setSize] + [setPosition] for popups because
-  /// each native `setFrame` triggers a Flutter resize synchronization cycle.
+  /// Sets size and position in a single native call.
+  /// Separate [setSize] + [setPosition] each trigger a Flutter resize cycle.
   Future<bool> setPopupBounds(int viewId, {required Rect bounds}) async {
     return await _staticChannel.invokeMethod<bool>(
           kMethodSetPopupBounds,
@@ -208,7 +213,7 @@ class NativeChannel {
     final sizeResult = await _staticChannel.invokeMethod<Map>(kMethodGetBounds, _args(viewId));
     if (sizeResult != null) {
       final windowSize = Size((sizeResult['width'] as num).toDouble(), (sizeResult['height'] as num).toDouble());
-      return calcWindowPosition(windowSize, alignment);
+      return WindowPositionCalculator.instance.calcWindowPosition(windowSize, alignment);
     }
     return null;
   }
@@ -569,16 +574,16 @@ class NativeChannel {
       setMinimizable(viewId, true),
       setMaximizable(viewId, true),
       setClosable(viewId, true),
-      setAlwaysOnTop(viewId, isAlwaysOnTop: config.globalOptions.alwaysOnTop ?? false),
+      setAlwaysOnTop(viewId, isAlwaysOnTop: config.globalWindowOptions.alwaysOnTop ?? false),
       setOpacity(viewId, 1.0),
       setAspectRatio(viewId, 0),
       setIgnoreMouseEvents(viewId, false),
       setTitleBarStyle(
         viewId,
-        style: config.globalOptions.titleBarStyle ?? TitleBarStyle.normal,
-        closeVisibility: config.globalOptions.windowButtonVisibility ?? false,
-        minimizeVisibility: config.globalOptions.windowButtonVisibility ?? false,
-        maximizeVisibility: config.globalOptions.windowButtonVisibility ?? false,
+        style: config.globalWindowOptions.titleBarStyle ?? TitleBarStyle.normal,
+        closeVisibility: config.globalWindowOptions.windowButtonVisibility ?? false,
+        minimizeVisibility: config.globalWindowOptions.windowButtonVisibility ?? false,
+        maximizeVisibility: config.globalWindowOptions.windowButtonVisibility ?? false,
       ),
     ]);
   }

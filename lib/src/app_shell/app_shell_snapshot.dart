@@ -22,8 +22,8 @@ import 'app_entry_kind.dart';
 /// updates via `AppShellController` work even after the main window is closed.
 @immutable
 class AppShellSnapshot {
-  /// Creates a snapshot. Prefer `fromMaterialApp` and related factories when
-  /// copying from an existing entry widget.
+  /// Creates a snapshot. `fromMaterialApp` and related factories copy from an
+  /// existing entry widget.
   const AppShellSnapshot({
     required this.kind,
     this.theme,

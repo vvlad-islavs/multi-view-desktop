@@ -59,7 +59,7 @@ extension NSRect {
 // MARK: - Per-window state
 
 /// Mutable close / maximize flags for one [NSWindow], keyed by Flutter view ID.
-private class WindowState {
+class WindowState {
     /// When `true`, `windowShouldClose` emits `close` and returns `false`.
     var isPreventClose: Bool = false
     /// When `true`, `windowShouldClose` may destroy the window.
@@ -110,7 +110,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     /// Flutter view ID of the main window (set in [registerMain] for [mainWindowRef]).
     private(set) var mainViewId: Int64?
 
-    private var windowStates: [Int64: WindowState] = [:]
+    var windowStates: [Int64: WindowState] = [:]
     /// Maps a sheet (modal dialog) viewId to the NSWindow it is attached to.
     /// Populated in [createModalDialogWindow]; cleared when the sheet is dismissed.
     private var sheetParents: [Int64: NSWindow] = [:]
@@ -196,17 +196,16 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         }
 
         DispatchQueue.main.async { [weak self] in
-            self?.channel?.invokeMethod(
-                "onEvent",
-                arguments: ["eventName": "applicationShouldTerminateRequest"]
-            )
+            self?.emitOnEvent("applicationShouldTerminateRequest")
         }
         return .terminateCancel
     }
 
     func replyToApplicationShouldTerminate(terminate: Bool) {
         isConfirmTerminate = terminate
-        if terminate {
+        guard terminate else { return }
+        
+        DispatchQueue.main.async {
             NSApp.terminate(nil)
         }
     }
@@ -250,10 +249,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     }
 
     @objc private func onTaskbarMenuItemSelected(_ sender: NSMenuItem) {
-        channel?.invokeMethod(
-            "onEvent",
-            arguments: ["eventName": "taskbarMenuItemSelected", "id": sender.tag]
-        )
+        emitOnEvent("taskbarMenuItemSelected", arg: Int64(sender.tag))
     }
 
 
@@ -266,10 +262,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     func handleApplicationReopen(hasVisibleWindows: Bool) -> Bool {
         if hasTaskbarCallback {
             DispatchQueue.main.async { [weak self] in
-                self?.channel?.invokeMethod(
-                    "onEvent",
-                    arguments: ["eventName": "taskbar-callback"]
-                )
+                self?.emitOnEvent("taskbar-callback")
             }
             let hiddenEntries = windows.filter {
                 !$0.value.isVisible
@@ -305,7 +298,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             return false
         }
 
-        // Prefer the anchor window so Dart/native stay in sync after dock click.
+        // Anchor window keeps Dart/native in sync after a dock click.
         let targetId: Int64
         let targetWindow: NSWindow
         if let mainViewId, let anchorWindow = windows[mainViewId], !anchorWindow.isVisible {
@@ -337,6 +330,43 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         hasTaskbarCallback = hasCallback
     }
 
+    func setAnchorViewId(_ viewId: Int64) {
+        mainViewId = viewId
+    }
+
+    func setProgressBar(_ progress: Double) {
+        let dockTile: NSDockTile = NSApp.dockTile
+
+        let firstTime = dockTile.contentView == nil || dockTile.contentView?.subviews.count == 0
+        if firstTime {
+            let imageView = NSImageView()
+            imageView.image = NSApp.applicationIconImage
+            dockTile.contentView = imageView
+
+            let frame = NSMakeRect(0.0, 0.0, dockTile.size.width, 15.0)
+            let progressIndicator = NSProgressIndicator(frame: frame)
+            progressIndicator.style = .bar
+            progressIndicator.isIndeterminate = false
+            progressIndicator.minValue = 0
+            progressIndicator.maxValue = 1
+            progressIndicator.isHidden = false
+            dockTile.contentView?.addSubview(progressIndicator)
+        }
+
+        let progressIndicator = dockTile.contentView!.subviews.last as! NSProgressIndicator
+        if progress < 0 {
+            progressIndicator.isHidden = true
+        } else if progress > 1 {
+            progressIndicator.isHidden = false
+            progressIndicator.isIndeterminate = true
+            progressIndicator.doubleValue = 1
+        } else {
+            progressIndicator.isHidden = false
+            progressIndicator.doubleValue = progress
+        }
+        dockTile.display()
+    }
+
     // MARK: - Channel handler
 
     private func handle(call: FlutterMethodCall, result: FlutterResult) {
@@ -348,6 +378,8 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             result(windows[viewId] != nil)
         case "createWindow":
             createSecondaryWindow(args: args, result: result)
+        case "completeModalDialogCreate":
+            completeModalDialogCreate(args: args, result: result)
         case "createModalDialog":
             createModalDialogWindow(args: args, result: result)
         case "createPopupWindow":
@@ -365,8 +397,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             setHasTaskbarCallback(hasCallback)
             result(nil)
         case "setAnchorViewId":
-            let anchorId = int64(from: args, key: "viewId")
-            mainViewId = anchorId
+            setAnchorViewId(int64(from: args, key: "viewId"))
             result(nil)
         case "isHideAppFromTaskbar":
             result(NSApplication.shared.activationPolicy() == .accessory)
@@ -375,38 +406,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
             NSApplication.shared.setActivationPolicy(isSkipTaskbar ? .accessory : .regular)
             result(nil)
         case "setProgressBar":
-            let progress: CGFloat = CGFloat(truncating: args["progress"] as? NSNumber ?? 0)
-            let dockTile: NSDockTile = NSApp.dockTile
-
-            let firstTime = dockTile.contentView == nil || dockTile.contentView?.subviews.count == 0
-            if firstTime {
-                let imageView = NSImageView()
-                imageView.image = NSApp.applicationIconImage
-                dockTile.contentView = imageView
-
-                let frame = NSMakeRect(0.0, 0.0, dockTile.size.width, 15.0)
-                let progressIndicator = NSProgressIndicator(frame: frame)
-                progressIndicator.style = .bar
-                progressIndicator.isIndeterminate = false
-                progressIndicator.minValue = 0
-                progressIndicator.maxValue = 1
-                progressIndicator.isHidden = false
-                dockTile.contentView?.addSubview(progressIndicator)
-            }
-
-            let progressIndicator = dockTile.contentView!.subviews.last as! NSProgressIndicator
-            if progress < 0 {
-                progressIndicator.isHidden = true
-            } else if progress > 1 {
-                progressIndicator.isHidden = false
-                progressIndicator.isIndeterminate = true
-                progressIndicator.doubleValue = 1
-            } else {
-                progressIndicator.isHidden = false
-                progressIndicator.doubleValue = Double(progress)
-            }
-            dockTile.display()
-
+            setProgressBar(Double(truncating: args["progress"] as? NSNumber ?? 0))
             result(nil)
         case "setTaskbarMenu":
             let items = args["items"] as? [[String: Any]] ?? []
@@ -428,10 +428,11 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     // MARK: - Secondary window creation
 
-    private func createSecondaryWindow(args: [String: Any], result: FlutterResult) {
+    @discardableResult
+    func createSecondaryWindow(args: [String: Any], result: FlutterResult) -> Int64 {
         guard let engine else {
             result(FlutterError(code: "NO_ENGINE", message: "Engine not available", details: nil))
-            return
+            return -1
         }
 
         let token = args["token"] as? Int ?? 0
@@ -484,16 +485,14 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         registerWindow(newWindow, viewId: viewId)
 
         NSApp.activate(ignoringOtherApps: true)
-        newWindow.makeKeyAndOrderFront(nil)
+//        newWindow.makeKeyAndOrderFront(nil)
 
         DispatchQueue.main.async { [weak self] in
-            self?.channel?.invokeMethod(
-                "onEvent",
-                arguments: ["eventName": "viewCreated", "viewId": Int(viewId), "token": token]
-            )
+            self?.emitOnEvent("viewCreated", viewId: viewId, arg: Int64(token))
         }
 
-        result(nil)
+        result(NSNumber(value: viewId))
+        return viewId
     }
 
     // MARK: - Modal dialog (sheet)
@@ -504,10 +503,11 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     /// and blocks all user input to it until the sheet is dismissed.  When the
     /// sheet window is closed through the normal soft-close cycle, `endSheet` is
     /// called automatically in `windowShouldClose` before the window is destroyed.
-    private func createModalDialogWindow(args: [String: Any], result: FlutterResult) {
+    @discardableResult
+    func createModalDialogWindow(args: [String: Any], result: FlutterResult) -> Int64 {
         guard let engine else {
             result(FlutterError(code: "NO_ENGINE", message: "Engine not available", details: nil))
-            return
+            return -1
         }
 
         let token = args["token"] as? Int ?? 0
@@ -519,11 +519,11 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
                 message: "No parent window for viewId \(parentId)",
                 details: nil
             ))
-            return
+            return -1
         }
 
-        let width  = args["width"]  as? CGFloat ?? 400
-        let height = args["height"] as? CGFloat ?? 300
+        let width  = args["width"]  as? Double ?? 400
+        let height = args["height"] as? Double ?? 300
         let title  = args["title"]  as? String  ?? ""
         let modal  = args["modal"]  as? Bool  ?? false
         let position = args["position"] as? [String: Any]
@@ -560,7 +560,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         registerWindow(newWindow, viewId: viewId)
 
         if modal {
-            parentWindow.beginSheet(newWindow)
+//            parentWindow.beginSheet(newWindow)
             sheetParents[viewId] = parentWindow
         } else {
             if let position,
@@ -576,12 +576,33 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         }
 
         DispatchQueue.main.async { [weak self] in
-            self?.channel?.invokeMethod(
-                "onEvent",
-                arguments: ["eventName": "viewCreated", "viewId": Int(viewId), "token": token]
-            )
+            self?.emitOnEvent("viewCreated", viewId: viewId, arg: Int64(token))
         }
 
+        result(NSNumber(value: viewId))
+        return viewId
+    }
+
+    func completeModalDialogCreate(args: [String: Any], result: FlutterResult) {
+        let viewId = int64(from: args, key: "viewId")
+
+        guard let viewWindow = windows[viewId] else {
+            result(FlutterError(
+                code: "NO_WINDOW",
+                message: "No window for viewId \(viewId)",
+                details: nil
+            ))
+            return
+        }
+        guard let parentWindow = sheetParents[viewId] else {
+            result(FlutterError(
+                code: "NO_PARENT",
+                message: "No parent sheet registered for viewId \(viewId)",
+                details: nil
+            ))
+            return
+        }
+        parentWindow.beginSheet(viewWindow)
         result(nil)
     }
 
@@ -591,10 +612,11 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     ///
     /// Mirrors Flutter's `createPopupWindow`: never key, auxiliary collection
     /// behavior, transparent until Dart shows it.
-    private func createPopupWindow(args: [String: Any], result: FlutterResult) {
+    @discardableResult
+    func createPopupWindow(args: [String: Any], result: FlutterResult) -> Int64 {
         guard let engine else {
             result(FlutterError(code: "NO_ENGINE", message: "Engine not available", details: nil))
-            return
+            return -1
         }
 
         let token = args["token"] as? Int ?? 0
@@ -606,7 +628,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
                 message: "No parent window for viewId \(parentId)",
                 details: nil
             ))
-            return
+            return -1
         }
 
         let width = args["width"] as? CGFloat ?? 240
@@ -651,20 +673,38 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         parentWindow.addChildWindow(newWindow, ordered: .above)
 
         DispatchQueue.main.async { [weak self] in
-            self?.channel?.invokeMethod(
-                "onEvent",
-                arguments: ["eventName": "viewCreated", "viewId": Int(viewId), "token": token]
-            )
+            self?.emitOnEvent("viewCreated", viewId: viewId, arg: Int64(token))
         }
 
-        result(nil)
+        result(NSNumber(value: viewId))
+        return viewId
+    }
+
+    /// `orderOut` drops the child-window link. Parent is kept in [popupParents]
+    /// so [showPopupWindow] can call `addChildWindow` again.
+    func hidePopupWindow(_ window: NSWindow, viewId: Int64) {
+        window.orderOut(nil)
+    }
+
+    /// Re-parents a popup after hide. Without this, `orderFront` shows an
+    /// independent window: parent clicks stack above it, and Mission Control
+    /// lists it separately.
+    func showPopupWindow(_ window: NSWindow, viewId: Int64) {
+        window.alphaValue = windowStates[viewId]?.opacity ?? 1.0
+        if let parent = popupParents[viewId] {
+            if window.parent !== parent {
+                parent.addChildWindow(window, ordered: .above)
+            }
+        } else {
+            window.orderFront(nil)
+        }
     }
 
     private var regularWindowCount: Int {
         windows.keys.filter { windowStates[$0]?.isPopup != true }.count
     }
 
-    private func closePopupWindow(_ window: NSWindow, viewId: Int64) {
+    func closePopupWindow(_ window: NSWindow, viewId: Int64) {
         window.ignoresMouseEvents = false
         if let parent = popupParents[viewId] {
             parent.removeChildWindow(window)
@@ -672,6 +712,19 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         }
         window.alphaValue = 0
         window.close()
+    }
+
+    /// Soft-close gate events must not call Dart synchronously from
+    /// `windowShouldClose` while the close button is in tracking mode.
+    /// Flutter microtasks (any `await` in the handler) do not run until tracking ends.
+    private func emitSoftCloseGate(_ eventName: String, viewId: Int64) {
+        if mvdFfiEventsAttached() {
+            DispatchQueue.main.async { [weak self] in
+                self?.emitOnEvent(eventName, viewId: viewId)
+            }
+            return
+        }
+        emitOnEvent(eventName, viewId: viewId)
     }
 
     /// Emits the next soft-close event for [viewId].
@@ -683,17 +736,17 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         let state = windowStates[viewId] ?? WindowState()
 
         if !state.isPreConfirm {
-            emitEvent("preconfirm-close", viewId: viewId)
+            emitSoftCloseGate("preconfirm-close", viewId: viewId)
             return false
         }
 
         if state.isPreventClose {
-            emitEvent("close", viewId: viewId)
+            emitSoftCloseGate("close", viewId: viewId)
             return false
         }
 
         if !state.isConfirmClose {
-            emitEvent("confirm-close", viewId: viewId)
+            emitSoftCloseGate("confirm-close", viewId: viewId)
             return false
         }
 
@@ -701,7 +754,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     }
 
     /// Dismisses a modal sheet and destroys its window.
-    private func closeSheetWindow(_ sheet: NSWindow, viewId: Int64) {
+    func closeSheetWindow(_ sheet: NSWindow, viewId: Int64) {
         if let parentWindow = sheetParents[viewId] {
             sheetParents.removeValue(forKey: viewId)
             parentWindow.endSheet(sheet)
@@ -711,7 +764,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
     /// Requests soft close, working around AppKit ignoring [NSWindow.performClose]
     /// while [NSWindow.attachedSheet] is non-nil.
-    private func requestSoftClose(viewId: Int64, window: NSWindow) {
+    func requestSoftClose(viewId: Int64, window: NSWindow) {
         if window.attachedSheet != nil {
             _ = advanceSoftClose(viewId: viewId)
             return
@@ -759,10 +812,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
                 parent.removeChildWindow(closingWindow)
             }
             popupParents.removeValue(forKey: viewId)
-            channel?.invokeMethod(
-                "onEvent",
-                arguments: ["eventName": "popup-closed", "viewId": Int(viewId)]
-            )
+            emitOnEvent("popup-closed", viewId: viewId)
         }
 
         windows.removeValue(forKey: viewId)
@@ -773,6 +823,9 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     func windowShouldZoom(_ window: NSWindow, toFrame newFrame: NSRect) -> Bool {
         guard let viewId = viewIdForWindow(window) else {
             return true
+        }
+        if windowStates[viewId]?.isPopup == true {
+            return false
         }
         emitEvent("maximize", viewId: viewId)
         return true
@@ -994,8 +1047,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         case "show":
             DispatchQueue.main.async {
                 if self.windowStates[viewId]?.isPopup == true {
-                    window.alphaValue = self.windowStates[viewId]?.opacity ?? 1.0
-                    window.orderFront(nil)
+                    self.showPopupWindow(window, viewId: viewId)
                 } else {
                     self.focusWindow(window)
                 }
@@ -1004,7 +1056,11 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
         case "hide":
             DispatchQueue.main.async {
-                window.orderOut(nil)
+                if self.windowStates[viewId]?.isPopup == true {
+                    self.hidePopupWindow(window, viewId: viewId)
+                } else {
+                    window.orderOut(nil)
+                }
             }
             result(nil)
 
@@ -1073,10 +1129,12 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
 
         case "setSize":
             var f = window.frame
+            let topLeft = f.topLeft
             f.size = NSSize(
                 width: args?["width"] as? CGFloat ?? f.width,
                 height: args?["height"] as? CGFloat ?? f.height
             )
+            f.topLeft = topLeft
             window.setFrame(f, display: true)
             result(nil)
 
@@ -1354,7 +1412,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     /// is still `isOnActiveSpace` loses that race: the pending teleport runs afterward.
     /// Deferred retries re-check: once the window is off the active Space,
     /// `makeKeyAndOrderFront` pulls Mission Control back to it.
-    private func focusWindow(_ window: NSWindow) {
+    func focusWindow(_ window: NSWindow) {
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }
@@ -1368,7 +1426,7 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
     /// `isKeyWindow` alone is not enough: it can stay `true` for a window that
     /// is ordered behind another window of this app, or for a window on another
     /// Space while the user is looking at a different Space.
-    private func isWindowFocused(_ window: NSWindow) -> Bool {
+    func isWindowFocused(_ window: NSWindow) -> Bool {
         guard NSApp.isActive, window.isKeyWindow, window.isVisible, !window.isMiniaturized else {
             return false
         }
@@ -1383,12 +1441,28 @@ class MultiviewDesktopImpl: NSObject, NSWindowDelegate {
         return false
     }
 
+    /// Sends `onEvent` to Dart with [eventName] and optional [viewId] / extra [arg].
+    func emitOnEvent(_ eventName: String, viewId: Int64 = -1, arg: Int64 = -1) {
+        if mvdFfiEventsAttached() {
+            _ = mvdFfiTryEmit(eventName, viewId: viewId, arg: arg)
+            return
+        }
+        var arguments: [String: Any] = ["eventName": eventName]
+        if viewId != -1 {
+            arguments["viewId"] = Int(viewId)
+        }
+        if eventName == "viewCreated" {
+            arguments["token"] = Int(arg)
+        }
+        if eventName == "taskbarMenuItemSelected" {
+            arguments["id"] = Int(arg)
+        }
+        channel?.invokeMethod("onEvent", arguments: arguments)
+    }
+
     /// Sends `onEvent` to Dart with [eventName] and [viewId].
     private func emitEvent(_ eventName: String, viewId: Int64) {
-        channel?.invokeMethod(
-            "onEvent",
-            arguments: ["eventName": eventName, "viewId": Int(viewId)]
-        )
+        emitOnEvent(eventName, viewId: viewId)
     }
 
     private func viewIdForWindow(_ window: NSWindow) -> Int64? {

@@ -5,7 +5,7 @@ import 'app_shell_patch.dart';
 /// Per-view entry shell configuration for a secondary or dialog `View`.
 ///
 /// `appearance` overrides app-wide fields (theme, locale, shortcuts) on top of
-/// the global `MultiViewDesktop.appShell` snapshot for **this view only**.
+/// the global `MultiViewDesktop.appShell` snapshot for this view only.
 ///
 /// Navigation fields (`routerConfig`, `home`, `routes`, and so on) are also
 /// per-view. Each OS window gets its own navigator or router stack. They are

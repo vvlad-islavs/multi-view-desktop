@@ -66,11 +66,12 @@ class MultiViewDesktop {
   int64_t ViewIdForHwnd(HWND hwnd) const;
   void DestroyEntry(int64_t view_id);
 
-  void CreateSecondaryWindow(const flutter::EncodableMap& args);
-  void CreateModalDialogWindow(const flutter::EncodableMap& args);
-  void CreatePopupWindow(const flutter::EncodableMap& args);
+  int64_t CreateSecondaryWindow(const flutter::EncodableMap& args);
+  int64_t CreateModalDialogWindow(const flutter::EncodableMap& args);
+  int64_t CreatePopupWindow(const flutter::EncodableMap& args);
+  void CompleteModalDialog(int64_t target_view_id);
 
-  void EmitEvent(const std::string& event_name, int64_t view_id);
+  void EmitEvent(const std::string& event_name, int64_t view_id, int64_t arg = -1);
   void EmitTaskbarMenuItemSelected(int menu_item_id);
 
   static void UpdateModalStateLayer(HWND owner_hwnd);
@@ -116,6 +117,10 @@ class MultiViewDesktop {
   std::string title_bar_style_ = "normal";
   bool window_button_visibility_ = true;
   double opacity_ = 1;
+  int background_a_ = 0;
+  int background_r_ = 0;
+  int background_g_ = 0;
+  int background_b_ = 0;
 
   bool is_resizing_ = false;
   bool is_moving_ = false;
@@ -171,7 +176,7 @@ class MultiViewDesktop {
   void SetMovable(const flutter::EncodableMap& args);
   bool HasShadow();
   void SetHasShadow(const flutter::EncodableMap& args);
-  void MultiViewDesktop::SetProgressBar(double progress);
+  void SetProgressBar(double progress);
   double GetOpacity();
   void SetOpacity(const flutter::EncodableMap& args);
   void SetBrightness(const flutter::EncodableMap& args);
@@ -191,6 +196,9 @@ class MultiViewDesktop {
   static bool BoolFromMap(const flutter::EncodableMap& args,
                           const char* key,
                           bool fallback);
+
+  void ApplyWindowComposition();
+  void ApplyPopupShadowAndColor();
 
   static FlutterDesktopEngineRef engine_;
   static HWND main_host_window_;

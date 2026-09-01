@@ -59,11 +59,6 @@
 /// );
 /// ```
 ///
-/// Do not wrap secondary content in a second full `MaterialApp`. Use
-/// `ViewShellOverrides` on `WindowOptions.shellOverrides` or
-/// `MultiViewDesktop.patchViewShell` so appearance stays inherited from the
-/// global shell while navigation remains per-view.
-///
 /// See `AppShellController` for keeping the main window in sync without feedback loops.
 library;
 

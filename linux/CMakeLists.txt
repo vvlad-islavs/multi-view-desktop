@@ -10,6 +10,8 @@ add_library(${PLUGIN_NAME} SHARED
   "mvd_linux_window.cc"
   "mvd_linux_runner.cc"
   "mvd_ffi_bridge.cc"
+  "mvd_linux_screen.cc"
+  "mvd_linux_screen.h"
 )
 
 apply_standard_settings(${PLUGIN_NAME})

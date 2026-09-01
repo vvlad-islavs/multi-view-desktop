@@ -796,7 +796,6 @@ Built-in default content size for **windows** when `size` is omitted: 800x600.
 |---|---|---|
 | `alignment` | `Alignment?` | Where to place the window on the display (default: `Alignment.center`). Not used for dialogs. |
 | `fullScreen` | `bool?` | Start in full-screen mode. Not available for dialogs. |
-| `hideAppFromTaskbar` | `bool?` | Hide the entire application from the dock / taskbar. App-wide; not used for dialogs. |
 
 Example:
 
@@ -840,7 +839,7 @@ Dialogs always differ from regular windows:
 - Hidden from the taskbar and Mission Control on creation.
 - Initial placement is relative to the parent; see the platform table in [Open a dialog](#open-a-dialog).
 
-There is no `alignment`, `fullScreen`, or `hideAppFromTaskbar` on `DialogOptions`.
+There is no `alignment` or `fullScreen` on `DialogOptions`.
 
 Example with global defaults and a one-off override:
 

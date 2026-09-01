@@ -1,14 +1,7 @@
-/// Observer for native window lifecycle events in a multiview_desktop application.
+/// Observer for native window lifecycle events.
 ///
-/// Extend this class and override only the callbacks you need.
-/// All methods have empty default implementations so unused events are
-/// silently ignored.
-///
-/// Register one or more observers via `MultiAppConfig.observers` passed to
-/// `runMultiApp`.
-///
-/// The design mirrors Flutter's `NavigatorObserver`: observers are passive
-/// sinks - they receive notifications but cannot influence the outcome.
+/// Unused callbacks have empty defaults. Register via `MultiAppConfig.observers`
+/// in `runMultiApp`. `viewId` values are public (shifted) IDs.
 ///
 /// ```dart
 /// class AppWindowObserver extends WindowObserver {
@@ -32,9 +25,6 @@
 ///   );
 /// }
 /// ```
-///
-/// All `viewId` values are the public (shifted) IDs, consistent with
-/// `MultiViewDesktop.getIdByContext` and `MultiViewDesktop.allWindowViewIds`.
 abstract class WindowObserver {
   /// Called after a new OS window has been opened and its widget tree
   /// registered.
@@ -44,13 +34,12 @@ abstract class WindowObserver {
   /// `openWindow`, or `null` when no parent context was passed.
   void onWindowOpened(int viewId, {int? parentViewId}) {}
 
-
   /// Called after a new OS dialog has been opened and its widget tree
   /// registered.
   ///
   /// `viewId` is the public view ID of the new dialog.
   /// `parentViewId` is the public view ID of the window that called
-  /// `openWindow`
+  /// `openWindow`.
   void onDialogOpened(int dialogId, {required int parentViewId}) {}
 
   /// Called after an OS window has been closed and its widget tree disposed.
@@ -81,11 +70,8 @@ abstract class WindowObserver {
   /// `resize`, `resized`, `move`, `moved`, `enter-full-screen`,
   /// `leave-full-screen`, `close`.
   ///
-  /// Fires alongside the individual `WindowListener` callbacks. Useful for
-  /// cross-window logging or analytics without needing a `WindowListener`
-  /// mixin in every widget.
+  /// Fires alongside the individual `WindowListener` callbacks.
   void onWindowEvent(int viewId, String eventName) {}
-
 
   /// Called for every native dialog event received by this view.
   ///
@@ -93,9 +79,6 @@ abstract class WindowObserver {
   /// `focus`, `blur`, `maximize`, `unmaximize`,
   /// `resize`, `resized`, `move`, `moved`, `close`.
   ///
-  ///
-  /// Fires alongside the individual `WindowListener` callbacks. Useful for
-  /// cross-window logging or analytics without needing a `WindowListener`
-  /// mixin in every widget.
+  /// Fires alongside the individual `WindowListener` callbacks.
   void onDialogEvent(int viewId, String eventName) {}
 }

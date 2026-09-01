@@ -1,13 +1,16 @@
 import 'package:flutter/widgets.dart';
 import 'package:meta/meta.dart';
 
+import 'log/log_params.dart';
+import 'log/mvd_log.dart';
 import 'multi_view_desktop.dart';
-import 'title_bar_style.dart';
 import 'view_root.dart' show createMultiViewRoot;
 import 'window_observer.dart';
 import 'taskbar_menu_item.dart';
+import 'view_animation_config.dart';
 import 'window_options.dart';
-import 'app_shell/view_shell_overrides.dart';
+
+export 'log/log_params.dart';
 
 /// Entry point for a multiview_desktop application.
 ///
@@ -30,9 +33,11 @@ void runMultiApp({
   required Widget Function(BuildContext globalScopeContext, int publicId) home,
   Widget Function(Widget child)? globalScope,
   MultiAppConfig? config,
-}) async {
+}) {
   WidgetsFlutterBinding.ensureInitialized();
-  runWidget(await createMultiViewRoot(home, globalScope, config ?? MultiAppConfig._defaultConfig()));
+  final resolved = config ?? MultiAppConfig._defaultConfig();
+  MvdLog.instance.configure(resolved.logParams);
+  runWidget(createMultiViewRoot(home, globalScope, resolved));
 }
 
 /// Application-wide settings passed to `runMultiApp`.
@@ -45,7 +50,7 @@ class MultiAppConfig {
 
   /// Default `WindowOptions` merged into every new window. Per-window options
   /// passed to `openWindow` override these fields.
-  final WindowOptions globalOptions;
+  final WindowOptions globalWindowOptions;
 
   /// Default `DialogOptions` merged into every `openDialog` call.
   final DialogOptions globalDialogOptions;
@@ -60,13 +65,18 @@ class MultiAppConfig {
   /// ```
   final List<WindowObserver> observers;
 
+  /// File logger. Off by default. See [LogParams].
+  final LogParams logParams;
+
   MultiAppConfig._({
     required this.generalParams,
     required this.macosParams,
-    this.globalOptions = const WindowOptions(),
-    this.globalDialogOptions = const DialogOptions(),
+    WindowOptions? globalWindowOptions,
+    DialogOptions? globalDialogOptions,
     this.observers = const [],
-  });
+    this.logParams = const LogParams(),
+  }) : globalWindowOptions = globalWindowOptions ?? WindowOptions(),
+       globalDialogOptions = globalDialogOptions ?? DialogOptions();
 
   /// Creates configuration for `runMultiApp`.
   ///
@@ -76,18 +86,21 @@ class MultiAppConfig {
   /// each `openWindow` call.
   /// `globalDialogOptions` merge into each `openDialog` call.
   /// `observers` receive passive lifecycle callbacks.
+  /// `logParams` writes package diagnostics to a cache-directory file.
   factory MultiAppConfig({
     MultiPlatformParams? generalParams,
     MacosPlatformParams? macosParams,
     WindowOptions? globalWindowOptions,
     DialogOptions? globalDialogOptions,
     List<WindowObserver>? observers,
+    LogParams fileLogParams = const LogParams(),
   }) => MultiAppConfig._(
-    globalOptions: globalWindowOptions ?? WindowOptions(),
-    globalDialogOptions: globalDialogOptions ?? DialogOptions(),
+    globalWindowOptions: globalWindowOptions,
+    globalDialogOptions: globalDialogOptions,
     generalParams: generalParams ?? MultiPlatformParams.defaultParams(),
     macosParams: macosParams ?? MacosPlatformParams.defaultParams(),
     observers: observers ?? const [],
+    logParams: fileLogParams,
   );
 
   factory MultiAppConfig._defaultConfig() => MultiAppConfig._(
@@ -110,10 +123,15 @@ class MultiPlatformParams {
   /// Replaced entirely by `MultiViewDesktop.setMenuItems`.
   final List<TaskbarMenuItem> menuItems;
 
+  /// Native view animations: open/close fade and/or geometry (position/size).
+  /// See [ViewAnimationConfig.openClose], [ViewAnimationConfig.geometry], [ViewAnimationConfig.all].
+  final ViewAnimationConfig animation;
+
   const MultiPlatformParams({
     this.enableDynamicAnchor = true,
     this.closeMode = CloseMode.softCascade,
     this.menuItems = const [],
+    this.animation = ViewAnimationConfig.defaults,
   });
 
   /// Default: dynamic anchor enabled, `CloseMode.softCascade`.
@@ -199,74 +217,14 @@ Future<int> openWindow(
   Widget Function(BuildContext context, int publicId) childBuilder, {
   WindowOptions? options,
   BuildContext? parentContext,
-}) => MultiViewDesktop.addWindow(childBuilder, options: options, parent: parentContext);
-
-/// Configuration for a dialog opened via `openDialog`.
-///
-/// Dialogs differ from regular windows:
-/// - They always require a parent (`openDialog` needs `parentContext`).
-/// - They close automatically when the parent closes, regardless of `CloseMode`.
-/// - Full-screen mode is not available.
-/// - They are hidden from the taskbar and Mission Control on creation.
-/// - They are centered over the parent at creation time.
-///
-/// Set `modal` to true to block the parent at the OS level while the dialog is
-/// open. Add `DialogModalLayer` in the parent for a visual scrim in Flutter.
-class DialogOptions {
-  const DialogOptions({
-    this.size,
-    this.minimumSize,
-    this.maximumSize,
-    this.isResizable,
-    this.title,
-    this.modal,
-    this.titleBarStyle,
-    this.windowButtonVisibility,
-    this.backgroundColor,
-    this.alwaysOnTop,
-    this.showOnInit,
-    this.shellOverrides,
-  });
-
-  /// Initial content size in logical pixels.
-  final Size? size;
-
-  /// Minimum size enforced by the native window.
-  final Size? minimumSize;
-
-  /// Maximum size enforced by the native window.
-  final Size? maximumSize;
-
-  /// Whether the user can resize the dialog by dragging edges.
-  final bool? isResizable;
-
-  /// Native window title string.
-  final String? title;
-
-  /// When true, the parent window is blocked at the OS level while this dialog
-  /// is open (macOS sheet, Windows owner chain, Linux transient and input lock).
-  /// `DialogModalLayer` in the parent adds a Flutter scrim; the scrim alone does
-  /// not block OS input.
-  final bool? modal;
-
-  /// Title bar appearance. `TitleBarStyle.hidden` removes native chrome.
-  final TitleBarStyle? titleBarStyle;
-
-  /// Visibility of caption buttons when the title bar is hidden.
-  final bool? windowButtonVisibility;
-
-  /// Background color behind the Flutter view.
-  final Color? backgroundColor;
-
-  /// Whether the window stays above other application windows.
-  final bool? alwaysOnTop;
-
-  /// Whether the window is shown right after creation. Defaults to true.
-  final bool? showOnInit;
-
-  /// Per-view shell overrides. See `WindowOptions.shellOverrides`.
-  final ViewShellOverrides? shellOverrides;
-}
+  AnimationSettings? animation,
+}) =>
+    MultiViewDesktop.addWindow(
+      childBuilder,
+      options: options,
+      parent: parentContext,
+      animation: animation,
+    );
 
 /// Opens a dialog window tied to `parentContext`.
 ///
@@ -290,13 +248,20 @@ class DialogOptions {
 ///   options: DialogOptions(title: 'Settings', modal: true),
 /// );
 /// // later, inside the dialog:
-/// await MultiViewDesktop.of(context).closeDialog('saved');
+/// MultiViewDesktop.of(context).closeDialog('saved');
 /// ```
 Future<T?> openDialog<T>(
   Widget Function(BuildContext context, int publicId) childBuilder, {
   required BuildContext parentContext,
   DialogOptions? options,
-}) => MultiViewDesktop.addDialog(childBuilder, parentContext: parentContext, options: options);
+  AnimationSettings? animation,
+}) =>
+    MultiViewDesktop.addDialog<T>(
+      childBuilder,
+      parentContext: parentContext,
+      options: options,
+      animation: animation,
+    );
 
 class DialogEntry<T> {
   final int id;
@@ -327,10 +292,17 @@ class DialogEntry<T> {
 ///   options: DialogOptions(title: 'Settings', modal: true),
 /// );
 /// // later, inside the dialog:
-/// await MultiViewDesktop.of(context).closeDialog('saved');
+/// MultiViewDesktop.of(context).closeDialog('saved');
 /// ```
 Future<DialogEntry<T?>> openDialogEntry<T>(
   Widget Function(BuildContext context, int publicId) childBuilder, {
   required BuildContext parentContext,
   DialogOptions? options,
-}) => MultiViewDesktop.addDialogEntry(childBuilder, parentContext: parentContext, options: options);
+  AnimationSettings? animation,
+}) =>
+    MultiViewDesktop.addDialogEntry<T>(
+      childBuilder,
+      parentContext: parentContext,
+      options: options,
+      animation: animation,
+    );

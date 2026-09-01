@@ -2,6 +2,7 @@
 
 #include "mvd_linux_internal.h"
 #include "mvd_linux_log.h"
+#include "mvd_linux_screen.h"
 #include "mvd_linux_taskbar_menu.h"
 #include "mvd_linux_window.h"
 
@@ -18,9 +19,6 @@
 namespace {
 
 FlMethodChannel* g_channel = nullptr;
-FlMethodChannel* g_screen_channel = nullptr;
-FlEventChannel* g_screen_event_channel = nullptr;
-FlValue* g_screen_event_sink = nullptr;
 
 MvdWindowCreatedCallback g_create_cb = nullptr;
 gboolean g_terminate_after_last_window_closed = TRUE;
@@ -113,6 +111,11 @@ static FlMethodResponse* ok_string(const char* s) {
       fl_method_success_response_new(fl_value_new_string(s ? s : "")));
 }
 
+static FlMethodResponse* ok_int(int64_t v) {
+  return FL_METHOD_RESPONSE(
+      fl_method_success_response_new(fl_value_new_int(v)));
+}
+
 static FlMethodResponse* ok_value(FlValue* v) {
   return FL_METHOD_RESPONSE(fl_method_success_response_new(v));
 }
@@ -126,6 +129,11 @@ static void emit_event(const char* event_name, int64_t view_id) {
   MVD_LOG("emit_event  '%s'  viewId=%" G_GINT64_FORMAT
           "  channel=%p",
           event_name, view_id, static_cast<void*>(g_channel));
+  if (mvd_emit_event(event_name, view_id, -1)) {
+    MVD_LOG("emit_event  ffi  '%s'  viewId=%" G_GINT64_FORMAT,
+            event_name, view_id);
+    return;
+  }
   if (!g_channel) {
     MVD_LOG("emit_event  SKIP: g_channel is null");
     return;
@@ -143,6 +151,12 @@ static void emit_view_created(int64_t view_id, int64_t token) {
   MVD_LOG("emit_view_created  viewId=%" G_GINT64_FORMAT
           "  token=%" G_GINT64_FORMAT "  channel=%p",
           view_id, token, static_cast<void*>(g_channel));
+  if (mvd_emit_event("viewCreated", view_id, token)) {
+    MVD_LOG("emit_view_created  ffi  viewId=%" G_GINT64_FORMAT
+            "  token=%" G_GINT64_FORMAT,
+            view_id, token);
+    return;
+  }
   if (!g_channel) {
     MVD_LOG("emit_view_created  SKIP: g_channel is null");
     return;
@@ -498,25 +512,22 @@ static void dialog_first_frame_cb(gpointer /*user_data*/, FlView* view) {
       wm->ClampToParentBounds();
     }
   }
-  GtkWidget* top = gtk_widget_get_toplevel(GTK_WIDGET(view));
-  gtk_widget_show(top);
-  gtk_widget_grab_focus(GTK_WIDGET(view));
 }
 
-static void create_modal_dialog_impl(const DialogCreateParams& params) {
+static int64_t create_modal_dialog_impl(const DialogCreateParams& params) {
   auto parent_wm = MvdLinuxWindow::Find(params.parent_id);
   if (!parent_wm || !parent_wm->window || !parent_wm->view) {
-    return;
+    return -1;
   }
 
   GApplication* app = g_application_get_default();
   if (!app) {
-    return;
+    return -1;
   }
 
   FlEngine* engine = fl_view_get_engine(parent_wm->view);
   if (!engine) {
-    return;
+    return -1;
   }
 
   const char* title =
@@ -566,15 +577,8 @@ static void create_modal_dialog_impl(const DialogCreateParams& params) {
     }
   }
 
-  if (params.is_modal) {
-    gtk_widget_show(GTK_WIDGET(window));
-    gtk_widget_show(GTK_WIDGET(view));
-    gtk_window_present(window);
-    gtk_widget_grab_focus(GTK_WIDGET(view));
-    MvdLinuxWindow::UpdateModalStateLayer(params.parent_id);
-  }
-
   emit_view_created(view_id, params.token);
+  return view_id;
 }
 
 struct PopupCreateParams {
@@ -584,32 +588,45 @@ struct PopupCreateParams {
   int height = 320;
 };
 
-static void create_popup_window_impl(const PopupCreateParams& params) {
+static int64_t create_popup_window_impl(const PopupCreateParams& params) {
   auto parent_wm = MvdLinuxWindow::Find(params.parent_id);
   if (!parent_wm || !parent_wm->window || !parent_wm->view) {
-    return;
+    return -1;
   }
 
   GApplication* app = g_application_get_default();
   if (!app) {
-    return;
+    return -1;
   }
 
   FlEngine* engine = fl_view_get_engine(parent_wm->view);
   if (!engine) {
-    return;
+    return -1;
   }
 
-  GtkWindow* window =
-      GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(app)));
-  gtk_window_set_decorated(window, FALSE);
+  // Analog of Windows WS_POPUP + owner, not GtkApplicationWindow: those
+  // default their title to the application id (com.example...) and draw CSD.
+  GtkWindow* window = GTK_WINDOW(gtk_window_new(GTK_WINDOW_TOPLEVEL));
+  gtk_window_set_title(window, "");
+  // Custom titlebar enables CSD (shadow + CSS radius). Keep it hidden so
+  // GTK does not draw the caption slot / outline above the content.
+  GtkWidget* titlebar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_widget_set_size_request(titlebar, 0, 0);
+  gtk_window_set_titlebar(window, titlebar);
+  gtk_widget_set_no_show_all(titlebar, TRUE);
+  gtk_widget_hide(titlebar);
+  gtk_window_set_deletable(window, FALSE);
   gtk_window_set_default_size(window, params.width, params.height);
-  gtk_window_set_type_hint(window, GDK_WINDOW_TYPE_HINT_POPUP_MENU);
+  // DIALOG + transient_for: stacked above the parent only, not globally.
+  gtk_window_set_type_hint(window, GDK_WINDOW_TYPE_HINT_DIALOG);
   gtk_window_set_skip_taskbar_hint(window, TRUE);
   gtk_window_set_skip_pager_hint(window, TRUE);
   gtk_window_set_transient_for(window, parent_wm->window);
-  gtk_window_set_keep_above(window, TRUE);
+  gtk_window_set_modal(window, FALSE);
   gtk_window_set_resizable(window, FALSE);
+  gtk_window_set_focus_on_map(window, FALSE);
+  gtk_window_set_accept_focus(window, FALSE);
+  gtk_window_set_position(window, GTK_WIN_POS_NONE);
 
   FlView* view = fl_view_new_for_engine(engine);
   GdkRGBA background_color;
@@ -628,108 +645,14 @@ static void create_popup_window_impl(const PopupCreateParams& params) {
     wm->is_pre_confirm = true;
     wm->is_confirm_close = true;
     wm->SetSkipTaskbar(true);
+    // Same 8px as the example popup / Win11 DWMWCP_ROUND. Clips black
+    // corners without dropping the CSD shadow (unlike an RGBA visual).
+    wm->ApplyCsdCornerRadius(8);
   }
 
-  gtk_widget_show(GTK_WIDGET(window));
+  // Stay unmapped until Dart calls show, after setPopupBounds.
   emit_view_created(view_id, params.token);
-}
-
-static FlValue* display_to_map(GdkMonitor* monitor, int index) {
-  GdkRectangle geo{};
-  GdkRectangle work{};
-  gdk_monitor_get_geometry(monitor, &geo);
-  gdk_monitor_get_workarea(monitor, &work);
-
-  // On X11, GDK returns physical pixel coordinates from gdk_monitor_get_geometry
-  // and gdk_monitor_get_workarea. gdk_device_get_position also returns physical
-  // pixels. All GTK window operations (gtk_window_move, gtk_window_get_position,
-  // gtk_window_get_size) also use physical X11 coordinates.
-  //
-  // Dividing by gdk_monitor_get_scale_factor would mismatch the coordinate
-  // system used by the cursor and window APIs, producing wrong results when
-  // the scale factor is > 1 (e.g. HiDPI or fractional-scaling setups).
-  //
-  // multi_window_manager uses the same approach: no division by scale.
-  const int scale = gdk_monitor_get_scale_factor(monitor);
-  const char* model = gdk_monitor_get_model(monitor);
-
-  FlValue* map = fl_value_new_map();
-  gchar* id = g_strdup_printf("%d", index);
-  fl_value_set_string_take(map, "id", fl_value_new_string(id));
-  g_free(id);
-  fl_value_set_string_take(map, "name",
-                           fl_value_new_string(model ? model : ""));
-
-  FlValue* size = fl_value_new_map();
-  fl_value_set_string_take(size, "width",
-                           fl_value_new_float(static_cast<double>(geo.width)));
-  fl_value_set_string_take(size, "height",
-                           fl_value_new_float(static_cast<double>(geo.height)));
-  fl_value_set_string_take(map, "size", size);
-
-  FlValue* vis_pos = fl_value_new_map();
-  fl_value_set_string_take(vis_pos, "dx",
-                           fl_value_new_float(static_cast<double>(work.x)));
-  fl_value_set_string_take(vis_pos, "dy",
-                           fl_value_new_float(static_cast<double>(work.y)));
-  fl_value_set_string_take(map, "visiblePosition", vis_pos);
-
-  FlValue* vis_size = fl_value_new_map();
-  fl_value_set_string_take(vis_size, "width",
-                           fl_value_new_float(static_cast<double>(work.width)));
-  fl_value_set_string_take(vis_size, "height",
-                           fl_value_new_float(static_cast<double>(work.height)));
-  fl_value_set_string_take(map, "visibleSize", vis_size);
-
-  fl_value_set_string_take(map, "scaleFactor",
-                           fl_value_new_float(static_cast<double>(scale)));
-  return map;
-}
-
-static void handle_screen_method(FlMethodCall* method_call) {
-  const gchar* method = fl_method_call_get_name(method_call);
-  g_autoptr(FlMethodResponse) response = nullptr;
-
-  GdkDisplay* display = gdk_display_get_default();
-
-  if (g_strcmp0(method, "getCursorScreenPoint") == 0) {
-    GdkSeat* seat = gdk_display_get_default_seat(display);
-    GdkDevice* pointer = gdk_seat_get_pointer(seat);
-    gint x = 0;
-    gint y = 0;
-    gdk_device_get_position(pointer, nullptr, &x, &y);
-    FlValue* map = fl_value_new_map();
-    fl_value_set_string_take(map, "dx", fl_value_new_float(x));
-    fl_value_set_string_take(map, "dy", fl_value_new_float(y));
-    response = ok_value(map);
-  } else if (g_strcmp0(method, "getPrimaryDisplay") == 0) {
-    GdkMonitor* monitor = gdk_display_get_primary_monitor(display);
-    if (!monitor) {
-      const int n = gdk_display_get_n_monitors(display);
-      if (n > 0) {
-        monitor = gdk_display_get_monitor(display, 0);
-      }
-    }
-    if (!monitor) {
-      response = err("NO_SCREEN", "No primary display found");
-    } else {
-      response = ok_value(display_to_map(monitor, 0));
-    }
-  } else if (g_strcmp0(method, "getAllDisplays") == 0) {
-    const int n = gdk_display_get_n_monitors(display);
-    FlValue* list = fl_value_new_list();
-    for (int i = 0; i < n; i++) {
-      GdkMonitor* mon = gdk_display_get_monitor(display, i);
-      fl_value_append_take(list, display_to_map(mon, i));
-    }
-    FlValue* map = fl_value_new_map();
-    fl_value_set_string_take(map, "displays", list);
-    response = ok_value(map);
-  } else {
-    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
-  }
-
-  fl_method_call_respond(method_call, response, nullptr);
+  return view_id;
 }
 
 static void handle_view_method(FlMethodCall* method_call,
@@ -960,116 +883,55 @@ static void method_cb(FlMethodChannel*, FlMethodCall* method_call, gpointer) {
       MVD_LOG("method_cb  createWindow  ERROR: g_create_cb is null");
       response = err("createWindow", "WindowCreatedCallback not set in runner");
     } else {
-      PendingCreate pending{};
-      pending.token = int64_from_map(args, "token");
-      pending.width = double_from_map(args, "width", 800);
-      pending.height = double_from_map(args, "height", 600);
-      pending.title = string_from_map(args, "title");
-      pending.title_bar_style = string_from_map(args, "titleBarStyle");
-      pending.window_button_visibility =
-          bool_from_map(args, "windowButtonVisibility", true);
       FlValue* pos = fl_value_lookup_string(args, "position");
-      if (pos && fl_value_get_type(pos) == FL_VALUE_TYPE_MAP) {
-        pending.has_position = true;
-        pending.pos_x = double_from_map(pos, "x", 0);
-        pending.pos_y = double_from_map(pos, "y", 0);
-      }
-      MVD_LOG("method_cb  createWindow  token=%" G_GINT64_FORMAT
-              "  size=%.0fx%.0f  title='%s'  title_bar_style='%s'"
-              "  has_pos=%d  pos=(%.0f,%.0f)",
-              pending.token, pending.width, pending.height,
-              pending.title.c_str(), pending.title_bar_style.c_str(),
-              static_cast<int>(pending.has_position),
-              pending.pos_x, pending.pos_y);
-      MvdCreateWindowRequest req{};
-      req.token = pending.token;
-      req.width = pending.width;
-      req.height = pending.height;
-      req.title = pending.title.c_str();
-      req.title_bar_style = pending.title_bar_style.c_str();
-      req.window_button_visibility = pending.window_button_visibility;
-      req.has_position = pending.has_position ? TRUE : FALSE;
-      req.pos_x = pending.pos_x;
-      req.pos_y = pending.pos_y;
-      // Call g_create_cb before moving pending; the callback copies strings async.
-      MVD_LOG("method_cb  createWindow  calling g_create_cb  token=%"
-              G_GINT64_FORMAT, req.token);
-      g_create_cb(&req);
-      MVD_LOG("method_cb  createWindow  g_create_cb returned  token=%"
-              G_GINT64_FORMAT, req.token);
-      {
-        std::lock_guard<std::mutex> lk(g_pending_mtx);
-        g_pending_create[pending.token] = std::move(pending);
-        MVD_LOG("method_cb  createWindow  stored in pending_create  pending_count=%zu",
-                g_pending_create.size());
-      }
-      response = ok_null();
+      const bool has_pos = pos && fl_value_get_type(pos) == FL_VALUE_TYPE_MAP;
+      const int64_t view_id = mvd_linux_queue_create_window(
+          int64_from_map(args, "token"),
+          double_from_map(args, "width", 800),
+          double_from_map(args, "height", 600),
+          string_from_map(args, "title"),
+          string_from_map(args, "titleBarStyle"),
+          bool_from_map(args, "windowButtonVisibility", true) ? 1 : 0,
+          has_pos ? 1 : 0,
+          has_pos ? double_from_map(pos, "x", 0) : 0,
+          has_pos ? double_from_map(pos, "y", 0) : 0);
+      response = ok_int(view_id);
     }
   } else if (g_strcmp0(method, "createModalDialog") == 0) {
     const int64_t parent_id = int64_from_map(args, "parentId");
-    const bool is_modal = bool_from_map(args, "modal", false);
     if (MvdLinuxWindow::Find(parent_id) == nullptr) {
       MVD_LOG("method_cb  createModalDialog  ERROR: parent viewId=%"
               G_GINT64_FORMAT " not found", parent_id);
       response = err("NO_PARENT", "No parent window for viewId");
     } else {
-      auto* params = new DialogCreateParams();
-      params->token = int64_from_map(args, "token");
-      params->parent_id = parent_id;
-      params->width = static_cast<int>(double_from_map(args, "width", 400));
-      params->height = static_cast<int>(double_from_map(args, "height", 300));
-      params->is_modal = is_modal;
-      params->title = string_from_map(args, "title");
-      params->title_bar_style = string_from_map(args, "titleBarStyle");
-      params->window_button_visibility =
-          bool_from_map(args, "windowButtonVisibility", true);
       FlValue* pos = fl_value_lookup_string(args, "position");
-      if (pos && fl_value_get_type(pos) == FL_VALUE_TYPE_MAP) {
-        params->has_position = true;
-        params->pos_x = static_cast<int>(double_from_map(pos, "x", 0));
-        params->pos_y = static_cast<int>(double_from_map(pos, "y", 0));
-      }
-      MVD_LOG("method_cb  createModalDialog  token=%" G_GINT64_FORMAT
-              "  parent_id=%" G_GINT64_FORMAT "  is_modal=%d"
-              "  size=%dx%d  title='%s'",
-              params->token, params->parent_id, static_cast<int>(params->is_modal),
-              params->width, params->height, params->title.c_str());
-      MVD_LOG("method_cb  createModalDialog  dispatching to main thread"
-              " via g_main_context_invoke");
-      g_main_context_invoke(
-          nullptr,
-          [](gpointer data) -> gboolean {
-            std::unique_ptr<DialogCreateParams> params(
-                static_cast<DialogCreateParams*>(data));
-            MVD_LOG("method_cb  createModalDialog  main-thread callback"
-                    "  token=%" G_GINT64_FORMAT "  parent_id=%" G_GINT64_FORMAT,
-                    params->token, params->parent_id);
-            create_modal_dialog_impl(*params);
-            return G_SOURCE_REMOVE;
-          },
-          params);
-      response = ok_null();
+      const bool has_pos = pos && fl_value_get_type(pos) == FL_VALUE_TYPE_MAP;
+      const int64_t view_id = mvd_linux_queue_create_dialog(
+          int64_from_map(args, "token"), parent_id,
+          static_cast<int>(double_from_map(args, "width", 400)),
+          static_cast<int>(double_from_map(args, "height", 300)),
+          bool_from_map(args, "modal", false) ? 1 : 0,
+          string_from_map(args, "title"),
+          string_from_map(args, "titleBarStyle"),
+          bool_from_map(args, "windowButtonVisibility", true) ? 1 : 0,
+          has_pos ? 1 : 0,
+          has_pos ? static_cast<int>(double_from_map(pos, "x", 0)) : 0,
+          has_pos ? static_cast<int>(double_from_map(pos, "y", 0)) : 0);
+      response = ok_int(view_id);
     }
+  } else if (g_strcmp0(method, "completeModalDialogCreate") == 0) {
+    mvd_linux_complete_modal_dialog(int64_from_map(args, "viewId"));
+    response = ok_null();
   } else if (g_strcmp0(method, "createPopupWindow") == 0) {
     const int64_t parent_id = int64_from_map(args, "parentId");
     if (MvdLinuxWindow::Find(parent_id) == nullptr) {
       response = err("NO_PARENT", "No parent window for viewId");
     } else {
-      auto* params = new PopupCreateParams();
-      params->token = int64_from_map(args, "token");
-      params->parent_id = parent_id;
-      params->width = static_cast<int>(double_from_map(args, "width", 240));
-      params->height = static_cast<int>(double_from_map(args, "height", 320));
-      g_main_context_invoke(
-          nullptr,
-          [](gpointer data) -> gboolean {
-            std::unique_ptr<PopupCreateParams> params(
-                static_cast<PopupCreateParams*>(data));
-            create_popup_window_impl(*params);
-            return G_SOURCE_REMOVE;
-          },
-          params);
-      response = ok_null();
+      const int64_t view_id = mvd_linux_queue_create_popup(
+          int64_from_map(args, "token"), parent_id,
+          static_cast<int>(double_from_map(args, "width", 240)),
+          static_cast<int>(double_from_map(args, "height", 320)));
+      response = ok_int(view_id);
     }
   } else if (g_strcmp0(method, "setTerminateAfterLastWindowClosed") == 0) {
     g_terminate_after_last_window_closed =
@@ -1112,34 +974,113 @@ static void method_cb(FlMethodChannel*, FlMethodCall* method_call, gpointer) {
   fl_method_call_respond(method_call, response, nullptr);
 }
 
-static void screen_method_cb(FlMethodChannel*, FlMethodCall* method_call,
-                             gpointer) {
-  handle_screen_method(method_call);
-}
-
-static FlMethodErrorResponse* screen_stream_cancel_cb(FlEventChannel*,
-                                                    FlValue*,
-                                                    gpointer) {
-  g_clear_pointer(&g_screen_event_sink, fl_value_unref);
-  return nullptr;
-}
-
-static FlMethodErrorResponse* screen_stream_listen_cb(FlEventChannel*,
-                                                      FlValue* args,
-                                                      gpointer) {
-  g_clear_pointer(&g_screen_event_sink, fl_value_unref);
-  if (args) {
-    g_screen_event_sink = fl_value_ref(args);
-  }
-  return nullptr;
-}
-
 }  // namespace
 
 extern "C" {
 
 void mvd_linux_set_window_created_callback(MvdWindowCreatedCallback callback) {
   g_create_cb = callback;
+}
+
+int64_t mvd_linux_queue_create_window(int64_t token,
+                                      double width,
+                                      double height,
+                                      const char* title,
+                                      const char* title_bar_style,
+                                      int window_button_visibility,
+                                      int has_position,
+                                      double pos_x,
+                                      double pos_y) {
+  if (!g_create_cb) {
+    return -1;
+  }
+  PendingCreate pending{};
+  pending.token = token;
+  pending.width = width;
+  pending.height = height;
+  pending.title = title ? title : "";
+  pending.title_bar_style = title_bar_style ? title_bar_style : "";
+  pending.window_button_visibility = window_button_visibility != 0;
+  pending.has_position = has_position != 0;
+  pending.pos_x = pos_x;
+  pending.pos_y = pos_y;
+
+  MvdCreateWindowRequest req{};
+  req.token = pending.token;
+  req.width = pending.width;
+  req.height = pending.height;
+  req.title = pending.title.c_str();
+  req.title_bar_style = pending.title_bar_style.c_str();
+  req.window_button_visibility = pending.window_button_visibility ? TRUE : FALSE;
+  req.has_position = pending.has_position ? TRUE : FALSE;
+  req.pos_x = pending.pos_x;
+  req.pos_y = pending.pos_y;
+  {
+    std::lock_guard<std::mutex> lk(g_pending_mtx);
+    g_pending_create[pending.token] = pending;
+  }
+  return g_create_cb(&req);
+}
+
+int64_t mvd_linux_queue_create_dialog(int64_t token,
+                                      int64_t parent_id,
+                                      int width,
+                                      int height,
+                                      int is_modal,
+                                      const char* title,
+                                      const char* title_bar_style,
+                                      int window_button_visibility,
+                                      int has_position,
+                                      int pos_x,
+                                      int pos_y) {
+  if (MvdLinuxWindow::Find(parent_id) == nullptr) {
+    return -1;
+  }
+  DialogCreateParams params;
+  params.token = token;
+  params.parent_id = parent_id;
+  params.width = width;
+  params.height = height;
+  params.is_modal = is_modal != 0;
+  params.title = title ? title : "";
+  params.title_bar_style = title_bar_style ? title_bar_style : "";
+  params.window_button_visibility = window_button_visibility != 0;
+  params.has_position = has_position != 0;
+  params.pos_x = pos_x;
+  params.pos_y = pos_y;
+  return create_modal_dialog_impl(params);
+}
+
+int64_t mvd_linux_queue_create_popup(int64_t token,
+                                     int64_t parent_id,
+                                     int width,
+                                     int height) {
+  if (MvdLinuxWindow::Find(parent_id) == nullptr) {
+    return -1;
+  }
+  PopupCreateParams params;
+  params.token = token;
+  params.parent_id = parent_id;
+  params.width = width;
+  params.height = height;
+  return create_popup_window_impl(params);
+}
+
+void mvd_linux_set_anchor_view_id(int64_t view_id) { g_anchor_view_id = view_id; }
+
+void mvd_linux_set_terminate_after_last(int terminate) {
+  g_terminate_after_last_window_closed = terminate != 0;
+}
+
+void mvd_linux_complete_modal_dialog(int64_t view_id) {
+  auto wm = MvdLinuxWindow::Find(view_id);
+  if (!wm) {
+    return;
+  }
+  wm->Show();
+  if (wm->is_modal && wm->modal_owner_view_id >= 0) {
+    MvdLinuxWindow::UpdateModalStateLayer(wm->modal_owner_view_id);
+  }
 }
 
 void mvd_linux_register_primary(GtkWindow* window, FlView* view) {
@@ -1161,11 +1102,11 @@ void mvd_linux_register_primary(GtkWindow* window, FlView* view) {
           view_id);
 }
 
-void mvd_linux_complete_secondary_window(GtkWindow* window,
-                                                       FlView* view,
-                                                       int64_t token) {
-  g_return_if_fail(GTK_IS_WINDOW(window));
-  g_return_if_fail(FL_IS_VIEW(view));
+int64_t mvd_linux_complete_secondary_window(GtkWindow* window,
+                                            FlView* view,
+                                            int64_t token) {
+  g_return_val_if_fail(GTK_IS_WINDOW(window), -1);
+  g_return_val_if_fail(FL_IS_VIEW(view), -1);
 
   MVD_LOG("complete_secondary_window  START  token=%" G_GINT64_FORMAT
           "  window=%p  view=%p", token,
@@ -1229,6 +1170,7 @@ void mvd_linux_complete_secondary_window(GtkWindow* window,
   emit_view_created(view_id, token);
   MVD_LOG("complete_secondary_window  DONE  viewId=%" G_GINT64_FORMAT
           "  token=%" G_GINT64_FORMAT, view_id, token);
+  return view_id;
 }
 
 void mvd_linux_detach_flutter_quit_on_window_close(
@@ -1276,31 +1218,9 @@ void multiview_desktop_plugin_register_with_registrar(
   fl_method_channel_set_method_call_handler(g_channel, method_cb, nullptr,
                                             nullptr);
 
-  FlMethodChannel* screen_ch = fl_method_channel_new(
-      messenger, "multiview_desktop/screen_retriever", FL_METHOD_CODEC(codec));
-  if (g_screen_channel) {
-    g_object_unref(g_screen_channel);
-  }
-  g_screen_channel = screen_ch;
-  fl_method_channel_set_method_call_handler(g_screen_channel, screen_method_cb,
-                                            nullptr, nullptr);
-
-  g_autoptr(FlStandardMethodCodec) event_codec = fl_standard_method_codec_new();
-  FlEventChannel* event_ch = fl_event_channel_new(
-      messenger, "multiview_desktop/screen_retriever_event",
-      FL_METHOD_CODEC(event_codec));
-  if (g_screen_event_channel) {
-    g_object_unref(g_screen_event_channel);
-  }
-  g_screen_event_channel = event_ch;
-  fl_event_channel_set_stream_handlers(
-      g_screen_event_channel, screen_stream_listen_cb, screen_stream_cancel_cb,
-      nullptr, nullptr);
-  MVD_LOG("register_with_registrar  DONE"
-          "  channels: main=%p screen=%p screen_event=%p",
-          static_cast<void*>(g_channel),
-          static_cast<void*>(g_screen_channel),
-          static_cast<void*>(g_screen_event_channel));
+  mvd_linux_screen_register(messenger);
+  MVD_LOG("register_with_registrar  DONE  channel=%p",
+          static_cast<void*>(g_channel));
 }
 
 }  // extern "C"
