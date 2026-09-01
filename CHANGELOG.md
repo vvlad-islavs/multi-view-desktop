@@ -1,3 +1,7 @@
+## 1.2.2
+
+- [Check README] Windows. Fixed other plugins registration and using. Minor native setting update
+
 ## 1.2.1
 
 - MacOS. Returned `closeAppAfterLastWindowClosed` param for more custom ways
