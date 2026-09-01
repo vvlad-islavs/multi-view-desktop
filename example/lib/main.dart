@@ -14,8 +14,9 @@ Future<void> initSystemTray() async {
   String path = Platform.isWindows ? 'assets/app_icon.ico' : 'assets/app_icon.png';
 
   await trayManager.setIcon(path);
-  await trayManager.setToolTip('toolTip');
-
+  if (!Platform.isLinux) {
+    await trayManager.setToolTip('toolTip');
+  }
 
   // create context menu
   final Menu menu = Menu(
@@ -33,8 +34,6 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runMultiApp(
     home: (globalScopeContext, id) {
-      initSystemTray();
-
       return const MainWindowRoot();
     },
     globalScope: (child) {
@@ -173,7 +172,6 @@ class _MainWindowRootState extends State<MainWindowRoot> with TrayListener {
   @override
   void initState() {
     super.initState();
-    trayManager.addListener(this);
 
     themeConfig.addListener(_onThemeChanged);
 
@@ -193,6 +191,8 @@ class _MainWindowRootState extends State<MainWindowRoot> with TrayListener {
       sharedConfig.isHideAppFromTaskbar = await MultiViewDesktop.isHideAppFromTaskbar();
       sharedConfig.closeMode = MultiViewDesktop.getCloseMode();
       sharedConfig.anchorId = MultiViewDesktop.getAnchorId();
+      await initSystemTray();
+      trayManager.addListener(this);
     });
   }
 
