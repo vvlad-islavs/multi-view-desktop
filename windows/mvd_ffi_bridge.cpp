@@ -31,6 +31,7 @@ void ClearRectBuf() {
 }
 
 double ScaleForWindow(multi_view_desktop::MultiViewDesktop* window) {
+  window->RefreshPixelRatio();
   const double scale = window->pixel_ratio_;
   return scale > 0 ? scale : 1.0;
 }
@@ -311,6 +312,41 @@ FLUTTER_PLUGIN_EXPORT void mvd_set_frame(int64_t view_id, double x, double y,
       {EV("width"), EV(w)},
       {EV("height"), EV(h)},
   });
+}
+
+FLUTTER_PLUGIN_EXPORT void mvd_get_physical_frame(int64_t view_id) {
+  auto* window = Win(view_id);
+  if (!window) {
+    ClearRectBuf();
+    return;
+  }
+  HWND hwnd = window->GetMainWindow();
+  RECT rect{};
+  if (!hwnd || !GetWindowRect(hwnd, &rect)) {
+    ClearRectBuf();
+    return;
+  }
+  g_rect_buf[0] = static_cast<double>(rect.left);
+  g_rect_buf[1] = static_cast<double>(rect.top);
+  g_rect_buf[2] = static_cast<double>(rect.right - rect.left);
+  g_rect_buf[3] = static_cast<double>(rect.bottom - rect.top);
+}
+
+FLUTTER_PLUGIN_EXPORT void mvd_set_physical_frame(int64_t view_id, double x,
+                                                  double y, double w,
+                                                  double h) {
+  auto* window = Win(view_id);
+  if (!window) {
+    return;
+  }
+  HWND hwnd = window->GetMainWindow();
+  if (!hwnd) {
+    return;
+  }
+  SetWindowPos(hwnd, nullptr, static_cast<int>(x), static_cast<int>(y),
+               static_cast<int>(w), static_cast<int>(h),
+               SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE);
+  window->RefreshPixelRatio();
 }
 
 FLUTTER_PLUGIN_EXPORT void mvd_get_display_rect(double x, double y, double w,

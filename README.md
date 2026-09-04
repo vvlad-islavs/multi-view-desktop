@@ -22,6 +22,8 @@ Unlike libraries that spawn a new Flutter engine per window, multiview_desktop u
   - [Entry shell (AppShell)](#entry-shell-appshell)
   - [Open a window](#open-a-window)
   - [Open a dialog](#open-a-dialog)
+  - [Open a popup](#open-a-popup)
+  - [Animations](#animations)
   - [Window options](#window-options)
   - [Dialog options](#dialog-options)
   - [Window events](#window-events)
@@ -42,6 +44,8 @@ Unlike libraries that spawn a new Flutter engine per window, multiview_desktop u
   - [DialogOptions](#dialogoptions-1)
   - [MultiAppConfig](#multiappconfig-1)
   - [CloseMode](#closemode-1)
+  - [ViewAnimationConfig](#viewanimationconfig)
+  - [PopupView](#popupview)
   - [Widgets](#widgets-1)
 
 ---
@@ -50,15 +54,15 @@ Unlike libraries that spawn a new Flutter engine per window, multiview_desktop u
 
 | Linux | macOS | Windows |
 |:-----:|:-----:|:-------:|
-|   +   |   +   |    +    |
+|  yes  |  yes  |   yes   |
 
-> **Linux note.** Multi-view on Linux works under both X11 and Wayland. On Wayland, the compositor controls window placement, so `setPosition`, `setAlignment`, and `center` may be ignored silently. On X11, client-side positioning is supported.
+> **Linux note.** Multi-view on Linux works under both X11 and Wayland. On Wayland, the compositor controls window placement, so `setPosition`, `setAlignment`, and `center` may be ignored silently. On X11, client-side positioning is supported. `PopupView` needs that positioning, so popups are disabled on Linux without X11 (Wayland). Use `GDK_BACKEND=x11` if you need popups.
 
 ---
 
 ## Architecture overview
 
-`runMultiApp` starts a single Flutter engine with multi-view mode enabled. Every OS window is a separate `FlutterView` attached to that engine. The Dart code for all windows runs in the same isolate, so widgets and state objects can be passed around like any other Dart value.
+`runMultiApp` starts a single Flutter engine with multi-view mode enabled. Every OS window is a separate `FlutterView` attached to that engine. The Dart code for all windows runs in the same isolate, so widgets and state objects can be passed around like any other Dart value. Native window chrome (size, position, title bar, and similar) is driven through a small FFI layer; application code talks to `MultiViewDesktop` and never to that layer directly.
 
 This is the key difference from multi-engine approaches:
 
@@ -180,6 +184,7 @@ The plugin registers `GApplication` actions and writes `~/.local/share/applicati
 
 - **X11 and Wayland.** Multi-view works on both session types. Under X11 the runner installs error handling for Flutter's multi-threaded GL rendering and defers window destruction to avoid raster-thread races.
 - **Window positioning on Wayland.** `setPosition`, `setAlignment`, and `center` use `gtk_window_move` under the hood. On Wayland the compositor controls window placement and the call is silently ignored. On X11 these calls use client-side coordinates.
+- **`PopupView`.** Disabled on Linux without X11. A popup is a native window that must be placed next to its trigger; that requires client-side positioning, which Wayland does not allow. On X11 (including `GDK_BACKEND=x11`) popups work. On Wayland, `PopupView` / `PopupController.open` do not create a popup.
 - **`setAlwaysOnTop`.** Uses `gtk_window_set_keep_above`. Whether the compositor respects this hint depends on the desktop environment.
 - **`setHasShadow`.** No-op on Linux. The native shadow is always drawn by the compositor.
 - **`setMovable`.** Maps to `setResizable` on Linux (there is no separate movability flag in GTK).
@@ -542,7 +547,7 @@ void main() {
     home: (context, id) => const MyApp(),
     config: MultiAppConfig(
       generalParams: MultiPlatformParams(
-        closeMode: CloseMode.cascade,
+        closeMode: CloseMode.softCascade,
         enableDynamicAnchor: true,
         menuItems: [
           TaskbarMenuItem(
@@ -763,6 +768,119 @@ ValueListenableBuilder<List<int>>(
   },
 )
 ```
+
+---
+
+### Open a popup
+
+`PopupView` opens a small native OS window anchored to a widget. Unlike a Flutter overlay, the popup is a real window: it can overlap other windows and leave the parent bounds. The child is built once per `PopupController.open` and reused if the trigger is unmounted (for example while scrolling a `ListView`).
+
+Requires an `Overlay` ancestor (`MaterialApp` provides one).
+
+Supported on macOS, Windows, and Linux with X11. On Linux without X11 (Wayland) popups are disabled: the compositor owns window placement, and a popup cannot be positioned next to its trigger. Use `GDK_BACKEND=x11` if you need popups on Linux.
+
+```dart
+final controller = PopupController();
+
+PopupView(
+  controller: controller,
+  positioner: const PopupPositioner(
+    parentAnchor: PopupPositionerAnchor.bottomLeft,
+    childAnchor: PopupPositionerAnchor.topLeft,
+  ),
+  builder: (context) => const MyMenu(),
+  child: TextButton(
+    onPressed: controller.toggle,
+    child: const Text('Menu'),
+  ),
+);
+```
+
+`open()`, `close()`, and `toggle()` on the controller are the user-facing API. Pass `animation:` to override the popup open/close fade for that call.
+
+While the popup is open, `controller.viewController` exposes chrome that does not affect placement: opacity, shadow, background color (Windows), and mouse pass-through.
+
+If the trigger leaves the visible clip or `PopupView` is unmounted, the native window is hidden until a visible `PopupView` is attached to the same controller again. `close()` ends the session and disposes the child.
+
+#### PopupPositioner
+
+| Field | Default | Description |
+|---|---|---|
+| `parentAnchor` | `bottomLeft` | Point on the trigger used as the attachment origin. |
+| `childAnchor` | `topLeft` | Point on the popup aligned to `parentAnchor`. |
+| `offset` | `Offset.zero` | Extra translation after aligning the anchors. |
+| `constraintAdjustment` | flip Y, slide X | What to do when the popup would leave the display. |
+
+`PopupConstraintAdjustment` flags: `flipX`, `flipY`, `slideX`, `slideY`, `resizeX`, `resizeY`.
+
+See [PopupView](#popupview) for the API summary.
+
+---
+
+### Animations
+
+Native window animations are configured once in `MultiAppConfig.generalParams.animation`. By default, windows, modeless dialogs, and popups fade in and out; size/position animation is off; modal dialogs do not fade.
+
+```dart
+runMultiApp(
+  home: (context, id) => const MyApp(),
+  config: MultiAppConfig(
+    generalParams: MultiPlatformParams(
+      animation: ViewAnimationConfig.all(),
+    ),
+  ),
+);
+```
+
+| Factory | What it enables |
+|---|---|
+| `ViewAnimationConfig.defaults` | Open/close fade for windows, modeless dialogs, and popups. Geometry off. |
+| `ViewAnimationConfig.disabled` | Everything off. |
+| `ViewAnimationConfig.openClose(...)` | Open/close fade only. |
+| `ViewAnimationConfig.geometry(...)` | `setSize`, `setPosition`, `setAlignment`, and `center` only. |
+| `ViewAnimationConfig.all(...)` | Fade and geometry. |
+
+Pass `fps:` to drive ticks on a timer. When omitted, ticks follow display frames.
+
+#### Soft override
+
+Pass `animation:` on a single call. Applied only when that animation type is already enabled in config:
+
+```dart
+await openWindow(
+  (_, __) => const SettingsPage(),
+  animation: const AnimationSettings(
+    duration: Duration(milliseconds: 280),
+    curve: Curves.easeOutCubic,
+  ),
+);
+
+await MultiViewDesktop.of(context).setSize(
+  const Size(900, 640),
+  animation: const AnimationSettings(duration: Duration(milliseconds: 200)),
+);
+
+await controller.open(
+  animation: const AnimationSettings(duration: Duration(milliseconds: 120)),
+);
+```
+
+Works on `openWindow`, `openDialog`, `closeWindow`, `closeDialog`, `setSize`, `setPosition`, `setAlignment`, `center`, and popup `open` / `close` / `toggle`.
+
+#### Force override
+
+`setForceAnimation` stages a one-shot animation that runs even if that type is disabled. It is consumed by the next matching operation. Not used for popups.
+
+```dart
+final win = MultiViewDesktop.of(context);
+win.setForceAnimation(
+  ViewAnimationType.setSize,
+  const AnimationSettings(duration: Duration(milliseconds: 400)),
+);
+await win.setSize(const Size(800, 600));
+```
+
+See [ViewAnimationConfig](#viewanimationconfig).
 
 ---
 
@@ -1054,7 +1172,7 @@ class _MyPageState extends State<MyPage> with WindowListener {
     );
     if (confirmed == true) {
       final win = MultiViewDesktop.of(context);
-      await win.setPreventClose(false);
+      win.setPreventClose(false);
       await win.closeWindow();
     }
   }
@@ -1070,17 +1188,17 @@ class _MyPageState extends State<MyPage> with WindowListener {
 Set it in `MultiAppConfig.generalParams.closeMode` at startup, or change it at runtime:
 
 ```dart
-await MultiViewDesktop.setCloseMode(CloseMode.cascade);
+MultiViewDesktop.setCloseMode(CloseMode.softCascade);
 ```
 
 | Mode | Behavior |
 |---|---|
-| `CloseMode.cascade` | Soft-close secondary windows one by one from newest to oldest, then soft-close the main window. Each window runs the full close cycle; use `cancelCascadeClose` inside `onWindowClose` to let the user abort. |
+| `CloseMode.softCascade` | Soft-close secondary windows one by one from newest to oldest, then soft-close the main window. Each window runs the full close cycle; use `cancelCascadeClose` inside `onWindowClose` to let the user abort. |
 | `CloseMode.none` | Close only the main window. Secondary windows stay open. |
 | `CloseMode.forceSecondary` | Force-close all secondary windows immediately, then soft-close the main window. |
 | `CloseMode.destroy` | Force-close every window without running any close cycle. |
 
-`CloseMode.cascade` is the default. It is the safest mode for apps that show unsaved-data dialogs, because each window gets a chance to respond before it is closed.
+`CloseMode.softCascade` is the default. It is the safest mode for apps that show unsaved-data dialogs, because each window gets a chance to respond before it is closed.
 
 To abort a cascade close from inside a secondary window (for example after a user presses Cancel in a dialog):
 
@@ -1089,7 +1207,7 @@ To abort a cascade close from inside a secondary window (for example after a use
 void onWindowClose() async {
   final confirmed = await showUnsavedChangesDialog();
   if (!confirmed) {
-    await MultiViewDesktop.of(context).cancelCascadeClose();
+    MultiViewDesktop.of(context).cancelCascadeClose();
   }
 }
 ```
@@ -1296,7 +1414,7 @@ runMultiApp(
   home: (context, id) => const MyApp(),
   config: MultiAppConfig(
     generalParams: MultiPlatformParams(
-      closeMode: CloseMode.cascade,
+      closeMode: CloseMode.softCascade,
       enableDynamicAnchor: true,
       menuItems: [
         TaskbarMenuItem(
@@ -1348,11 +1466,11 @@ Per-window methods are accessed through an instance obtained from a factory cons
 
 ```dart
 final win = MultiViewDesktop.of(context);
-await win.setTitle('My Window');
+win.setTitle('My Window');
 await win.closeWindow();
 
 // Or by view ID:
-await MultiViewDesktop.fromId(viewId).setAlwaysOnTop(true);
+MultiViewDesktop.fromId(viewId).setAlwaysOnTop(true);
 ```
 
 App-wide operations (not targeting a specific window) are static:
@@ -1372,6 +1490,10 @@ Returns the shifted view ID of the window that owns `context`.
 
 Shared entry shell for secondary and dialog views. Update through `patch` or `apply`. See [AppShell](#appshell).
 
+##### setGlobalBrightness(Brightness brightness) -> void
+
+Sets the preferred brightness for native chrome on all windows. Does not change Flutter `ThemeData`; use `appShell` for that.
+
 ##### allWindowViewIds -> List\<int\>
 
 Snapshot of public view IDs for all secondary windows currently open.
@@ -1388,6 +1510,54 @@ Snapshot of public view IDs for all dialogs currently open.
 
 Live-updating notifier. Fires whenever a dialog opens or closes.
 
+#### Screens (static)
+
+Access via `MultiViewDesktop.screen`. Display matching mixes physical overlap, DPI, and panel diagonal. DPI alone is not unique.
+
+```dart
+final screens = MultiViewDesktop.screen.all();
+final current = MultiViewDesktop.of(context).display();
+final covered = MultiViewDesktop.of(context).setPhysicalBounds(
+  current.physicalBounds ?? Rect.zero,
+);
+```
+
+##### screen.primary() -> Display
+
+Primary display (first entry in the system screen list).
+
+##### screen.all() -> List\<Display\>
+
+Every connected display.
+
+##### screen.cursorPoint() -> Offset
+
+Cursor position in Flutter logical coordinates.
+
+##### screen.cursorPhysicalPoint() -> Offset
+
+Cursor position in device pixels. On Windows this is the virtual-desktop point.
+
+##### screen.resolve({...}) -> Display
+
+Picks the display that best matches the given hints: `physicalPoint` / `physicalBounds`, `dpi`, `diagonalMm`, then logical point/bounds.
+
+##### screen.underCursor() -> Display
+
+Display under the cursor, falling back to the primary display.
+
+##### screen.addListener(ScreenListener listener) -> void
+
+Subscribes to `display-added` / `display-removed`.
+
+##### screen.removeListener(ScreenListener listener) -> void
+
+Removes a previously added screen listener.
+
+#### Display
+
+Snapshot of a connected monitor. Logical size/position use Flutter coordinates. `physicalBounds` / `physicalWorkArea` are device pixels. `dpi` and `physicalWidthMm` / `physicalHeightMm` (and `diagonalMm`) are used when matching displays; two monitors can share the same DPI.
+
 #### Identity (instance)
 
 ##### id -> int
@@ -1396,19 +1566,23 @@ The shifted (public) view ID for this instance.
 
 #### App-wide lifecycle (static)
 
-##### openWindow(Widget child, {WindowOptions? options, BuildContext? parentContext}) -> Future\<int\>
+##### openWindow(Widget child, {WindowOptions? options, BuildContext? parentContext, AnimationSettings? animation}) -> Future\<int\>
 
-Opens a new OS window showing `child`. Returns the view ID. Available as a top-level function; can be called without `BuildContext`.
+Opens a new OS window showing `child`. Returns the view ID. Available as a top-level function; can be called without `BuildContext`. `animation:` is a soft override; see [Animations](#animations).
 
-##### openDialog\<T\>(Widget child, {required BuildContext parentContext, DialogOptions? options}) -> Future\<T?\>
+##### openDialog\<T\>(Widget child, {required BuildContext parentContext, DialogOptions? options, AnimationSettings? animation}) -> Future\<T?\>
 
 Opens a dialog tied to `parentContext`. Completes when the dialog is closed via `closeDialog`. Parent must be a window, not another dialog. See [Open a dialog](#open-a-dialog).
 
-##### closeApp({CloseMode? closeMode}) -> Future\<void\>
+##### openDialogEntry\<T\>(...) -> Future\<DialogEntry\<T?\>\>
 
-Closes all windows using `closeMode` (or the mode configured in `MultiAppConfig`).
+Same as `openDialog`, but returns the public view ID immediately together with the result future.
 
-##### setCloseMode(CloseMode closeMode) -> Future\<void\>
+##### closeApp({CloseMode? closeMode}) -> Future\<bool\>
+
+Closes all windows using `closeMode` (or the mode configured in `MultiAppConfig`). Returns `true` if every window closed successfully.
+
+##### setCloseMode(CloseMode closeMode) -> void
 
 Changes the strategy used when the main window close button is pressed.
 
@@ -1416,7 +1590,7 @@ Changes the strategy used when the main window close button is pressed.
 
 Returns the currently active close mode.
 
-##### setAnchorId(int viewId) -> Future\<bool\>
+##### setAnchorId(int viewId) -> bool
 
 Sets the anchor view ID manually. Only valid for root views (views without a parent).
 
@@ -1426,269 +1600,301 @@ Returns the current anchor view ID, or `null` if none is set.
 
 #### Per-window lifecycle (instance)
 
-##### closeWindow() -> Future\<void\>
+##### setForceAnimation(ViewAnimationType type, AnimationSettings animation) -> void
 
-Soft-closes this window. If `setPreventClose` is `true`, emits `onWindowClose` instead of destroying the window.
+Stages a one-shot force animation for the next matching operation on this view. Runs even if that type is disabled in config. Not used for popups. See [Animations](#animations).
 
-##### closeDialog([dynamic result]) -> Future\<void\>
+##### closeWindow({AnimationSettings? animation}) -> Future\<bool\>
 
-Closes this dialog and completes the `openDialog` future on the caller side with `result`. No effect on regular windows.
+Soft-closes this window. If `setPreventClose` is `true`, emits `onWindowClose` instead of destroying the window. Returns `true` when the window finished closing, or `false` when the close was cancelled.
 
-##### isPreventClose() -> Future\<bool\>
+##### closeDialog([dynamic result, AnimationSettings? animation]) -> Future\<bool\>
+
+Closes this dialog and completes the `openDialog` future on the caller side with `result`. No effect on regular windows. Returns `true` when the dialog closed successfully.
+
+##### isPreventClose() -> bool
 
 Returns whether close is currently blocked for this window.
 
-##### setPreventClose(bool isPreventClose) -> Future\<void\>
+##### setPreventClose(bool isPreventClose) -> void
 
 When `true`, any close attempt (native button or `closeWindow`) is blocked and `onWindowClose` fires instead. Set back to `false` to re-enable.
 
-##### cancelCascadeClose() -> Future\<void\>
+##### cancelCascadeClose() -> void
 
-Aborts an in-progress `CloseMode.cascade` sequence that is waiting on this window.
+Aborts an in-progress `CloseMode.softCascade` sequence that is waiting on this window.
 
 #### Title and appearance (instance)
 
-##### getTitle() -> Future\<String\>
+##### getTitle() -> String
 
 Returns the native window title.
 
-##### setTitle(String title) -> Future\<void\>
+##### setTitle(String title) -> void
 
 Changes the native window title shown in the title bar and dock tooltip.
 
-##### setTitleBarStyle(TitleBarStyle style, {bool windowButtonVisibility = true}) -> Future\<void\>
+##### setTitleBarStyle(TitleBarStyle style, {bool closeVisibility = true, bool maximizeVisibility = true, bool minimizeVisibility = true}) -> void
 
-Changes the title-bar style. Pass `TitleBarStyle.hidden` for a frameless window. `windowButtonVisibility` controls whether the traffic-light / caption buttons are still drawn when the bar is hidden.
+Changes the title-bar style. Pass `TitleBarStyle.hidden` for a frameless window. The visibility flags control the close / maximize / minimize buttons when the bar is hidden.
 
-##### getTitleBarStyle() -> Future\<({TitleBarStyle? style, bool? buttonVisibility})\>
+##### getTitleBarStyle() -> ({TitleBarStyle? style, bool? closeVisibility, bool? maximizeVisibility, bool? minimizeVisibility})
 
 Returns the current title-bar style and button visibility.
 
-##### setAsFrameless() -> Future\<void\>
+##### setAsFrameless() -> void
 
 Removes the native title bar and border entirely.
 
-##### setBackgroundColor(Color color) -> Future\<void\>
+##### setBackgroundColor(Color color) -> void
 
 Sets the native window background color behind the Flutter view. Use `Colors.transparent` for a transparent window.
 
-##### setBrightness(Brightness brightness) -> Future\<void\>
+##### setBrightness(Brightness brightness) -> void
 
 Sets the preferred appearance of native chrome (light or dark).
 
-##### setOpacity(double opacity) -> Future\<void\>
+##### setOpacity(double opacity) -> void
 
 Sets window opacity in the range `0.0` (fully transparent) to `1.0` (fully opaque).
 
-##### getOpacity() -> Future\<double\>
+##### getOpacity() -> double
 
 Returns the current window opacity.
 
-##### hasShadow() -> Future\<bool\>
+##### hasShadow() -> bool
 
 Returns whether the window draws a native drop shadow.
 
-##### setHasShadow(bool value) -> Future\<void\>
+##### setHasShadow(bool value) -> void
 
 Enables or disables the native drop shadow. No-op on Linux.
 
 #### Size and position (instance)
 
-##### getBounds() -> Future\<Rect\>
+##### getBounds() -> Rect
 
 Returns the window frame in Flutter logical coordinates (position and size combined).
 
-##### getSize() -> Future\<Size\>
+##### getPhysicalBounds() -> Rect
+
+Returns the window frame in device pixels (Y-down). Use with `Display.physicalBounds` on mixed-DPI layouts. Logical coordinates cannot span those layouts reliably.
+
+##### setPhysicalBounds(Rect rect) -> bool
+
+Moves and resizes the window using device pixels. Does not activate and does not animate. Returns `false` if `rect` is empty.
+
+##### display() -> Display
+
+Display that currently contains most of this window. Matching mixes physical overlap, DPI, and panel diagonal.
+
+##### getSize() -> Size
 
 Returns the content size in logical pixels.
 
-##### getPosition() -> Future\<Offset\>
+##### getPosition() -> Offset
 
 Returns the top-left position of the window.
 
-##### setSize(Size size) -> Future\<void\>
+##### getMinimumSize() -> Size
 
-Resizes the window to `size` in logical pixels.
+Returns the minimum size the user can resize the window to.
 
-##### setPosition(Offset position) -> Future\<void\>
+##### getMaximumSize() -> Size
+
+Returns the maximum size the user can resize the window to.
+
+##### setSize(Size size, {AnimationSettings? animation}) -> Future\<bool\>
+
+Resizes the window to `size` in logical pixels. Returns `false` if `size` is outside the current min/max.
+
+##### setPosition(Offset position, {AnimationSettings? animation}) -> Future\<void\>
 
 Moves the window so its top-left corner is at `position`. On Wayland (Linux) the compositor may ignore the request silently.
 
-##### center() -> Future\<void\>
+##### center({AnimationSettings? animation}) -> Future\<void\>
 
 Centers the window on the screen that contains the largest portion of it.
 
-##### setAlignment(Alignment alignment) -> Future\<void\>
+##### setAlignment(Alignment alignment, {AnimationSettings? animation}) -> Future\<void\>
 
 Positions the window using `alignment` on the display under the cursor. On Wayland (Linux) the compositor may ignore the request silently.
 
-##### setMinimumSize(Size size) -> Future\<void\>
+##### setDialogAlignment(Alignment alignment, {AnimationSettings? animation}) -> Future\<void\>
 
-Sets the minimum size the user can resize the window to.
+Repositions a dialog within its parent window bounds. Regular windows should use `setAlignment`.
 
-##### setMaximumSize(Size size) -> Future\<void\>
+##### setMinimumSize(Size size) -> bool
 
-Sets the maximum size the user can resize the window to.
+Sets the minimum size the user can resize the window to. Returns `false` while an aspect ratio is locked, or if `size` exceeds the current maximum.
 
-##### setAspectRatio(double ratio) -> Future\<void\>
+##### setMaximumSize(Size size) -> bool
 
-Locks the content area to a fixed aspect ratio (`width / height`). Pass `0` to remove the constraint.
+Sets the maximum size the user can resize the window to. Returns `false` while an aspect ratio is locked, or if `size` is below the current minimum.
+
+##### getAspectRatio() -> double
+
+Returns the locked content aspect ratio (`width / height`). Returns `0` when no ratio is locked.
+
+##### setAspectRatio(double ratio) -> Future\<bool\>
+
+Locks the content area to a fixed aspect ratio (`width / height`) and resizes to match, keeping the current center. Pass `0` to remove the constraint. Returns `false` if the matching size or tightened min/max cannot be applied. Per-window: each view keeps its own lock and the min/max that were in effect before it.
 
 #### Visibility and focus (instance)
 
-##### show() -> Future\<void\>
+##### show() -> void
 
 Shows the window if it was hidden.
 
-##### hide() -> Future\<void\>
+##### hide() -> void
 
 Hides the window without closing it.
 
-##### isVisible() -> Future\<bool\>
+##### isVisible() -> bool
 
 Returns whether the window is currently visible.
 
-##### focus() -> Future\<void\>
+##### focus() -> void
 
 Brings the window to the front and gives it keyboard focus.
 
-##### blur() -> Future\<void\>
+##### blur() -> void
 
 Removes keyboard focus from the window.
 
-##### isFocused() -> Future\<bool\>
+##### isFocused() -> bool
 
 Returns whether this window is the current focused window.
 
 #### Maximize, minimize, full screen (instance)
 
-##### isMaximized() -> Future\<bool\>
+##### isMaximized() -> bool
 
 Returns whether the window is in the maximized state.
 
-##### maximize({bool vertically = false}) -> Future\<void\>
+##### maximize({bool vertically = false}) -> void
 
-Maximizes the window.
+Maximizes the window. When `vertically` is true (Windows only), maximizes to half the screen height.
 
-##### unmaximize() -> Future\<void\>
+##### unmaximize() -> void
 
 Restores the window from the maximized state.
 
-##### isMinimized() -> Future\<bool\>
+##### isMinimized() -> bool
 
 Returns whether the window is minimized to the dock or taskbar.
 
-##### minimize() -> Future\<void\>
+##### minimize() -> void
 
 Minimizes the window.
 
-##### restore() -> Future\<void\>
+##### restore() -> void
 
 Restores the window from the minimized state.
 
-##### isFullScreen() -> Future\<bool\>
+##### isFullScreen() -> bool
 
 Returns whether the window is in native full-screen mode.
 
-##### setFullScreen(bool isFullScreen) -> Future\<void\>
+##### setFullScreen(bool isFullScreen) -> void
 
 Enters or exits native full-screen mode.
 
 #### Resizability and movability (instance)
 
-##### isResizable() -> Future\<bool\>
+##### isResizable() -> bool
 
 Returns whether the user can resize the window by dragging its edges.
 
-##### setResizable(bool isResizable) -> Future\<void\>
+##### setResizable(bool isResizable) -> void
 
 Enables or disables user resizing.
 
-##### isMovable() -> Future\<bool\>
+##### isMovable() -> bool
 
 Returns whether the window can be moved by dragging the title bar.
 
-##### setMovable(bool isMovable) -> Future\<void\>
+##### setMovable(bool isMovable) -> void
 
 Enables or disables moving the window by dragging. On Linux this maps to `setResizable`.
 
-##### isMinimizable() -> Future\<bool\>
+##### isMinimizable() -> bool
 
 Returns whether the minimize button is enabled.
 
-##### setMinimizable(bool isMinimizable) -> Future\<void\>
+##### setMinimizable(bool isMinimizable) -> void
 
 Enables or disables the minimize button and action.
 
-##### isMaximizable() -> Future\<bool\>
+##### isMaximizable() -> bool
 
 Returns whether the maximize / zoom button is enabled.
 
-##### setMaximizable(bool isMaximizable) -> Future\<void\>
+##### setMaximizable(bool isMaximizable) -> void
 
 Enables or disables the maximize button and action.
 
-##### isClosable() -> Future\<bool\>
+##### isClosable() -> bool
 
 Returns whether the close button is enabled.
 
-##### setClosable(bool isClosable) -> Future\<void\>
+##### setClosable(bool isClosable) -> void
 
 Enables or disables the close button and native close action.
 
 #### Always on top and taskbar
 
-##### isAlwaysOnTop() -> Future\<bool\>  (instance)
+##### isAlwaysOnTop() -> bool  (instance)
 
 Returns whether the window floats above normal application windows.
 
-##### setAlwaysOnTop(bool isAlwaysOnTop) -> Future\<void\>  (instance)
+##### setAlwaysOnTop(bool isAlwaysOnTop) -> void  (instance)
 
 Keeps the window above other windows. On Linux depends on compositor support.
 
-##### isHideAppFromTaskbar() -> Future\<bool\>  (static)
+##### isHideAppFromTaskbar() -> bool  (static)
 
 Returns whether the application icon is hidden from the dock / taskbar (app-wide).
 
-##### hideAppFromTaskbar(bool isHideAppFromTaskbar) -> Future\<void\>  (static)
+##### hideAppFromTaskbar(bool isHideAppFromTaskbar) -> void  (static)
 
 Hides or shows the application icon in the dock / taskbar app-wide.
 
-##### setMenuItems(List\<TaskbarMenuItem\> items) -> Future\<void\>  (static)
+##### setMenuItems(List\<TaskbarMenuItem\> items) -> void  (static)
 
 Replaces the entire taskbar / dock context menu. Linux (freedesktop `.desktop` Actions), macOS (dock menu), Windows (taskbar jump list). Optional `iconAsset` on Windows and macOS; Linux shows the title only.
 
 Initial items can also be set via `MultiPlatformParams.menuItems` in `runMultiApp`.
 
-##### isHideAppTabFromTaskbar() -> Future\<bool\>  (instance)
+##### isHideAppTabFromTaskbar() -> bool  (instance)
 
 Returns whether this specific window is hidden from the taskbar (Windows / Linux).
 
-##### hideCurrentAppTabFromTaskbar(bool isHide) -> Future\<void\>  (instance)
+##### hideCurrentAppTabFromTaskbar(bool isHide) -> void  (instance)
 
 Hides or shows this window in the taskbar (Windows / Linux).
 
 #### Drag and resize (instance, used by widgets)
 
-##### startDragging() -> Future\<void\>
+##### startDragging() -> void
 
 Starts a native window-move drag session. Called automatically by `DragToMoveArea`.
 
-##### startResizing(ResizeEdge edge) -> Future\<void\>
+##### startResizing(ResizeEdge edge) -> void
 
 Starts a native window-resize drag session from `edge`. Called automatically by `DragToResizeArea`.
 
 #### Mouse events (instance)
 
-##### setIgnoreMouseEvents(bool ignore, {bool mouseMoveEvents = false}) -> Future\<void\>
+##### setIgnoreMouseEvents(bool ignore, {bool mouseMoveEvents = false}) -> void
 
 When `ignore` is `true`, all mouse events pass through the window. If `mouseMoveEvents` is `true`, mouse move events still arrive despite `ignore` being set.
 
-##### isIgnoreMouseEvents() -> Future\<({bool mouseMoveEvents, bool ignore})\>
+##### isIgnoreMouseEvents() -> ({bool mouseMoveEvents, bool ignore})
 
 Returns the current mouse pass-through state.
 
-##### popUpWindowMenu() -> Future\<void\>
+##### popUpWindowMenu() -> void
 
 Shows the native window context menu at the current cursor position.
 
@@ -1698,37 +1904,37 @@ Access via `MultiViewDesktop.of(context).macos` (or `.fromId(id).macos`).
 
 ```dart
 final mac = MultiViewDesktop.of(context).macos;
-await mac.setVisibleOnAllWorkspaces(true);
-final onSpace = await mac.isOnActiveSpace();
+mac.setVisibleOnAllWorkspaces(true);
+final onSpace = mac.isOnActiveSpace();
 ```
 
-##### isHideFromCollection() -> Future\<bool\>
+##### isHideFromCollection() -> bool
 
 Returns whether the window is excluded from Mission Control.
 
-##### hideFromCollection(bool isHideFromCollection) -> Future\<void\>
+##### hideFromCollection(bool isHideFromCollection) -> void
 
-Hides or shows the window in Mission Control and Exposé.
+Hides or shows the window in Mission Control and Expose.
 
-##### isVisibleOnAllWorkspaces() -> Future\<bool\>
+##### isVisibleOnAllWorkspaces() -> bool
 
 Returns whether the window is pinned to all Spaces.
 
-##### setVisibleOnAllWorkspaces(bool visible, {bool visibleOnFullScreen = false}) -> Future\<void\>
+##### setVisibleOnAllWorkspaces(bool visible, {bool visibleOnFullScreen = false}) -> void
 
 Pins or unpins the window across all Spaces.
 
-##### isOnActiveSpace() -> Future\<bool\>
+##### isOnActiveSpace() -> bool
 
 Returns whether the window is on the currently active Mission Control Space. On Windows / Linux always `true`.
 
-##### setBadgeLabel({String? label}) -> Future\<void\>
+##### setBadgeLabel({String? label}) -> void
 
 Sets the dock icon badge text. Pass `null` to clear the badge.
 
 #### Progress bar
 
-##### setProgressBar(double progress) -> Future\<void\>
+##### setProgressBar(double progress) -> bool
 
 Sets the taskbar / dock progress indicator from `0.0` to `1.0`. App-wide on Windows. macOS shows progress in the dock.
 
@@ -1955,11 +2161,13 @@ Passed to `runMultiApp` once.
 
 Cross-platform parameters.
 
-`closeMode` - the `CloseMode` used when the main window closes. Default: `CloseMode.cascade`.
+`closeMode` - the `CloseMode` used when the main window closes. Default: `CloseMode.softCascade`.
 
-`enableDynamicAnchor` - when `true`, automatically tracks the last visible window as the anchor. Default: `true`.
+`enableDynamicAnchor` - when `true`, automatically tracks the last visible window as the anchor. Default: `false`.
 
 `menuItems` - initial taskbar / dock context menu items (`TaskbarMenuItem`). Default: empty. Replaced at runtime by `MultiViewDesktop.setMenuItems`. Optional `iconAsset` per item on Windows and macOS; Linux shows the title only.
+
+`animation` - native open/close fade and optional geometry animation. Default: `ViewAnimationConfig.defaults`. See [Animations](#animations).
 
 ##### macosParams -> MacosPlatformParams
 
@@ -1987,7 +2195,7 @@ List of observers notified on window and dialog lifecycle events. See [Window ob
 
 Controls what happens to other windows when the main window close button is pressed.
 
-##### cascade
+##### softCascade
 
 Default. Soft-closes secondary windows one by one from newest to oldest, then soft-closes the main window. Each window runs through the full close cycle (prevent-close check, `onWindowClose`). Use `cancelCascadeClose` inside a confirmation dialog to let the user abort without losing unsaved work.
 
@@ -2002,6 +2210,105 @@ Force-closes all secondary windows immediately, then soft-closes the main window
 ##### destroy
 
 Force-closes every window without running any close cycle.
+
+---
+
+### ViewAnimationConfig
+
+Application-wide native view animation policy. Pass as `MultiPlatformParams.animation`. Full usage guide: [Animations](#animations).
+
+##### ViewAnimationConfig.defaults
+
+Open/close fade for windows, modeless dialogs, and popups. Geometry off. Modal dialogs do not fade.
+
+##### ViewAnimationConfig.disabled
+
+Everything off.
+
+##### ViewAnimationConfig.openClose(...)
+
+Open/close fade only. Optional `fps`, `curve`, and per-kind durations.
+
+##### ViewAnimationConfig.geometry({int? fps, Duration duration, Curve curve})
+
+Size/position animation only (`setSize`, `setPosition`, `setAlignment`, `center`).
+
+##### ViewAnimationConfig.all(...)
+
+Fade and geometry together.
+
+#### AnimationSettings
+
+Per-call timing override: `duration`, `curve`, `fps`. Pass as `animation:` on `openWindow`, `setSize`, `closeWindow`, popup `open` / `close`, and similar. Soft overrides apply only when that type is already enabled. Force overrides go through `setForceAnimation`.
+
+---
+
+### PopupView
+
+Native popup window anchored to a widget. Full usage guide: [Open a popup](#open-a-popup).
+
+Supported on macOS, Windows, and Linux with X11. Disabled on Linux without X11 (Wayland), because popup placement needs client-side positioning.
+
+```dart
+PopupView(
+  controller: controller,
+  positioner: const PopupPositioner(),
+  builder: (context) => const MyMenu(),
+  child: trigger,
+)
+```
+
+##### controller -> PopupController
+
+Opens, closes, and holds the popup child for the open session.
+
+##### builder -> WidgetBuilder
+
+Built once per `PopupController.open` and reused if this widget remounts.
+
+##### child -> Widget
+
+Trigger widget the popup is anchored to.
+
+##### positioner -> PopupPositioner
+
+How the popup is placed relative to `child`. Defaults to below-left of the trigger, flipping vertically and sliding horizontally to stay on screen.
+
+#### PopupController
+
+##### isOpen -> bool
+
+Whether the popup is currently requested open.
+
+##### open({AnimationSettings? animation}) -> Future\<void\>
+
+Opens the popup. No-op when already open.
+
+##### close({AnimationSettings? animation}) -> Future\<void\>
+
+Closes the popup and drops the native window and cached child.
+
+##### toggle({AnimationSettings? animation}) -> Future\<void\>
+
+Toggles `open` / `close`.
+
+##### viewController -> PopupViewController
+
+Opacity, shadow, background color (Windows), and mouse pass-through. Position and size stay with `PopupView`.
+
+#### PopupPositioner
+
+##### parentAnchor / childAnchor -> PopupPositionerAnchor
+
+Attachment points on the trigger and on the popup.
+
+##### offset -> Offset
+
+Extra translation after aligning the anchors.
+
+##### constraintAdjustment -> PopupConstraintAdjustment
+
+Flip, slide, or resize when the popup would leave the display.
 
 ---
 

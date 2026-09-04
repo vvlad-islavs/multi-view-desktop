@@ -4,6 +4,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -58,6 +59,65 @@ UINT MwmGetDpiForMonitor(HMONITOR monitor) {
   return dpi_x;
 }
 
+UINT MwmGetDpiForWindow(HWND hwnd) {
+  using GetDpiForWindowFn = UINT(WINAPI*)(HWND);
+  static GetDpiForWindowFn fn = []() -> GetDpiForWindowFn {
+    HMODULE module = LoadLibraryW(L"user32.dll");
+    return module ? reinterpret_cast<GetDpiForWindowFn>(
+                        GetProcAddress(module, "GetDpiForWindow"))
+                  : nullptr;
+  }();
+  if (fn && hwnd) {
+    const UINT dpi = fn(hwnd);
+    if (dpi > 0) {
+      return dpi;
+    }
+  }
+  const HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+  return MwmGetDpiForMonitor(monitor);
+}
+
+void MwmPhysicalSizeMm(HMONITOR monitor, double* width_mm, double* height_mm) {
+  if (width_mm) {
+    *width_mm = 0;
+  }
+  if (height_mm) {
+    *height_mm = 0;
+  }
+  MONITORINFOEXW info{};
+  info.cbSize = sizeof(info);
+  if (!GetMonitorInfoW(monitor, &info)) {
+    return;
+  }
+  HDC hdc = CreateDCW(info.szDevice, nullptr, nullptr, nullptr);
+  if (!hdc) {
+    return;
+  }
+  const int mm_w = GetDeviceCaps(hdc, HORZSIZE);
+  const int mm_h = GetDeviceCaps(hdc, VERTSIZE);
+  DeleteDC(hdc);
+  if (width_mm && mm_w > 0) {
+    *width_mm = static_cast<double>(mm_w);
+  }
+  if (height_mm && mm_h > 0) {
+    *height_mm = static_cast<double>(mm_h);
+  }
+}
+
+double MwmOverlapArea(double ax, double ay, double aw, double ah, double bx,
+                      double by, double bw, double bh) {
+  const double left = std::max(ax, bx);
+  const double top = std::max(ay, by);
+  const double right = std::min(ax + aw, bx + bw);
+  const double bottom = std::min(ay + ah, by + bh);
+  const double w = right - left;
+  const double h = bottom - top;
+  if (w <= 0 || h <= 0) {
+    return 0;
+  }
+  return w * h;
+}
+
 std::string MwmWcharToUtf8(const wchar_t* wstr) {
   const int len =
       WideCharToMultiByte(CP_UTF8, 0, wstr, -1, nullptr, 0, nullptr, nullptr);
@@ -104,20 +164,39 @@ struct DisplayBits {
   double vis_w = 0;
   double vis_h = 0;
   double scale = 1;
+  double dpi = 96;
+  double phys_x = 0;
+  double phys_y = 0;
+  double phys_w = 0;
+  double phys_h = 0;
+  double work_x = 0;
+  double work_y = 0;
+  double work_w = 0;
+  double work_h = 0;
+  double mm_w = 0;
+  double mm_h = 0;
 };
 
 DisplayBits MonitorBits(const MwmMonitorData& data) {
   DisplayBits bits;
   constexpr double k_base_dpi = 96.0;
-  bits.scale = MwmGetDpiForMonitor(data.handle) / k_base_dpi;
-  bits.vis_x = std::round(data.workarea.left / bits.scale);
-  bits.vis_y = std::round(data.workarea.top / bits.scale);
-  bits.vis_w =
-      std::round((data.workarea.right - data.workarea.left) / bits.scale);
-  bits.vis_h =
-      std::round((data.workarea.bottom - data.workarea.top) / bits.scale);
-  bits.w = std::round(data.geometry.right / bits.scale - bits.vis_x);
-  bits.h = std::round(data.geometry.bottom / bits.scale - bits.vis_y);
+  bits.dpi = MwmGetDpiForMonitor(data.handle);
+  bits.scale = bits.dpi / k_base_dpi;
+  bits.phys_x = data.geometry.left;
+  bits.phys_y = data.geometry.top;
+  bits.phys_w = data.geometry.right - data.geometry.left;
+  bits.phys_h = data.geometry.bottom - data.geometry.top;
+  bits.work_x = data.workarea.left;
+  bits.work_y = data.workarea.top;
+  bits.work_w = data.workarea.right - data.workarea.left;
+  bits.work_h = data.workarea.bottom - data.workarea.top;
+  bits.vis_x = std::round(bits.work_x / bits.scale);
+  bits.vis_y = std::round(bits.work_y / bits.scale);
+  bits.vis_w = std::round(bits.work_w / bits.scale);
+  bits.vis_h = std::round(bits.work_h / bits.scale);
+  bits.w = std::round(bits.phys_w / bits.scale);
+  bits.h = std::round(bits.phys_h / bits.scale);
+  MwmPhysicalSizeMm(data.handle, &bits.mm_w, &bits.mm_h);
 
   MONITORINFOEX info_ex;
   info_ex.cbSize = sizeof(MONITORINFOEX);
@@ -148,13 +227,22 @@ std::string DisplayBitsToJson(const DisplayBits& bits) {
     << ",\"height\":" << bits.h << "},\"visiblePosition\":{\"dx\":" << bits.vis_x
     << ",\"dy\":" << bits.vis_y << "},\"visibleSize\":{\"width\":" << bits.vis_w
     << ",\"height\":" << bits.vis_h << "},\"scaleFactor\":" << bits.scale
-    << "}";
+    << ",\"dpi\":" << bits.dpi << ",\"physicalBounds\":{\"x\":" << bits.phys_x
+    << ",\"y\":" << bits.phys_y << ",\"width\":" << bits.phys_w
+    << ",\"height\":" << bits.phys_h << "},\"physicalWorkArea\":{\"x\":"
+    << bits.work_x << ",\"y\":" << bits.work_y << ",\"width\":" << bits.work_w
+    << ",\"height\":" << bits.work_h << "}";
+  if (bits.mm_w > 0 && bits.mm_h > 0) {
+    o << ",\"physicalWidthMm\":" << bits.mm_w << ",\"physicalHeightMm\":"
+      << bits.mm_h;
+  }
+  o << "}";
   return o.str();
 }
 
 flutter::EncodableMap MonitorToMap(const MwmMonitorData& data) {
   const DisplayBits bits = MonitorBits(data);
-  return flutter::EncodableMap{
+  flutter::EncodableMap map = {
       {flutter::EncodableValue("id"), flutter::EncodableValue(bits.id)},
       {flutter::EncodableValue("name"), flutter::EncodableValue(bits.name)},
       {flutter::EncodableValue("size"),
@@ -176,7 +264,33 @@ flutter::EncodableMap MonitorToMap(const MwmMonitorData& data) {
        })},
       {flutter::EncodableValue("scaleFactor"),
        flutter::EncodableValue(bits.scale)},
+      {flutter::EncodableValue("dpi"), flutter::EncodableValue(bits.dpi)},
+      {flutter::EncodableValue("physicalBounds"),
+       flutter::EncodableValue(flutter::EncodableMap{
+           {flutter::EncodableValue("x"), flutter::EncodableValue(bits.phys_x)},
+           {flutter::EncodableValue("y"), flutter::EncodableValue(bits.phys_y)},
+           {flutter::EncodableValue("width"),
+            flutter::EncodableValue(bits.phys_w)},
+           {flutter::EncodableValue("height"),
+            flutter::EncodableValue(bits.phys_h)},
+       })},
+      {flutter::EncodableValue("physicalWorkArea"),
+       flutter::EncodableValue(flutter::EncodableMap{
+           {flutter::EncodableValue("x"), flutter::EncodableValue(bits.work_x)},
+           {flutter::EncodableValue("y"), flutter::EncodableValue(bits.work_y)},
+           {flutter::EncodableValue("width"),
+            flutter::EncodableValue(bits.work_w)},
+           {flutter::EncodableValue("height"),
+            flutter::EncodableValue(bits.work_h)},
+       })},
   };
+  if (bits.mm_w > 0 && bits.mm_h > 0) {
+    map[flutter::EncodableValue("physicalWidthMm")] =
+        flutter::EncodableValue(bits.mm_w);
+    map[flutter::EncodableValue("physicalHeightMm")] =
+        flutter::EncodableValue(bits.mm_h);
+  }
+  return map;
 }
 
 void CursorPoint(double device_pixel_ratio, double* x, double* y) {
@@ -286,6 +400,69 @@ void HandleScreenCall(
 }  // namespace
 
 namespace multi_view_desktop {
+
+UINT MvdWindowsDpiForMonitor(HMONITOR monitor) {
+  return MwmGetDpiForMonitor(monitor);
+}
+
+double MvdWindowsScaleForMonitor(HMONITOR monitor) {
+  const UINT dpi = MwmGetDpiForMonitor(monitor);
+  const double scale = dpi / 96.0;
+  return scale > 0 ? scale : 1.0;
+}
+
+double MvdWindowsScaleForHwnd(HWND hwnd) {
+  if (!hwnd) {
+    return 1.0;
+  }
+  const UINT dpi = MwmGetDpiForWindow(hwnd);
+  const double scale = dpi / 96.0;
+  return scale > 0 ? scale : 1.0;
+}
+
+void MvdWindowsPhysicalSizeMm(HMONITOR monitor, double* width_mm,
+                              double* height_mm) {
+  MwmPhysicalSizeMm(monitor, width_mm, height_mm);
+}
+
+double MvdWindowsScaleForLogicalRect(double x, double y, double w, double h) {
+  std::vector<MwmMonitorData> monitors;
+  EnumDisplayMonitors(nullptr, nullptr, MwmEnumMonitorsProc,
+                      reinterpret_cast<LPARAM>(&monitors));
+  if (monitors.empty()) {
+    return 1.0;
+  }
+
+  double best_scale = MvdWindowsScaleForMonitor(monitors.front().handle);
+  double best_score = -1;
+  double best_diag = -1;
+  for (const auto& data : monitors) {
+    const double scale = MvdWindowsScaleForMonitor(data.handle);
+    const double phys_w = data.geometry.right - data.geometry.left;
+    const double phys_h = data.geometry.bottom - data.geometry.top;
+    const double lx = data.geometry.left / scale;
+    const double ly = data.geometry.top / scale;
+    const double lw = phys_w / scale;
+    const double lh = phys_h / scale;
+    const double logical_overlap = MwmOverlapArea(x, y, w, h, lx, ly, lw, lh);
+    const double physical_overlap = MwmOverlapArea(
+        x * scale, y * scale, w * scale, h * scale, data.geometry.left,
+        data.geometry.top, phys_w, phys_h);
+    double mm_w = 0;
+    double mm_h = 0;
+    MwmPhysicalSizeMm(data.handle, &mm_w, &mm_h);
+    const double diag = (mm_w > 0 && mm_h > 0)
+                            ? std::hypot(mm_w, mm_h)
+                            : std::hypot(phys_w, phys_h);
+    const double score = logical_overlap + physical_overlap;
+    if (score > best_score || (score == best_score && diag > best_diag)) {
+      best_score = score;
+      best_diag = diag;
+      best_scale = scale;
+    }
+  }
+  return best_scale > 0 ? best_scale : 1.0;
+}
 
 void MvdWindowsRegisterScreenRetriever(
     flutter::BinaryMessenger* messenger,

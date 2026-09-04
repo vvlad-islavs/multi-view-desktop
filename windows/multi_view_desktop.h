@@ -128,6 +128,7 @@ class MultiViewDesktop {
   HWND GetMainWindow();
   void ForceRefresh();
   void ForceChildRefresh();
+  void RefreshPixelRatio();
   void SetAsFrameless();
   void Close();
   void SetConfirmClose(const flutter::EncodableMap& args);

@@ -21,6 +21,10 @@ import 'view_root.dart' show globalRootState;
 /// win.macos.setVisibleOnAllWorkspaces(true);
 /// win.macos.isOnActiveSpace();
 ///
+/// // Displays:
+/// MultiViewDesktop.screen.all();
+/// win.display();
+///
 /// // Or inline:
 /// MultiViewDesktop.of(context).closeWindow();
 /// MultiViewDesktop.fromId(id).setAlwaysOnTop(true);
@@ -47,6 +51,9 @@ class MultiViewDesktop {
 
   /// macOS-only window APIs (Spaces, Mission Control, dock badge).
   MultiViewDesktopMacos get macos => MultiViewDesktopMacos(_realId, _proxies);
+
+  /// Connected displays, cursor position, and display matching.
+  static MultiViewDesktopScreen get screen => MultiViewDesktopScreen.instance;
 
   MultiViewDesktop._({required int realId}) : _realId = realId;
 
@@ -419,6 +426,30 @@ class MultiViewDesktop {
     return _proxies.position.getBounds(_realId);
   }
 
+  /// Returns the window frame in device pixels (Y-down virtual desktop).
+  ///
+  /// Use this with [Display.physicalBounds] to cover a monitor. Logical
+  /// coordinates cannot span mixed-DPI layouts reliably.
+  Rect getPhysicalBounds() => _proxies.position.getPhysicalBounds(_realId);
+
+  /// Moves and resizes the window using device pixels. Does not activate.
+  ///
+  /// Returns `false` if [rect] is empty. No animation and no min/max check.
+  bool setPhysicalBounds(Rect rect) => _proxies.position.setPhysicalBounds(_realId, rect);
+
+  /// Display that currently contains most of this window.
+  ///
+  /// Matching mixes physical overlap, DPI, and panel diagonal. See
+  /// [MultiViewDesktopScreen.resolve].
+  Display display() {
+    return screen.resolve(physicalBounds: getPhysicalBounds(), logicalBounds: getBounds());
+  }
+
+  /// Returns the locked content aspect ratio (`width / height`).
+  ///
+  /// Returns `0` when no ratio is locked. Use [setAspectRatio] with `0` to clear.
+  double getAspectRatio() => _proxies.position.getAspectRatio(_realId);
+
   /// Returns the content size in logical pixels.
   Size getSize() => getBounds().size;
 
@@ -442,8 +473,7 @@ class MultiViewDesktop {
       _proxies.position.setPosition(_realId, position, animation: animation);
 
   /// Centers the window on the screen that contains the largest portion of it.
-  Future<void> center({AnimationSettings? animation}) =>
-      _proxies.position.center(_realId, animation: animation);
+  Future<void> center({AnimationSettings? animation}) => _proxies.position.center(_realId, animation: animation);
 
   /// Positions the window using `alignment` on the display under the cursor.
   Future<void> setAlignment(Alignment alignment, {AnimationSettings? animation}) =>
@@ -453,12 +483,7 @@ class MultiViewDesktop {
   ///
   /// Only meaningful for dialog views. Regular windows should use `setAlignment`.
   Future<void> setDialogAlignment(Alignment alignment, {AnimationSettings? animation}) =>
-      _proxies.position.setAlignment(
-        _realId,
-        alignment,
-        insideParent: true,
-        animation: animation,
-      );
+      _proxies.position.setAlignment(_realId, alignment, insideParent: true, animation: animation);
 
   /// Sets the minimum size the user can resize the window to.
   ///

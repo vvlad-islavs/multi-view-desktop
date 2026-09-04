@@ -7,6 +7,13 @@ void main() {
       TestWidgetsFlutterBinding.ensureInitialized();
     });
 
+    test('getCursorPhysicalPoint throws when native is unavailable', () {
+      expect(
+        () => ScreenRetriever.instance.getCursorPhysicalPoint(),
+        throwsA(isA<Exception>()),
+      );
+    });
+
     test('getCursorScreenPoint throws when native is unavailable', () {
       expect(
         () => ScreenRetriever.instance.getCursorScreenPoint(),

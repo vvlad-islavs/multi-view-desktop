@@ -232,6 +232,7 @@ namespace multi_view_desktop {
                 return HTNOWHERE;
             }
         } else if (message == WM_GETMINMAXINFO) {
+            window->RefreshPixelRatio();
             MINMAXINFO *info = reinterpret_cast<MINMAXINFO *>(lparam);
             if (window->minimum_size_.x != 0) {
                 info->ptMinTrackSize.x = static_cast<LONG>(
@@ -264,6 +265,7 @@ namespace multi_view_desktop {
                 EmitEvent("moved", view_id);
                 window->is_moving_ = false;
             }
+            window->RefreshPixelRatio();
             return false;
         } else if (message == WM_MOVING) {
             window->is_moving_ = true;

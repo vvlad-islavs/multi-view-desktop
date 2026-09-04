@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../screen_retriever/display_matcher.dart';
 import '../screen_retriever/screen_retriever.dart';
 
 /// macOS title-bar inset. Without it parent-relative dialogs sit too low.
@@ -14,7 +15,7 @@ class WindowPositionCalculator {
   WindowPositionCalculator({Display Function()? resolveDisplay})
     : _resolveDisplay = resolveDisplay ?? _displayUnderCursorOrPrimary;
 
-  /// Shared production instance for low-level callers ([FfiBridge], [NativeChannel]).
+  /// Shared production instance for low-level callers ([FfiBridge]).
   static final WindowPositionCalculator instance = WindowPositionCalculator();
 
   final Display Function() _resolveDisplay;
@@ -135,15 +136,11 @@ Display _displayUnderCursorOrPrimary() {
   final screenRetriever = ScreenRetriever.instance;
   final Display primaryDisplay = screenRetriever.getPrimaryDisplay();
   final List<Display> allDisplays = screenRetriever.getAllDisplays();
-  final Offset cursorScreenPoint = screenRetriever.getCursorScreenPoint();
 
-  return allDisplays.firstWhere(
-    (display) => Rect.fromLTWH(
-      display.visiblePosition?.dx ?? 0,
-      display.visiblePosition?.dy ?? 0,
-      display.size.width,
-      display.size.height,
-    ).contains(cursorScreenPoint),
-    orElse: () => primaryDisplay,
+  return DisplayMatcher.pick(
+    displays: allDisplays,
+    fallback: primaryDisplay,
+    physicalPoint: screenRetriever.getCursorPhysicalPoint(),
+    logicalPoint: screenRetriever.getCursorScreenPoint(),
   );
 }

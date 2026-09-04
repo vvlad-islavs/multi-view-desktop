@@ -10,7 +10,7 @@ void main() {
   group('close integration', () {
     test('softCascade closes nested tree then root', () async {
       final h = LifecycleTestHarness();
-      // root 1 → child 2 → grandchild 3; sibling 4 under 1
+      // root 1 -> child 2 -> grandchild 3; sibling 4 under 1
       h.seedWindow(1);
       h.seedWindow(2, parentId: 1);
       h.seedWindow(3, parentId: 2);
@@ -18,7 +18,7 @@ void main() {
 
       final future = h.closeService.closeSubtreeByMode(1, CloseMode.softCascade);
 
-      // deepest-first: [3,2,4] sorted → [2,3,4] reversed → 4,3,2
+      // deepest-first: [3,2,4] sorted -> [2,3,4] reversed -> 4,3,2
       for (final id in [4, 3, 2]) {
         await Future<void>.delayed(Duration.zero);
         expect(h.ffi.callsFor('softCloseWindow').last, 'softCloseWindow:$id');
@@ -39,7 +39,7 @@ void main() {
 
       final future = h.closeService.closeApp(mode: CloseMode.forceSecondary);
 
-      // roots sorted [10,20] reversed → 20 then 10
+      // roots sorted [10,20] reversed -> 20 then 10
       await Future<void>.delayed(Duration.zero);
       h.completeClose(20);
       await Future<void>.delayed(Duration.zero);
@@ -116,7 +116,7 @@ void main() {
       final future = h.closeService.closeApp(mode: CloseMode.destroy);
 
       await Future<void>.delayed(Duration.zero);
-      // roots reversed → 10 then 1
+      // roots reversed -> 10 then 1
       h.completeClose(10);
       await Future<void>.delayed(Duration.zero);
       expect(h.ffi.hasCall('forceCloseView:2'), isTrue);

@@ -629,8 +629,8 @@ class _HomePageState extends State<HomePage> with WindowListener {
                 ],
                 _tile(
                   'setSize',
-                  subtitle: '760 x 560',
-                  onTap: () => MultiViewDesktop.of(context).setSize(const Size(760, 560)),
+                  subtitle: '1000 x 850',
+                  onTap: () => MultiViewDesktop.of(context).setSize(const Size(1000, 850)),
                 ),
                 _tile(
                   'setAspectRatio',
@@ -1085,7 +1085,7 @@ class _PopupDemoBodyState extends State<_PopupDemoBody> {
               const SizedBox(height: 8),
               TextButton(
                 onPressed: _ignoreMouse ? null : _clickThroughBriefly,
-                child: Text(_ignoreMouse ? 'Click-through for 2s…' : 'Ignore mouse 2s'),
+                child: Text(_ignoreMouse ? 'Click-through for 2s...' : 'Ignore mouse 2s'),
               ),
               Align(
                 alignment: Alignment.centerRight,

@@ -14,15 +14,12 @@ private extension NSScreen {
             name = localizedName
         }
         let primaryMaxY = NSScreen.screens.first?.frame.maxY ?? frame.maxY
+        let scale = backingScaleFactor
 
-        // Full screen bounds in Flutter coords.
         let size: NSDictionary = [
             "width": frame.width,
             "height": frame.height,
         ]
-
-        // Visible area (excludes Dock / menu bar) in Flutter coords.
-        // visibleFrame.origin is in Cocoa coords (Y-up from primary bottom).
         let vf = visibleFrame
         let visiblePosition: NSDictionary = [
             "dx": vf.origin.x,
@@ -32,14 +29,35 @@ private extension NSScreen {
             "width": vf.width,
             "height": vf.height,
         ]
-
-        return [
+        let physicalBounds: NSDictionary = [
+            "x": frame.minX * scale,
+            "y": (primaryMaxY - frame.maxY) * scale,
+            "width": frame.width * scale,
+            "height": frame.height * scale,
+        ]
+        let physicalWorkArea: NSDictionary = [
+            "x": vf.minX * scale,
+            "y": (primaryMaxY - vf.maxY) * scale,
+            "width": vf.width * scale,
+            "height": vf.height * scale,
+        ]
+        let mm = CGDisplayScreenSize(mvdDisplayID)
+        var dict: [String: Any] = [
             "id": mvdDisplayID.description,
             "name": name,
             "size": size,
             "visiblePosition": visiblePosition,
             "visibleSize": visibleSize,
+            "scaleFactor": scale,
+            "dpi": 96.0 * scale,
+            "physicalBounds": physicalBounds,
+            "physicalWorkArea": physicalWorkArea,
         ]
+        if mm.width > 0 && mm.height > 0 {
+            dict["physicalWidthMm"] = mm.width
+            dict["physicalHeightMm"] = mm.height
+        }
+        return dict as NSDictionary
     }
 }
 

@@ -26,6 +26,7 @@ library;
 
 export 'src/multi_view_desktop.dart';
 export 'src/multi_view_desktop_macos.dart';
+export 'src/multi_view_desktop_screen.dart';
 export 'src/resize_edge.dart';
 export 'src/run_multi_app.dart';
 export 'src/view_animation_config.dart' hide ViewGeometryAnimationPolicy, ViewOpenCloseAnimationPolicy;

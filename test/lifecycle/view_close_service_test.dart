@@ -28,7 +28,7 @@ void main() {
 
       final future = h.closeService.closeSubtreeByMode(1, CloseMode.softCascade);
 
-      // Descendants sorted then reversed → 3 then 2.
+      // Descendants sorted then reversed -> 3 then 2.
       await Future<void>.delayed(Duration.zero);
       expect(h.ffi.callsFor('softCloseWindow'), ['softCloseWindow:3']);
       h.completeClose(3);
@@ -112,7 +112,7 @@ void main() {
 
       final future = h.closeService.closeSubtreeByMode(1, CloseMode.softCascade);
       await Future<void>.delayed(Duration.zero);
-      // Complete cascade wait but leave 2 in registry → early return before root.
+      // Complete cascade wait but leave 2 in registry -> early return before root.
       h.completeClose(2);
       await future;
 
@@ -175,7 +175,7 @@ void main() {
 
       final future = h.closeService.closeApp(mode: CloseMode.none);
       await Future<void>.delayed(Duration.zero);
-      // roots sorted [1,2], reversed → 2 then 1
+      // roots sorted [1,2], reversed -> 2 then 1
       h.completeClose(2);
       await Future<void>.delayed(Duration.zero);
       h.completeClose(1);
@@ -352,7 +352,7 @@ void main() {
 
       final future = h.closeService.handeFirstCloseStep(1);
       await Future<void>.delayed(Duration.zero);
-      // next candidates excluding 1 → [2], reversed still [2]
+      // next candidates excluding 1 -> [2], reversed still [2]
       h.completeClose(2);
       await Future<void>.delayed(Duration.zero);
       h.completeClose(1);
@@ -388,7 +388,7 @@ void main() {
 
       final future = h.closeService.handeFirstCloseStep(1);
       await Future<void>.delayed(Duration.zero);
-      // candidates excluding 1 → [2,3] reversed → 3 then 2
+      // candidates excluding 1 -> [2,3] reversed -> 3 then 2
       h.cascade.abort(3);
       await future;
 

@@ -78,7 +78,7 @@ abstract class ViewOwnerBase {
         : ViewCreateCompleter.window(viewId, parentId: parentId);
   }
 
-  /// Shows the window and runs open fade in parallel (opacity 0 → 1).
+  /// Shows the window and runs open fade in parallel (opacity 0 -> 1).
   Future<void> showWithFadeIn(int viewId) async {
     await host.animationController.animateOpen(
       viewId,

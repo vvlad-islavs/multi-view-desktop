@@ -248,6 +248,28 @@ public func mvdSetFrame(_ viewId: Int64, _ x: Double, _ y: Double, _ w: Double, 
     }
 }
 
+@_cdecl("mvd_get_physical_frame")
+public func mvdGetPhysicalFrame(_ viewId: Int64) {
+    guard let window = win(viewId) else {
+        _rectBuf[0] = 0; _rectBuf[1] = 0; _rectBuf[2] = 0; _rectBuf[3] = 0
+        return
+    }
+    let scale = Double(window.backingScaleFactor)
+    let tl = window.frame.topLeft
+    _rectBuf[0] = Double(tl.x) * scale
+    _rectBuf[1] = Double(tl.y) * scale
+    _rectBuf[2] = Double(window.frame.width) * scale
+    _rectBuf[3] = Double(window.frame.height) * scale
+}
+
+@_cdecl("mvd_set_physical_frame")
+public func mvdSetPhysicalFrame(_ viewId: Int64, _ x: Double, _ y: Double, _ w: Double, _ h: Double) {
+    guard let window = win(viewId) else { return }
+    let scale = Double(window.screen?.backingScaleFactor ?? window.backingScaleFactor)
+    if scale <= 0 { return }
+    mvdSetFrame(viewId, x / scale, y / scale, w / scale, h / scale)
+}
+
 @_cdecl("mvd_get_display_rect")
 public func mvdGetDisplayRect(_ x: Double, _ y: Double, _ w: Double, _ h: Double) {
     let screens = NSScreen.screens

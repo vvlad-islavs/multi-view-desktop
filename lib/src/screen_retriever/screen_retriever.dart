@@ -1,4 +1,5 @@
 import 'dart:convert' show jsonDecode;
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -53,6 +54,15 @@ class ScreenRetriever {
   /// (Y-down, origin at top-left of the primary screen).
   Offset getCursorScreenPoint() {
     final result = ScreenFfi.instance.getCursorScreenPoint(devicePixelRatio: _devicePixelRatio);
+    if (result == null) throw Exception('Unable to get cursor screen point.');
+    return result;
+  }
+
+  /// Cursor in device pixels. On Windows pass through virtual-desktop coords.
+  /// On Linux native coords are already physical. On macOS same as logical points.
+  Offset getCursorPhysicalPoint() {
+    final ratio = Platform.isMacOS ? _devicePixelRatio : 1.0;
+    final result = ScreenFfi.instance.getCursorScreenPoint(devicePixelRatio: ratio);
     if (result == null) throw Exception('Unable to get cursor screen point.');
     return result;
   }

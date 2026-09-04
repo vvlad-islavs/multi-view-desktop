@@ -12,6 +12,15 @@ import 'package:multiview_desktop/src/view_manager/view_native_host.dart';
 import 'package:multiview_desktop/src/view_manager/view_size_constraints.dart';
 
 @internal
+class AspectRatioInfo {
+  final Size minSizeBefore;
+  final Size maxSizeBefore;
+  final double ratio;
+
+  AspectRatioInfo({required this.minSizeBefore, required this.maxSizeBefore, required this.ratio});
+}
+
+@internal
 class ViewPositionProxy extends ViewNativeProxy {
   ViewPositionProxy(
     super.host, {
@@ -28,12 +37,20 @@ class ViewPositionProxy extends ViewNativeProxy {
 
   final Map<int, int> _geometryGeneration = {};
 
-  Size? _minTempSize;
-  Size? _maxTempSize;
+  final Map<int, AspectRatioInfo> _aspectRatioMap = {};
 
   Rect? getDisplayRect(Rect query) => ffi.getDisplayRect(query);
 
   Rect getBounds(int viewId) => call(viewId, () => ffi.getBounds(viewId), dialogSupports: true) ?? Rect.zero;
+
+  Rect getPhysicalBounds(int viewId) =>
+      call(viewId, () => ffi.getPhysicalBounds(viewId), dialogSupports: true) ?? Rect.zero;
+
+  bool setPhysicalBounds(int viewId, Rect rect) {
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    call(viewId, () => ffi.setPhysicalBounds(viewId, rect), dialogSupports: true);
+    return true;
+  }
 
   Size getSize(int viewId) => call(viewId, () => ffi.getSize(viewId), dialogSupports: true) ?? Size.zero;
 
@@ -42,6 +59,8 @@ class ViewPositionProxy extends ViewNativeProxy {
   Size getMinimumSize(int viewId) => call(viewId, () => ffi.getMinSize(viewId), dialogSupports: true) ?? Size.zero;
 
   Size getMaximumSize(int viewId) => call(viewId, () => ffi.getMaxSize(viewId), dialogSupports: true) ?? Size.infinite;
+
+  double getAspectRatio(int viewId) => _aspectRatioMap[viewId]?.ratio ?? 0;
 
   bool setFrameBounds(int viewId, Rect rect, {bool dialogSupports = true}) {
     if (!isCorrectSize(viewId, rect.size)) return false;
@@ -71,14 +90,14 @@ class ViewPositionProxy extends ViewNativeProxy {
   }
 
   bool setMinimumSize(int viewId, Size size) {
-    if (_hasAspectLock || _sizeConstraints.sizeAboveMaximum(size, getMaximumSize(viewId))) return false;
+    if (_hasAspectLock(viewId) || _sizeConstraints.sizeAboveMaximum(size, getMaximumSize(viewId))) return false;
 
     call(viewId, () => ffi.setMinSize(viewId, size: size), dialogSupports: true);
     return true;
   }
 
   bool setMaximumSize(int viewId, Size size) {
-    if (_hasAspectLock || _sizeConstraints.sizeBelowMinimum(size, getMinimumSize(viewId))) return false;
+    if (_hasAspectLock(viewId) || _sizeConstraints.sizeBelowMinimum(size, getMinimumSize(viewId))) return false;
 
     call(viewId, () => ffi.setMaxSize(viewId, size: size), dialogSupports: true);
     return true;
@@ -86,49 +105,46 @@ class ViewPositionProxy extends ViewNativeProxy {
 
   Future<bool> setAspectRatio(int viewId, double ratio) async {
     if (ratio <= 0) {
+      final aspectInfo = _aspectRatioMap.remove(viewId);
+      final minSizeBefore = aspectInfo?.minSizeBefore;
+      final maxSizeBefore = aspectInfo?.maxSizeBefore;
+
       call(viewId, () => ffi.setAspectRatio(viewId, ratio), dialogSupports: true);
-      final origMin = _minTempSize;
-      final origMax = _maxTempSize;
-      _minTempSize = null;
-      _maxTempSize = null;
-      if (origMax != null) {
-        call(viewId, () => ffi.setMaxSize(viewId, size: origMax), dialogSupports: true);
+      if (maxSizeBefore != null) {
+        call(viewId, () => ffi.setMaxSize(viewId, size: maxSizeBefore), dialogSupports: true);
       }
-      if (origMin != null) {
-        call(viewId, () => ffi.setMinSize(viewId, size: origMin), dialogSupports: true);
+      if (minSizeBefore != null) {
+        call(viewId, () => ffi.setMinSize(viewId, size: minSizeBefore), dialogSupports: true);
       }
       return true;
     }
 
-    _minTempSize ??= getMinimumSize(viewId);
-    _maxTempSize ??= getMaximumSize(viewId);
+    final prevRatioInfo = _aspectRatioMap[viewId];
+    final minTempSize = prevRatioInfo?.minSizeBefore ?? getMinimumSize(viewId);
+    final maxTempSize = prevRatioInfo?.maxSizeBefore ?? getMaximumSize(viewId);
 
     final current = getSize(viewId);
-    final target = _sizeConstraints.sizeLockedToAspectRatio(
-      current,
-      ratio,
-      minSize: _minTempSize!,
-      maxSize: _maxTempSize!,
-    );
+    final target = _sizeConstraints.sizeLockedToAspectRatio(current, ratio, minSize: minTempSize, maxSize: maxTempSize);
+    if (target == current || target.width < 0 || target.height < 0) return false;
 
-    if (target != current && target.width > 0 && target.height > 0) {
-      final resized = await setSize(viewId, target);
-      if (!resized) return false;
-      call(viewId, () => ffi.setAspectRatio(viewId, ratio), dialogSupports: true);
-    }
+    final resized = await setSize(viewId, target);
+    if (!resized) return false;
 
-    final fittedMin = _sizeConstraints.minSizeForAspectRatio(_minTempSize!, ratio);
-    final fittedMax = _sizeConstraints.maxSizeForAspectRatio(_maxTempSize!, ratio);
+    call(viewId, () => ffi.setAspectRatio(viewId, ratio), dialogSupports: true);
+
+    final fittedMin = _sizeConstraints.minSizeForAspectRatio(minTempSize, ratio);
+    final fittedMax = _sizeConstraints.maxSizeForAspectRatio(maxTempSize, ratio);
     if (fittedMin.width > fittedMax.width || fittedMin.height > fittedMax.height) {
       MvdLog.instance.error(runtimeType.toString(), 'min fit > max fit aspect ratio');
     }
 
     call(viewId, () => ffi.setMaxSize(viewId, size: fittedMax), dialogSupports: true);
     call(viewId, () => ffi.setMinSize(viewId, size: fittedMin), dialogSupports: true);
+    _aspectRatioMap[viewId] = AspectRatioInfo(minSizeBefore: minTempSize, maxSizeBefore: maxTempSize, ratio: ratio);
     return true;
   }
 
-  bool get _hasAspectLock => _minTempSize != null || _maxTempSize != null;
+  bool _hasAspectLock(int viewId) => _aspectRatioMap[viewId] != null;
 
   Future<void> center(int viewId, {AnimationSettings? animation}) =>
       setAlignment(viewId, Alignment.center, animation: animation);
@@ -223,10 +239,6 @@ class ViewPositionProxy extends ViewNativeProxy {
 
   @visibleForTesting
   bool isCorrectSize(int viewId, Size size) {
-    return _sizeConstraints.isCorrectSize(
-      size,
-      minSize: getMinimumSize(viewId),
-      maxSize: getMaximumSize(viewId),
-    );
+    return _sizeConstraints.isCorrectSize(size, minSize: getMinimumSize(viewId), maxSize: getMaximumSize(viewId));
   }
 }

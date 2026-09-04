@@ -75,9 +75,7 @@ const _kNoViewId = -1;
 const _kRectBufSymbol = 'mvd_rect_buf_ptr';
 const _kStrCap = 8192;
 
-/// Synchronous FFI surface mirroring [NativeChannel], without replacing it.
-///
-/// Channel handlers keep working. This bridge calls the same native functions.
+/// Synchronous FFI surface for native window operations.
 @internal
 abstract class FfiBridge implements Finalizable {
   FfiBridge._() : _lib = null;
@@ -130,6 +128,8 @@ abstract class FfiBridge implements Finalizable {
 
   late final _getFrameN = _lib!.lookupFunction<_V1N, _V1D>('mvd_get_frame');
   late final _setFrameN = _lib!.lookupFunction<_V4dN, _V4dD>('mvd_set_frame');
+  late final _getPhysicalFrameN = _lib!.lookupFunction<_V1N, _V1D>('mvd_get_physical_frame');
+  late final _setPhysicalFrameN = _lib!.lookupFunction<_V4dN, _V4dD>('mvd_set_physical_frame');
   late final _getDisplayRectN = _lib!.lookupFunction<_DispN, _DispD>('mvd_get_display_rect');
   late final _setSizeN = _lib!.lookupFunction<_V2dN, _V2dD>('mvd_set_size');
   late final _setPositionN = _lib!.lookupFunction<_V2dN, _V2dD>('mvd_set_position');
@@ -225,7 +225,7 @@ abstract class FfiBridge implements Finalizable {
     fn(viewId);
   }
 
-  /// Native -> Dart events (`onEvent`). Same handler shape as [NativeChannel.setMethodCallHandler].
+  /// Native -> Dart events (`onEvent`).
   void setMethodCallHandler(dynamic Function(MethodCall) handler) {
     _eventHandler = handler;
     _ensureEventCallable();
@@ -246,7 +246,7 @@ abstract class FfiBridge implements Finalizable {
   /// Nulls native Dart callbacks left by a previous isolate (hot restart).
   ///
   /// [NativeCallable] is deleted with the isolate; the C pointer is not.
-  /// The next native emit (`setAlwaysOnTop` → `WM_*` → `mvd_emit_event`)
+  /// The next native emit (`setAlwaysOnTop` -> `WM_*` -> `mvd_emit_event`)
   /// would fatal: "Callback invoked after it has been deleted".
   void clearOldNativeCallbacks() {
     if (!_supported) return;
@@ -449,6 +449,21 @@ abstract class FfiBridge implements Finalizable {
   void setFrame(int viewId, Rect rect) {
     if (!_supported) return;
     _setFrameN(viewId, rect.left, rect.top, rect.width, rect.height);
+  }
+
+  /// Frame of the OS window [viewId] in device pixels.
+  Rect? getPhysicalFrame(int viewId) {
+    if (!_supported) return null;
+    _getPhysicalFrameN(viewId);
+    if (_buf[2] == 0 && _buf[3] == 0) return null;
+    return Rect.fromLTWH(_buf[0], _buf[1], _buf[2], _buf[3]);
+  }
+
+  Rect getPhysicalBounds(int viewId) => getPhysicalFrame(viewId) ?? Rect.zero;
+
+  void setPhysicalBounds(int viewId, Rect rect) {
+    if (!_supported) return;
+    _setPhysicalFrameN(viewId, rect.left, rect.top, rect.width, rect.height);
   }
 
   Rect? getDisplayRect(Rect query) {
@@ -789,6 +804,9 @@ class RecordingFfiBridge extends FfiBridge {
   /// Optional canned bounds for [getFrame] / [getBounds].
   final Map<int, Rect> frames = {};
 
+  /// Optional canned physical bounds for [getPhysicalFrame].
+  final Map<int, Rect> physicalFrames = {};
+
   /// Optional canned min/max size for [getMinSize] / [getMaxSize].
   final Map<int, Size> minSizes = {};
   final Map<int, Size> maxSizes = {};
@@ -898,6 +916,18 @@ class RecordingFfiBridge extends FfiBridge {
   void setFrame(int viewId, Rect rect) {
     frames[viewId] = rect;
     _rec('setFrame:$viewId:${rect.left},${rect.top},${rect.width},${rect.height}');
+  }
+
+  @override
+  Rect? getPhysicalFrame(int viewId) => physicalFrames[viewId];
+
+  @override
+  Rect getPhysicalBounds(int viewId) => physicalFrames[viewId] ?? Rect.zero;
+
+  @override
+  void setPhysicalBounds(int viewId, Rect rect) {
+    physicalFrames[viewId] = rect;
+    _rec('setPhysicalBounds:$viewId:${rect.left},${rect.top},${rect.width},${rect.height}');
   }
 
   @override

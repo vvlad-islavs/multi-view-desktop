@@ -16,6 +16,7 @@
 #include "include/multi_view_desktop/multi_view_desktop.h"
 
 #include "multi_view_desktop.h"
+#include "mvd_windows_screen.h"
 #include "mvd_windows_taskbar_menu.h"
 
 #pragma comment(lib, "dwmapi.lib")
@@ -820,7 +821,13 @@ int64_t MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &arg
     const bool window_button_visibility =
             BoolFromMap(args, "windowButtonVisibility", true);
 
-    const double scale = DefaultMonitorScaleFactor();
+    const auto *position = std::get_if<flutter::EncodableMap>(
+            ValueOrNull(args, "position"));
+    const double scale = position != nullptr
+            ? MvdWindowsScaleForLogicalRect(
+                    DoubleFromMap(*position, "x", 0),
+                    DoubleFromMap(*position, "y", 0), width, height)
+            : DefaultMonitorScaleFactor();
     const int client_width = static_cast<int>(width * scale);
     const int client_height = static_cast<int>(height * scale);
 
@@ -873,13 +880,14 @@ int64_t MultiViewDesktop::CreateSecondaryWindow(const flutter::EncodableMap &arg
         }
     }
 
-    const auto *position = std::get_if<flutter::EncodableMap>(
-            ValueOrNull(args, "position"));
     if (position != nullptr && window) {
         flutter::EncodableMap pos_args = *position;
         window->SetPosition(pos_args);
     } else if (window) {
         window->Center();
+    }
+    if (window) {
+        window->RefreshPixelRatio();
     }
 
     FlutterDesktopViewControllerForceRedraw(view_controller);
@@ -909,7 +917,17 @@ int64_t MultiViewDesktop::CreateModalDialogWindow(
         return -1;
     }
 
-    const double scale = DefaultMonitorScaleFactor();
+    const auto *position = std::get_if<flutter::EncodableMap>(
+            ValueOrNull(args, "position"));
+    double scale = DefaultMonitorScaleFactor();
+    if (position != nullptr) {
+        scale = MvdWindowsScaleForLogicalRect(
+                DoubleFromMap(*position, "x", 0),
+                DoubleFromMap(*position, "y", 0), width, height);
+    } else if (parent != nullptr && parent->GetMainWindow()) {
+        parent->RefreshPixelRatio();
+        scale = parent->pixel_ratio_ > 0 ? parent->pixel_ratio_ : 1.0;
+    }
     const int client_width = static_cast<int>(width * scale);
     const int client_height = static_cast<int>(height * scale);
 
@@ -984,17 +1002,16 @@ int64_t MultiViewDesktop::CreateModalDialogWindow(
 
     if (is_modal && parent_hwnd != nullptr) {
         CenterDialogOnOwner(host_hwnd, parent_hwnd);
-    } else {
-        const auto *position = std::get_if<flutter::EncodableMap>(
-                ValueOrNull(args, "position"));
-        if (position != nullptr && window) {
-            flutter::EncodableMap pos_args = *position;
-            window->SetPosition(pos_args);
-        } else if (parent_hwnd != nullptr) {
-            CenterDialogOnOwner(host_hwnd, parent_hwnd);
-        } else if (window) {
-            window->Center();
-        }
+    } else if (position != nullptr && window) {
+        flutter::EncodableMap pos_args = *position;
+        window->SetPosition(pos_args);
+    } else if (parent_hwnd != nullptr) {
+        CenterDialogOnOwner(host_hwnd, parent_hwnd);
+    } else if (window) {
+        window->Center();
+    }
+    if (window) {
+        window->RefreshPixelRatio();
     }
 
     FlutterDesktopViewControllerForceRedraw(view_controller);
@@ -1032,7 +1049,9 @@ int64_t MultiViewDesktop::CreatePopupWindow(const flutter::EncodableMap &args) {
         return -1;
     }
 
-    const double scale = DefaultMonitorScaleFactor();
+    parent->RefreshPixelRatio();
+    const double scale =
+            parent->pixel_ratio_ > 0 ? parent->pixel_ratio_ : DefaultMonitorScaleFactor();
     const int client_width = static_cast<int>(width * scale);
     const int client_height = static_cast<int>(height * scale);
 
@@ -1080,6 +1099,9 @@ int64_t MultiViewDesktop::CreatePopupWindow(const flutter::EncodableMap &args) {
         window->SetSkipTaskbar(skip_args);
     }
     ResizeFlutterContent(window);
+    if (window) {
+        window->RefreshPixelRatio();
+    }
     FlutterDesktopViewControllerForceRedraw(view_controller);
 
     EmitEvent("viewCreated", flutter_view_id, token);
@@ -1088,6 +1110,14 @@ int64_t MultiViewDesktop::CreatePopupWindow(const flutter::EncodableMap &args) {
 
 HWND MultiViewDesktop::GetMainWindow() {
     return native_window;
+}
+
+void MultiViewDesktop::RefreshPixelRatio() {
+    HWND hwnd = GetMainWindow();
+    if (!hwnd) {
+        return;
+    }
+    pixel_ratio_ = MvdWindowsScaleForHwnd(hwnd);
 }
 
 void MultiViewDesktop::ForceRefresh() {
@@ -1299,32 +1329,7 @@ void MultiViewDesktop::Restore() {
 }
 
 double MultiViewDesktop::GetDpiForHwnd(HWND hWnd) {
-    auto monitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
-    UINT newDpiX = 96;  // Default values
-    UINT newDpiY = 96;
-
-    // Dynamically load shcore.dll and get the GetDpiForMonitor function address
-    // We need to do this to ensure Windows 7 support
-    HMODULE shcore = LoadLibrary(TEXT("shcore.dll"));
-    if (shcore) {
-        typedef HRESULT (*GetDpiForMonitor)(HMONITOR, int, UINT *, UINT *);
-
-        GetDpiForMonitor GetDpiForMonitorFunc =
-                (GetDpiForMonitor) GetProcAddress(shcore, "GetDpiForMonitor");
-
-        if (GetDpiForMonitorFunc) {
-            // Use the loaded function if available
-            const int MDT_EFFECTIVE_DPI = 0;
-            if (FAILED(GetDpiForMonitorFunc(monitor, MDT_EFFECTIVE_DPI, &newDpiX,
-                                            &newDpiY))) {
-                // If it fails, set the default values again
-                newDpiX = 96;
-                newDpiY = 96;
-            }
-        }
-        FreeLibrary(shcore);
-    }
-    return ((double) newDpiX);
+    return MvdWindowsScaleForHwnd(hWnd) * 96.0;
 }
 
 bool MultiViewDesktop::IsFullScreen() {
@@ -1509,6 +1514,7 @@ void MultiViewDesktop::SetBackgroundColor(const flutter::EncodableMap &args) {
 flutter::EncodableMap MultiViewDesktop::GetBounds(
         const flutter::EncodableMap &args) {
     HWND hwnd = GetMainWindow();
+    RefreshPixelRatio();
     const double device_pixel_ratio =
             pixel_ratio_ > 0 ? pixel_ratio_ : GetDpiForHwnd(hwnd) / 96.0;
 
@@ -1529,6 +1535,7 @@ flutter::EncodableMap MultiViewDesktop::GetBounds(
 
 void MultiViewDesktop::SetSize(const flutter::EncodableMap &args) {
     HWND hwnd = GetMainWindow();
+    RefreshPixelRatio();
     const double width = DoubleFromMap(args, "width", 0);
     const double height = DoubleFromMap(args, "height", 0);
     RECT rect{};
@@ -1545,11 +1552,16 @@ void MultiViewDesktop::SetPosition(const flutter::EncodableMap &args) {
     const double y = DoubleFromMap(args, "y", 0);
     RECT rect{};
     GetWindowRect(hwnd, &rect);
+    const double current_scale = pixel_ratio_ > 0 ? pixel_ratio_ : 1.0;
+    const double width = (rect.right - rect.left) / current_scale;
+    const double height = (rect.bottom - rect.top) / current_scale;
+    pixel_ratio_ = MvdWindowsScaleForLogicalRect(x, y, width, height);
     const int left = static_cast<int>(x * pixel_ratio_);
     const int top = static_cast<int>(y * pixel_ratio_);
     SetWindowPos(hwnd, nullptr, left, top, rect.right - rect.left,
                  rect.bottom - rect.top,
                  SWP_NOZORDER | SWP_NOOWNERZORDER);
+    RefreshPixelRatio();
 }
 
 void MultiViewDesktop::SetPopupBounds(const flutter::EncodableMap &args) {
@@ -1558,12 +1570,14 @@ void MultiViewDesktop::SetPopupBounds(const flutter::EncodableMap &args) {
     const double y = DoubleFromMap(args, "y", 0);
     const double width = DoubleFromMap(args, "width", 0);
     const double height = DoubleFromMap(args, "height", 0);
+    pixel_ratio_ = MvdWindowsScaleForLogicalRect(x, y, width, height);
     const int left = static_cast<int>(x * pixel_ratio_);
     const int top = static_cast<int>(y * pixel_ratio_);
     const int w = static_cast<int>(width * pixel_ratio_);
     const int h = static_cast<int>(height * pixel_ratio_);
     SetWindowPos(hwnd, nullptr, left, top, w, h,
                  SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE);
+    RefreshPixelRatio();
 }
 
 void MultiViewDesktop::Center() {

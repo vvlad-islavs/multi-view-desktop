@@ -24,7 +24,7 @@ class TaskbarMenuItem {
   /// Invoked when the user selects this item. Matched by list index on the Dart side.
   final VoidCallback? onPressed;
 
-  /// Serializes this item for the native taskbar / dock menu channel.
+  /// Serializes this item for the native taskbar / dock menu.
   ///
   /// [id] is the item index in the menu list; native uses it to report selection back to Dart.
   Future<Map<String, dynamic>> toJson(int id) async {

@@ -213,6 +213,16 @@ FLUTTER_PLUGIN_EXPORT void mvd_set_frame(int64_t view_id, double x, double y,
   }
 }
 
+FLUTTER_PLUGIN_EXPORT void mvd_get_physical_frame(int64_t view_id) {
+  mvd_get_frame(view_id);
+}
+
+FLUTTER_PLUGIN_EXPORT void mvd_set_physical_frame(int64_t view_id, double x,
+                                                  double y, double w,
+                                                  double h) {
+  mvd_set_frame(view_id, x, y, w, h);
+}
+
 FLUTTER_PLUGIN_EXPORT void mvd_get_display_rect(double x, double y, double w,
                                                 double h) {
   GdkDisplay* display = gdk_display_get_default();

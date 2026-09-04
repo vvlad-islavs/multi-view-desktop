@@ -103,7 +103,7 @@ void main() {
       ),
       globalWindowOptions: WindowOptions(
         minimumSize: Size(1000, 700),
-        maximumSize: Size(1200, 800),
+        // maximumSize: Size(1200, 800),
         size: Size(1000, 700),
         alignment: Alignment.center,
         titleBarStyle: TitleBarStyle.normal,

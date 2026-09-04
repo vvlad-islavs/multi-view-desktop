@@ -4,7 +4,7 @@ part of 'view_root.dart';
 // _ViewsManagerImpl
 // ---------------------------------------------------------------------------
 
-/// Default `ViewsManager`: native channel, window registry, listeners, and close modes.
+/// Default `ViewsManager`: native FFI, window registry, listeners, and close modes.
 class _ViewsManagerImpl implements ViewsManager {
   // ===========================================================================
   // Dependencies

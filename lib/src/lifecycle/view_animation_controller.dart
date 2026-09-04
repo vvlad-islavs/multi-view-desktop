@@ -119,7 +119,7 @@ class ViewAnimationController {
     return pending.settings;
   }
 
-  /// Open fade `0 → 1`, or [show] only when open fade is disabled in [policy].
+  /// Open fade `0 -> 1`, or [show] only when open fade is disabled in [policy].
   Future<void> animateOpen(
     int viewId, {
     required ViewAnimationType type,
@@ -160,7 +160,7 @@ class ViewAnimationController {
     );
   }
 
-  /// Close fade `1 → 0` when [policy.fadeOutOnClose] is enabled.
+  /// Close fade `1 -> 0` when [policy.fadeOutOnClose] is enabled.
   Future<void> animateClose(
     int viewId, {
     required ViewAnimationType type,

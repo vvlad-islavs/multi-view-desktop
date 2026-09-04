@@ -16,12 +16,12 @@ class MultiViewDesktopMacos {
   final int _realId;
   final ViewManagerProxies _proxies;
 
-  /// Returns whether the window is excluded from Mission Control / Exposé.
+  /// Returns whether the window is excluded from Mission Control / Expose.
   bool isHideFromCollection() {
     return _proxies.platform.isHideFromCollection(_realId);
   }
 
-  /// Hides or shows the window in Mission Control and Exposé.
+  /// Hides or shows the window in Mission Control and Expose.
   void hideFromCollection(bool isHideFromCollection) {
     _proxies.platform.hideFromCollection(_realId, isHideFromCollection);
   }

@@ -62,6 +62,11 @@ struct DisplayBits {
   double vw = 0;
   double vh = 0;
   double scale = 1;
+  double dpi = 96;
+  double phys_x = 0;
+  double phys_y = 0;
+  double mm_w = 0;
+  double mm_h = 0;
 };
 
 DisplayBits bits_from_monitor(GdkMonitor* monitor, int index) {
@@ -76,15 +81,20 @@ DisplayBits bits_from_monitor(GdkMonitor* monitor, int index) {
   // pixels. All GTK window operations also use physical X11 coordinates.
   // Dividing by gdk_monitor_get_scale_factor would mismatch that system.
   bits.scale = gdk_monitor_get_scale_factor(monitor);
+  bits.dpi = 96.0 * bits.scale;
   const char* model = gdk_monitor_get_model(monitor);
   bits.id = std::to_string(index);
   bits.name = model ? model : "";
   bits.w = geo.width;
   bits.h = geo.height;
+  bits.phys_x = geo.x;
+  bits.phys_y = geo.y;
   bits.vx = work.x;
   bits.vy = work.y;
   bits.vw = work.width;
   bits.vh = work.height;
+  bits.mm_w = gdk_monitor_get_width_mm(monitor);
+  bits.mm_h = gdk_monitor_get_height_mm(monitor);
   return bits;
 }
 
@@ -94,7 +104,17 @@ std::string display_bits_to_json(const DisplayBits& bits) {
     << json_escape(bits.name) << "\",\"size\":{\"width\":" << bits.w
     << ",\"height\":" << bits.h << "},\"visiblePosition\":{\"dx\":" << bits.vx
     << ",\"dy\":" << bits.vy << "},\"visibleSize\":{\"width\":" << bits.vw
-    << ",\"height\":" << bits.vh << "},\"scaleFactor\":" << bits.scale << "}";
+    << ",\"height\":" << bits.vh << "},\"scaleFactor\":" << bits.scale
+    << ",\"dpi\":" << bits.dpi << ",\"physicalBounds\":{\"x\":" << bits.phys_x
+    << ",\"y\":" << bits.phys_y << ",\"width\":" << bits.w
+    << ",\"height\":" << bits.h << "},\"physicalWorkArea\":{\"x\":" << bits.vx
+    << ",\"y\":" << bits.vy << ",\"width\":" << bits.vw
+    << ",\"height\":" << bits.vh << "}";
+  if (bits.mm_w > 0 && bits.mm_h > 0) {
+    o << ",\"physicalWidthMm\":" << bits.mm_w << ",\"physicalHeightMm\":"
+      << bits.mm_h;
+  }
+  o << "}";
   return o.str();
 }
 
@@ -120,6 +140,26 @@ FlValue* display_to_map(GdkMonitor* monitor, int index) {
   fl_value_set_string_take(map, "visibleSize", vis_size);
 
   fl_value_set_string_take(map, "scaleFactor", fl_value_new_float(bits.scale));
+  fl_value_set_string_take(map, "dpi", fl_value_new_float(bits.dpi));
+
+  FlValue* phys = fl_value_new_map();
+  fl_value_set_string_take(phys, "x", fl_value_new_float(bits.phys_x));
+  fl_value_set_string_take(phys, "y", fl_value_new_float(bits.phys_y));
+  fl_value_set_string_take(phys, "width", fl_value_new_float(bits.w));
+  fl_value_set_string_take(phys, "height", fl_value_new_float(bits.h));
+  fl_value_set_string_take(map, "physicalBounds", phys);
+
+  FlValue* work = fl_value_new_map();
+  fl_value_set_string_take(work, "x", fl_value_new_float(bits.vx));
+  fl_value_set_string_take(work, "y", fl_value_new_float(bits.vy));
+  fl_value_set_string_take(work, "width", fl_value_new_float(bits.vw));
+  fl_value_set_string_take(work, "height", fl_value_new_float(bits.vh));
+  fl_value_set_string_take(map, "physicalWorkArea", work);
+
+  if (bits.mm_w > 0 && bits.mm_h > 0) {
+    fl_value_set_string_take(map, "physicalWidthMm", fl_value_new_float(bits.mm_w));
+    fl_value_set_string_take(map, "physicalHeightMm", fl_value_new_float(bits.mm_h));
+  }
   return map;
 }
 
