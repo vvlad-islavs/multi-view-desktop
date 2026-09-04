@@ -257,7 +257,7 @@ class PopupViewController {
 
   Color _checkColorSupport(Color color) {
     final defaultColor = Color(0x00000000);
-    if (Platform.isMacOS) {
+    if (Platform.isMacOS || Platform.isLinux) {
       return defaultColor;
     }
 
@@ -265,12 +265,14 @@ class PopupViewController {
   }
 
   void setHasShadow(bool value) {
+    if(Platform.isLinux) return;
     final id = _id;
     if (id == null) return;
     _proxies.appearance.setHasShadow(id, value);
   }
 
   bool hasShadow() {
+    if(Platform.isLinux) return true;
     final id = _id;
     if (id == null) return true;
     return _proxies.appearance.hasShadow(id);

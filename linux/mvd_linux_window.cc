@@ -872,11 +872,30 @@ void MvdLinuxWindow::SetAspectRatio(float ar) {
   if (!window) {
     return;
   }
-  geometry.min_aspect = ar;
-  geometry.max_aspect = ar;
-  if (ar >= 0) {
+  RefreshShadowCache();
+  geometry.base_width = 0;
+  geometry.base_height = 0;
+  hints = static_cast<GdkWindowHints>(hints & ~GDK_HINT_BASE_SIZE);
+
+  if (ar > 0) {
+    gint content_w = 0;
+    gint content_h = 0;
+    gtk_window_get_size(window, &content_w, &content_h);
+    // GTK applies GDK_HINT_ASPECT to the CSD frame (header + shadow), not to
+    // gtk_window_get_size(). Convert content ratio so the frame constraint
+    // keeps the content at `ar` (e.g. 16:9 at 700px → 1244, not 1368).
+    const gint extra_w = cached_shadow_w;
+    const gint extra_h = cached_shadow_h;
+    const gint outer_h = content_h + extra_h;
+    const double outer_ar =
+        outer_h > 0 ? (static_cast<double>(ar) * content_h + extra_w) / outer_h
+                    : ar;
+    geometry.min_aspect = outer_ar;
+    geometry.max_aspect = outer_ar;
     hints = static_cast<GdkWindowHints>(hints | GDK_HINT_ASPECT);
   } else {
+    geometry.min_aspect = 0;
+    geometry.max_aspect = 0;
     hints = static_cast<GdkWindowHints>(hints & ~GDK_HINT_ASPECT);
   }
   ReapplyGeometryHints();

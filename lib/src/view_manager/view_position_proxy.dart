@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -58,7 +59,12 @@ class ViewPositionProxy extends ViewNativeProxy {
 
   Size getMinimumSize(int viewId) => call(viewId, () => ffi.getMinSize(viewId), dialogSupports: true) ?? Size.zero;
 
-  Size getMaximumSize(int viewId) => call(viewId, () => ffi.getMaxSize(viewId), dialogSupports: true) ?? Size.infinite;
+  Size getMaximumSize(int viewId) =>
+      call(viewId, () {
+        final rawRes = ffi.getMaxSize(viewId);
+        return Size(math.min(50000, rawRes.width), math.min(50000, rawRes.height));
+      }, dialogSupports: true) ??
+      Size(50000, 50000);
 
   double getAspectRatio(int viewId) => _aspectRatioMap[viewId]?.ratio ?? 0;
 

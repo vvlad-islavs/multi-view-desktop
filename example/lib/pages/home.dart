@@ -1058,7 +1058,7 @@ class _PopupDemoBodyState extends State<_PopupDemoBody> {
                 value: _hasShadow,
                 onChanged: _setShadow,
               ),
-              if (!Platform.isMacOS) ...[
+              if (!Platform.isMacOS && !Platform.isLinux) ...[
                 Text('Background', style: theme.textTheme.labelMedium),
                 const SizedBox(height: 4),
                 Wrap(
