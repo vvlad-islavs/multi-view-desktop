@@ -127,6 +127,8 @@ class MvdLinuxWindow {
   void Center();
   void SetMinimumSize(float w, float h);
   void SetMaximumSize(float w, float h);
+  void GetMinimumSize(float* w, float* h) const;
+  void GetMaximumSize(float* w, float* h) const;
   void RefreshShadowCache();
   void ReapplyGeometryHints();
   void ClampWindowToConstraints();

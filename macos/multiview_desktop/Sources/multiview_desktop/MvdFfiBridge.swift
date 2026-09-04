@@ -297,9 +297,33 @@ public func mvdSetMinSize(_ viewId: Int64, _ w: Double, _ h: Double) {
     win(viewId)?.minSize = NSSize(width: w, height: h)
 }
 
+@_cdecl("mvd_get_min_size")
+public func mvdGetMinSize(_ viewId: Int64) {
+    guard let window = win(viewId) else {
+        _rectBuf[0] = 0; _rectBuf[1] = 0; _rectBuf[2] = 0; _rectBuf[3] = 0
+        return
+    }
+    _rectBuf[0] = Double(window.minSize.width)
+    _rectBuf[1] = Double(window.minSize.height)
+    _rectBuf[2] = 0
+    _rectBuf[3] = 0
+}
+
 @_cdecl("mvd_set_max_size")
 public func mvdSetMaxSize(_ viewId: Int64, _ w: Double, _ h: Double) {
     win(viewId)?.maxSize = NSSize(width: w, height: h)
+}
+
+@_cdecl("mvd_get_max_size")
+public func mvdGetMaxSize(_ viewId: Int64) {
+    guard let window = win(viewId) else {
+        _rectBuf[0] = 0; _rectBuf[1] = 0; _rectBuf[2] = 0; _rectBuf[3] = 0
+        return
+    }
+    _rectBuf[0] = Double(window.maxSize.width)
+    _rectBuf[1] = Double(window.maxSize.height)
+    _rectBuf[2] = 0
+    _rectBuf[3] = 0
 }
 
 // MARK: - Appearance / chrome
@@ -408,7 +432,8 @@ public func mvdSetHasShadow(_ viewId: Int64, _ v: Int32) { win(viewId)?.hasShado
 public func mvdSetAspectRatio(_ viewId: Int64, _ ratio: Double) {
     guard let window = win(viewId) else { return }
     if ratio > 0 {
-        window.contentAspectRatio = NSSize(width: ratio, height: 1.0)
+        window.resizeIncrements = NSSize(width: ratio, height: 1.0)
+//        window.aspectRatio = NSSize(width: ratio, height: 1)
     } else {
         window.resizeIncrements = NSSize(width: 1, height: 1)
     }

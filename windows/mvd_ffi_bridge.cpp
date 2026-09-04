@@ -347,8 +347,30 @@ FLUTTER_PLUGIN_EXPORT void mvd_set_position(int64_t id, double x, double y) {
 FLUTTER_PLUGIN_EXPORT void mvd_set_min_size(int64_t id, double w, double h) {
   if (auto* window = Win(id)) window->SetMinimumSize(SizeArgs(w, h));
 }
+FLUTTER_PLUGIN_EXPORT void mvd_get_min_size(int64_t id) {
+  auto* window = Win(id);
+  if (!window) {
+    ClearRectBuf();
+    return;
+  }
+  g_rect_buf[0] = static_cast<double>(window->minimum_size_.x);
+  g_rect_buf[1] = static_cast<double>(window->minimum_size_.y);
+  g_rect_buf[2] = 0;
+  g_rect_buf[3] = 0;
+}
 FLUTTER_PLUGIN_EXPORT void mvd_set_max_size(int64_t id, double w, double h) {
   if (auto* window = Win(id)) window->SetMaximumSize(SizeArgs(w, h));
+}
+FLUTTER_PLUGIN_EXPORT void mvd_get_max_size(int64_t id) {
+  auto* window = Win(id);
+  if (!window) {
+    ClearRectBuf();
+    return;
+  }
+  g_rect_buf[0] = static_cast<double>(window->maximum_size_.x);
+  g_rect_buf[1] = static_cast<double>(window->maximum_size_.y);
+  g_rect_buf[2] = 0;
+  g_rect_buf[3] = 0;
 }
 
 FLUTTER_PLUGIN_EXPORT void mvd_set_background_color(int64_t id, int32_t a,

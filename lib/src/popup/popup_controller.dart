@@ -232,6 +232,10 @@ class PopupViewController {
 
   int? get _id => _popup._viewId;
 
+  /// The real flutterView ID.
+  /// Only for custom logic or edge cases, may crush base plugin logic.
+  int get internalViewId => _id!;
+
   void setOpacity(double opacity) {
     final id = _id;
     if (id == null) return;

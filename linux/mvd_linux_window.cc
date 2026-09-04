@@ -1062,6 +1062,16 @@ void MvdLinuxWindow::SetMinimumSize(float w, float h) {
   ReapplyGeometryHints();
 }
 
+void MvdLinuxWindow::GetMinimumSize(float* w, float* h) const {
+  if (w) *w = static_cast<float>(geometry.min_width);
+  if (h) *h = static_cast<float>(geometry.min_height);
+}
+
+void MvdLinuxWindow::GetMaximumSize(float* w, float* h) const {
+  if (w) *w = static_cast<float>(geometry.max_width);
+  if (h) *h = static_cast<float>(geometry.max_height);
+}
+
 void MvdLinuxWindow::SetMaximumSize(float w, float h) {
   if (!window) {
     return;

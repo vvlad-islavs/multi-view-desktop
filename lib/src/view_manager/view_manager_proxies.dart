@@ -7,6 +7,7 @@ import 'package:multiview_desktop/src/view_manager/view_input_proxy.dart';
 import 'package:multiview_desktop/src/view_manager/view_native_host.dart';
 import 'package:multiview_desktop/src/view_manager/view_platform_proxy.dart';
 import 'package:multiview_desktop/src/view_manager/view_position_proxy.dart';
+import 'package:multiview_desktop/src/view_manager/view_size_constraints.dart';
 import 'package:multiview_desktop/src/view_manager/view_taskbar_proxy.dart';
 import 'package:multiview_desktop/src/view_manager/view_window_state_proxy.dart';
 
@@ -25,10 +26,12 @@ class ViewManagerProxies {
     ViewNativeHost host, {
     required ViewAnimationController animationController,
     WindowPositionCalculator? positionCalculator,
+    ViewSizeConstraints? sizeConstraints,
   })  : position = ViewPositionProxy(
           host,
           animationController: animationController,
           positionCalculator: positionCalculator,
+          sizeConstraints: sizeConstraints,
         ),
         appearance = ViewAppearanceProxy(host),
         state = ViewWindowStateProxy(host),

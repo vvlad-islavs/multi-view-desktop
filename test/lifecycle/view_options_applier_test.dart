@@ -72,5 +72,14 @@ void main() {
       expect(ffi.hasCall('setTitleBarStyle:2:normal'), isTrue);
       expect(ffi.hasCall('setAlwaysOnTop:2:false'), isTrue);
     });
+
+    test('getMinSize / getMaxSize round-trip stored constraints', () {
+      ffi.setMinSize(1, size: const Size(50, 60));
+      ffi.setMaxSize(1, size: const Size(400, 500));
+      expect(ffi.getMinSize(1), const Size(50, 60));
+      expect(ffi.getMaxSize(1), const Size(400, 500));
+      expect(ffi.getMinSize(99), Size.zero);
+      expect(ffi.getMaxSize(99), Size.zero);
+    });
   });
 }

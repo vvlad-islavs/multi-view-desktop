@@ -633,6 +633,16 @@ class _HomePageState extends State<HomePage> with WindowListener {
                   onTap: () => MultiViewDesktop.of(context).setSize(const Size(760, 560)),
                 ),
                 _tile(
+                  'setAspectRatio',
+                  subtitle: '16:9',
+                  onTap: () => MultiViewDesktop.of(context).setAspectRatio(16 / 9),
+                ),
+                _tile(
+                  'clearAspectRatio',
+                  subtitle: 'Pass 0 to unlock',
+                  onTap: () => MultiViewDesktop.of(context).setAspectRatio(0),
+                ),
+                _tile(
                   'setTitle',
                   subtitle: 'Window $windowId (demo)',
                   onTap: () => MultiViewDesktop.of(context).setTitle('Window $windowId (demo)'),

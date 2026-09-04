@@ -41,6 +41,10 @@ class MultiViewDesktop {
   /// The public view ID for this instance.
   int get id => _manager.realToShiftedId(_realId);
 
+  /// The real flutterView ID. Don't use instead of `id`.
+  /// Only for custom logic or edge cases, may crush base plugin logic.
+  int get internalViewId => _realId;
+
   /// macOS-only window APIs (Spaces, Mission Control, dock badge).
   MultiViewDesktopMacos get macos => MultiViewDesktopMacos(_realId, _proxies);
 
@@ -262,8 +266,8 @@ class MultiViewDesktop {
   // ---------------------------------------------------------------------------
 
   /// Sets the taskbar / dock progress indicator (`0.0` to `1.0`), app-wide.
-  static void setProgressBar(double progress) {
-    _proxies.taskbar.setProgressBar(progress);
+  static bool setProgressBar(double progress) {
+    return _proxies.taskbar.setProgressBar(progress);
   }
 
   // ---------------------------------------------------------------------------
@@ -421,8 +425,16 @@ class MultiViewDesktop {
   /// Returns the top-left position of the window.
   Offset getPosition() => getBounds().topLeft;
 
+  /// Returns the minimum size the user can resize the window to.
+  Size getMinimumSize() => _proxies.position.getMinimumSize(_realId);
+
+  /// Returns the maximum size the user can resize the window to.
+  Size getMaximumSize() => _proxies.position.getMaximumSize(_realId);
+
   /// Resizes the window to `size` in logical pixels.
-  Future<void> setSize(Size size, {AnimationSettings? animation}) =>
+  ///
+  /// Returns `false` if [size] is outside the current min/max.
+  Future<bool> setSize(Size size, {AnimationSettings? animation}) =>
       _proxies.position.setSize(_realId, size, animation: animation);
 
   /// Moves the window so its top-left corner is at `position`.
@@ -449,13 +461,19 @@ class MultiViewDesktop {
       );
 
   /// Sets the minimum size the user can resize the window to.
-  Future<void> setMinimumSize(Size size) => _proxies.position.setMinimumSize(_realId, size);
+  ///
+  /// Returns `false` while an aspect ratio is locked, or if [size] exceeds the current maximum.
+  bool setMinimumSize(Size size) => _proxies.position.setMinimumSize(_realId, size);
 
   /// Sets the maximum size the user can resize the window to.
-  Future<void> setMaximumSize(Size size) => _proxies.position.setMaximumSize(_realId, size);
+  ///
+  /// Returns `false` while an aspect ratio is locked, or if [size] is below the current minimum.
+  bool setMaximumSize(Size size) => _proxies.position.setMaximumSize(_realId, size);
 
   /// Locks the content aspect ratio (width / height). Pass `0` to clear.
-  Future<void> setAspectRatio(double ratio) => _proxies.position.setAspectRatio(_realId, ratio);
+  ///
+  /// Returns `false` if the matching size or tightened min/max cannot be applied.
+  Future<bool> setAspectRatio(double ratio) => _proxies.position.setAspectRatio(_realId, ratio);
 
   // ---------------------------------------------------------------------------
   // Per-window: visibility and focus

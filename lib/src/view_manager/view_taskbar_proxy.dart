@@ -24,11 +24,13 @@ class ViewTaskbarProxy extends ViewNativeProxy {
     _menuCallbacks[id]?.call();
   }
 
-  void setProgressBar(double progress) {
-    if (Platform.isLinux) return;
+  bool setProgressBar(double progress) {
+    if (Platform.isLinux) return false;
     final id = firstAvailableId;
-    if (id == null) return;
+    if (id == null) return false ;
     call(id, () => ffi.setProgressBar(progress), dialogSupports: true);
+
+    return true;
   }
 
   void popUpWindowMenu(int viewId) {

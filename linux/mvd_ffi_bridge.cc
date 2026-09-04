@@ -257,8 +257,34 @@ FLUTTER_PLUGIN_EXPORT void mvd_set_position(int64_t id, double x, double y) {
 FLUTTER_PLUGIN_EXPORT void mvd_set_min_size(int64_t id, double w, double h) {
   if (auto wm = Win(id)) wm->SetMinimumSize(static_cast<float>(w), static_cast<float>(h));
 }
+FLUTTER_PLUGIN_EXPORT void mvd_get_min_size(int64_t id) {
+  auto wm = Win(id);
+  if (!wm) {
+    ClearRectBuf();
+    return;
+  }
+  float w = 0, h = 0;
+  wm->GetMinimumSize(&w, &h);
+  g_rect_buf[0] = static_cast<double>(w);
+  g_rect_buf[1] = static_cast<double>(h);
+  g_rect_buf[2] = 0;
+  g_rect_buf[3] = 0;
+}
 FLUTTER_PLUGIN_EXPORT void mvd_set_max_size(int64_t id, double w, double h) {
   if (auto wm = Win(id)) wm->SetMaximumSize(static_cast<float>(w), static_cast<float>(h));
+}
+FLUTTER_PLUGIN_EXPORT void mvd_get_max_size(int64_t id) {
+  auto wm = Win(id);
+  if (!wm) {
+    ClearRectBuf();
+    return;
+  }
+  float w = 0, h = 0;
+  wm->GetMaximumSize(&w, &h);
+  g_rect_buf[0] = static_cast<double>(w);
+  g_rect_buf[1] = static_cast<double>(h);
+  g_rect_buf[2] = 0;
+  g_rect_buf[3] = 0;
 }
 
 FLUTTER_PLUGIN_EXPORT void mvd_set_background_color(int64_t id, int32_t a,

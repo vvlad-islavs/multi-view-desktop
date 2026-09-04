@@ -134,7 +134,9 @@ abstract class FfiBridge implements Finalizable {
   late final _setSizeN = _lib!.lookupFunction<_V2dN, _V2dD>('mvd_set_size');
   late final _setPositionN = _lib!.lookupFunction<_V2dN, _V2dD>('mvd_set_position');
   late final _setMinSizeN = _lib!.lookupFunction<_V2dN, _V2dD>('mvd_set_min_size');
+  late final _getMinSizeN = _lib!.lookupFunction<_V1N, _V1D>('mvd_get_min_size');
   late final _setMaxSizeN = _lib!.lookupFunction<_V2dN, _V2dD>('mvd_set_max_size');
+  late final _getMaxSizeN = _lib!.lookupFunction<_V1N, _V1D>('mvd_get_max_size');
   late final _setBgN = _lib!.lookupFunction<_VColorN, _VColorD>('mvd_set_background_color');
   late final _setTitleN = _lib!.lookupFunction<_V1N, _V1D>('mvd_set_title');
   late final _getTitleN = _lib!.lookupFunction<_I1N, _I1D>('mvd_get_title');
@@ -411,9 +413,21 @@ abstract class FfiBridge implements Finalizable {
     _setMinSizeN(viewId, size.width, size.height);
   }
 
+  Size getMinSize(int viewId) {
+    if (!_supported) return Size.zero;
+    _getMinSizeN(viewId);
+    return Size(_buf[0], _buf[1]);
+  }
+
   void setMaxSize(int viewId, {required Size size}) {
     if (!_supported) return;
     _setMaxSizeN(viewId, size.width, size.height);
+  }
+
+  Size getMaxSize(int viewId) {
+    if (!_supported) return Size.zero;
+    _getMaxSizeN(viewId);
+    return Size(_buf[0], _buf[1]);
   }
 
   void setPosition(int viewId, {required Offset pos}) {
@@ -775,6 +789,10 @@ class RecordingFfiBridge extends FfiBridge {
   /// Optional canned bounds for [getFrame] / [getBounds].
   final Map<int, Rect> frames = {};
 
+  /// Optional canned min/max size for [getMinSize] / [getMaxSize].
+  final Map<int, Size> minSizes = {};
+  final Map<int, Size> maxSizes = {};
+
   /// Optional canned opacity for [getOpacity].
   final Map<int, double> opacities = {};
 
@@ -895,10 +913,22 @@ class RecordingFfiBridge extends FfiBridge {
   void setSize(int viewId, {required Size size}) => _rec('setSize:$viewId:${size.width}x${size.height}');
 
   @override
-  void setMinSize(int viewId, {required Size size}) => _rec('setMinSize:$viewId:${size.width}x${size.height}');
+  void setMinSize(int viewId, {required Size size}) {
+    minSizes[viewId] = size;
+    _rec('setMinSize:$viewId:${size.width}x${size.height}');
+  }
 
   @override
-  void setMaxSize(int viewId, {required Size size}) => _rec('setMaxSize:$viewId:${size.width}x${size.height}');
+  Size getMinSize(int viewId) => minSizes[viewId] ?? Size.zero;
+
+  @override
+  void setMaxSize(int viewId, {required Size size}) {
+    maxSizes[viewId] = size;
+    _rec('setMaxSize:$viewId:${size.width}x${size.height}');
+  }
+
+  @override
+  Size getMaxSize(int viewId) => maxSizes[viewId] ?? Size.zero;
 
   @override
   void setPosition(int viewId, {required Offset pos}) => _rec('setPosition:$viewId:${pos.dx},${pos.dy}');
