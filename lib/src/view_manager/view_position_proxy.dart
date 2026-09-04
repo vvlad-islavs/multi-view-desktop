@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:meta/meta.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'package:multiview_desktop/src/lifecycle/view_animation_controller.dart';
+import 'package:multiview_desktop/src/log/mvd_log.dart';
 import 'package:multiview_desktop/src/utils/window_position_calculator.dart';
 import 'package:multiview_desktop/src/view_manager/view_native_host.dart';
 import 'package:multiview_desktop/src/view_manager/view_size_constraints.dart';
@@ -84,8 +85,8 @@ class ViewPositionProxy extends ViewNativeProxy {
   }
 
   Future<bool> setAspectRatio(int viewId, double ratio) async {
-    call(viewId, () => ffi.setAspectRatio(viewId, ratio), dialogSupports: true);
     if (ratio <= 0) {
+      call(viewId, () => ffi.setAspectRatio(viewId, ratio), dialogSupports: true);
       final origMin = _minTempSize;
       final origMax = _maxTempSize;
       _minTempSize = null;
@@ -109,15 +110,17 @@ class ViewPositionProxy extends ViewNativeProxy {
       minSize: _minTempSize!,
       maxSize: _maxTempSize!,
     );
+
     if (target != current && target.width > 0 && target.height > 0) {
       final resized = await setSize(viewId, target);
       if (!resized) return false;
+      call(viewId, () => ffi.setAspectRatio(viewId, ratio), dialogSupports: true);
     }
 
     final fittedMin = _sizeConstraints.minSizeForAspectRatio(_minTempSize!, ratio);
     final fittedMax = _sizeConstraints.maxSizeForAspectRatio(_maxTempSize!, ratio);
     if (fittedMin.width > fittedMax.width || fittedMin.height > fittedMax.height) {
-      return false;
+      MvdLog.instance.error(runtimeType.toString(), 'min fit > max fit aspect ratio');
     }
 
     call(viewId, () => ffi.setMaxSize(viewId, size: fittedMax), dialogSupports: true);
