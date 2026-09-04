@@ -44,7 +44,7 @@ void main() {
       fileLogParams: const LogParams(enable: true, sizeKb: 1024 * 10),
       generalParams: MultiPlatformParams(
         animation: ViewAnimationConfig.all(fps: 60, modalFadeInOnOpen: true, modalFadeOutOnClose: true),
-        enableDynamicAnchor: true,
+        enableDynamicAnchor: false,
         closeMode: CloseMode.softCascade,
         menuItems: [
           TaskbarMenuItem(
@@ -184,7 +184,7 @@ class _MainWindowRootState extends State<MainWindowRoot> with TrayListener {
     //   MultiViewDesktop.of(context).setBrightness(mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
     // });
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       MultiViewDesktop.setGlobalBrightness(
         themeConfig.themeMode == ThemeMode.dark ? Brightness.dark : Brightness.light,
       );

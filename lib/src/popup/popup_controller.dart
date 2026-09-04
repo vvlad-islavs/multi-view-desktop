@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui' show Color, FlutterView, Size;
 
 import 'package:flutter/foundation.dart';
@@ -166,11 +167,7 @@ class PopupController extends ChangeNotifier {
   }
 
   @internal
-  void bindSession({
-    required int viewId,
-    required FlutterView flutterView,
-    required OverlayEntry host,
-  }) {
+  void bindSession({required int viewId, required FlutterView flutterView, required OverlayEntry host}) {
     _viewId = viewId;
     _flutterView = flutterView;
     _hostEntry = host;
@@ -247,10 +244,20 @@ class PopupViewController {
     return _proxies.appearance.getOpacity(id);
   }
 
+  /// Supports platforms: Windows
   void setBackgroundColor(Color color) {
     final id = _id;
     if (id == null) return;
-    _proxies.appearance.setBackgroundColor(id, color);
+    _proxies.appearance.setBackgroundColor(id, _checkColorSupport(color));
+  }
+
+  Color _checkColorSupport(Color color) {
+    final defaultColor = Color(0x00000000);
+    if (Platform.isMacOS) {
+      return defaultColor;
+    }
+
+    return color;
   }
 
   void setHasShadow(bool value) {

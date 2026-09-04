@@ -974,11 +974,7 @@ class _AlignmentGridState extends State<_AlignmentGrid> {
 /// Lives in the popup child tree. Kept across ListView unmount of [PopupView]
 /// because [PopupController] hosts that tree until [PopupController.close].
 class _PopupDemoBody extends StatefulWidget {
-  const _PopupDemoBody({
-    required this.controller,
-    required this.windowLabel,
-    required this.animationOf,
-  });
+  const _PopupDemoBody({required this.controller, required this.windowLabel, required this.animationOf});
 
   final PopupController controller;
   final String windowLabel;
@@ -1044,12 +1040,7 @@ class _PopupDemoBodyState extends State<_PopupDemoBody> {
               ),
               const SizedBox(height: 8),
               Text('Opacity ${_opacity.toStringAsFixed(2)}', style: theme.textTheme.labelMedium),
-              Slider(
-                value: _opacity,
-                min: 0.2,
-                max: 1,
-                onChanged: _setOpacity,
-              ),
+              Slider(value: _opacity, min: 0.2, max: 1, onChanged: _setOpacity),
               SwitchListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
@@ -1057,28 +1048,30 @@ class _PopupDemoBodyState extends State<_PopupDemoBody> {
                 value: _hasShadow,
                 onChanged: _setShadow,
               ),
-              Text('Background', style: theme.textTheme.labelMedium),
-              const SizedBox(height: 4),
-              Wrap(
-                spacing: 8,
-                children: [
-                  ChoiceChip(
-                    label: const Text('clear'),
-                    selected: _background == null,
-                    onSelected: (_) => _setBackground(null),
-                  ),
-                  ChoiceChip(
-                    label: const Text('amber'),
-                    selected: _background == const Color(0x66FFC107),
-                    onSelected: (_) => _setBackground(const Color(0x66FFC107)),
-                  ),
-                  ChoiceChip(
-                    label: const Text('blue'),
-                    selected: _background == const Color(0x662196F3),
-                    onSelected: (_) => _setBackground(const Color(0x662196F3)),
-                  ),
-                ],
-              ),
+              if (!Platform.isMacOS) ...[
+                Text('Background', style: theme.textTheme.labelMedium),
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    ChoiceChip(
+                      label: const Text('clear'),
+                      selected: _background == null,
+                      onSelected: (_) => _setBackground(null),
+                    ),
+                    ChoiceChip(
+                      label: const Text('amber'),
+                      selected: _background == const Color(0x66FFC107),
+                      onSelected: (_) => _setBackground(const Color(0x66FFC107)),
+                    ),
+                    ChoiceChip(
+                      label: const Text('blue'),
+                      selected: _background == const Color(0x662196F3),
+                      onSelected: (_) => _setBackground(const Color(0x662196F3)),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 8),
               TextButton(
                 onPressed: _ignoreMouse ? null : _clickThroughBriefly,

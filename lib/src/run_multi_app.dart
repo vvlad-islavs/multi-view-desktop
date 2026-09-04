@@ -128,7 +128,7 @@ class MultiPlatformParams {
   final ViewAnimationConfig animation;
 
   const MultiPlatformParams({
-    this.enableDynamicAnchor = true,
+    this.enableDynamicAnchor = false,
     this.closeMode = CloseMode.softCascade,
     this.menuItems = const [],
     this.animation = ViewAnimationConfig.defaults,
@@ -136,7 +136,7 @@ class MultiPlatformParams {
 
   /// Default: dynamic anchor enabled, `CloseMode.softCascade`.
   factory MultiPlatformParams.defaultParams() =>
-      MultiPlatformParams(enableDynamicAnchor: true, closeMode: CloseMode.softCascade);
+      MultiPlatformParams(enableDynamicAnchor: false, closeMode: CloseMode.softCascade);
 }
 
 /// macOS-specific parameters for `MultiAppConfig.macosParams`.
