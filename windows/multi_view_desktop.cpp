@@ -1,4 +1,4 @@
-// This must be included before many other Windows headers.
+﻿// This must be included before many other Windows headers.
 #include <windows.h>
 
 #include <flutter/method_channel.h>

@@ -77,10 +77,16 @@ class _PopupViewState extends State<PopupView> {
   ScrollNotificationObserverState? _scrollObserver;
   int _parentScrollDepth = 0;
   bool _parentScrolling = false;
+  bool _anchorMoving = false;
+  Timer? _anchorSettleTimer;
   LocalElementPositionTracker? _tracker;
   Rect? _pendingPlaced;
   bool _boundsCommitScheduled = false;
   int _placeGeneration = 0;
+
+  /// Precision-touchpad wheel bursts often have no lasting ScrollStart/End.
+  /// Rect motion plus this delay is what actually defers native re-show.
+  static const Duration _anchorSettleDelay = Duration(milliseconds: 50);
 
   PopupController get _controller => widget.controller;
 
@@ -299,6 +305,7 @@ class _PopupViewState extends State<PopupView> {
     _anchorRect = _controller.anchorHidden ? null : _tracker?.getGlobalRect();
     _tracker?.onGlobalRectChange = (rect) {
       _anchorRect = rect;
+      _noteAnchorMotion();
       _applyPositionSync();
     };
     _tracker?.onLost = () {
@@ -311,11 +318,18 @@ class _PopupViewState extends State<PopupView> {
   void _unbindPositioning() {
     _unregisterParentListener();
     _parentFrameDirty = true;
+    _cancelAnchorSettle();
     _tracker?.dispose();
     _tracker = null;
     _anchorRect = null;
     _parentScrollDepth = 0;
     _parentScrolling = false;
+  }
+
+  void _cancelAnchorSettle() {
+    _anchorSettleTimer?.cancel();
+    _anchorSettleTimer = null;
+    _anchorMoving = false;
   }
 
   void _unregisterParentListener() {
@@ -336,6 +350,9 @@ class _PopupViewState extends State<PopupView> {
 
   void _onParentScrollNotification(ScrollNotification n) {
     if (_isFromThisPopup(n)) return;
+    // Mark motion first so a same-frame Start/End pair (Windows trackpad
+    // as discrete wheel ticks) cannot reveal the HWND mid-gesture.
+    _noteAnchorMotion();
     if (n is ScrollStartNotification) {
       _parentScrollDepth++;
       _setParentScrolling(true);
@@ -343,6 +360,23 @@ class _PopupViewState extends State<PopupView> {
       if (_parentScrollDepth > 0) _parentScrollDepth--;
       if (_parentScrollDepth == 0) _setParentScrolling(false);
     }
+  }
+
+  /// True while an ancestor is scrolling or the anchor rect is still moving.
+  /// Native re-show waits until this is false so ShowWindow is not called
+  /// during a Windows touchpad wheel flood (DWM chrome without a Flutter frame).
+  bool _shouldDeferNativeShow() => _parentScrolling || _anchorMoving;
+
+  void _noteAnchorMotion() {
+    _anchorMoving = true;
+    _anchorSettleTimer?.cancel();
+    _anchorSettleTimer = Timer(_anchorSettleDelay, () {
+      _anchorSettleTimer = null;
+      _anchorMoving = false;
+      if (mounted && _controller.hasSession) {
+        _applyPositionSync();
+      }
+    });
   }
 
   void _catchUpAncestorScrolling() {
@@ -367,6 +401,9 @@ class _PopupViewState extends State<PopupView> {
     if (_parentScrolling == on) return;
     _parentScrolling = on;
     _applyClickThrough();
+    if (!on && mounted && _controller.hasSession) {
+      _applyPositionSync();
+    }
   }
 
   void _applyClickThrough() {
@@ -381,6 +418,7 @@ class _PopupViewState extends State<PopupView> {
   void _reveal({required bool allowFade}) {
     final viewId = _controller.viewId;
     if (viewId == null || _controller.nativeShown || _controller.anchorHidden) return;
+    if (_shouldDeferNativeShow()) return;
     _controller.nativeShown = true;
     unawaited(globalRootState.manager.showPopup(viewId, animate: allowFade && _controller.takeOpenFade()));
   }
@@ -463,8 +501,10 @@ class _PopupViewState extends State<PopupView> {
       _hideNative(reason: 'anchor not in view');
       return;
     }
-    if (_controller.anchorHidden && !_anchorPaintedInViewport()) {
-      return;
+    if (_controller.anchorHidden) {
+      if (!_anchorPaintedInViewport() || _shouldDeferNativeShow()) {
+        return;
+      }
     }
     _controller.clearAnchorHidden();
 

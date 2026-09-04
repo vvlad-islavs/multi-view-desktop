@@ -371,7 +371,6 @@ namespace multi_view_desktop {
             MvdLog("HandleWindowProc WM_CLOSE DestroyEntry returned view_id=%lld "
                    "windows=%zu",
                    static_cast<long long>(view_id), impl.windows_.size());
-            if (impl.windows_.empty() &&
             bool has_regular = false;
             for (const auto &entry : impl.windows_) {
                 if (!entry.second->is_popup_) {
