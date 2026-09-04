@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -365,7 +366,9 @@ class _PopupViewState extends State<PopupView> {
   /// True while an ancestor is scrolling or the anchor rect is still moving.
   /// Native re-show waits until this is false so ShowWindow is not called
   /// during a Windows touchpad wheel flood (DWM chrome without a Flutter frame).
-  bool _shouldDeferNativeShow() => _parentScrolling || _anchorMoving;
+  ///
+  /// Only for windows.
+  bool _shouldDeferNativeShow() => (_parentScrolling || _anchorMoving) && Platform.isWindows;
 
   void _noteAnchorMotion() {
     _anchorMoving = true;
