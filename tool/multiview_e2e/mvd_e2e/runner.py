@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -109,12 +110,16 @@ def launched_example(
     )
     # Verbose native MVD logs fill the pipe and deadlock Flutter if unread.
     startup_output: deque[str] = deque(maxlen=40)
+    teardown_errors: deque[str] = deque(maxlen=40)
+
     def _drain_stdout() -> None:
         if proc.stdout is None:
             return
         try:
             for line in proc.stdout:
                 startup_output.append(line.rstrip())
+                if re.search(r"View #\d+ doesn't exist", line):
+                    teardown_errors.append(line.rstrip())
         except Exception:  # noqa: BLE001
             pass
 
@@ -147,6 +152,8 @@ def launched_example(
                 macos_file.unlink(missing_ok=True)
             except OSError:
                 pass
+    if teardown_errors:
+        raise E2eError("Duplicate engine-view removal:\n" + "\n".join(teardown_errors))
 
 
 def _env_truthy(raw: str | None, *, default: bool = False) -> bool:

@@ -4,7 +4,7 @@ description: >-
   Flutter engine and a single Dart isolate. Supports macOS, Windows, and
   Linux (X11 and Wayland).
 
-version: 2.0.2+focale.1
+version: 2.0.2+focale.2
 publish_to: none
 
 repository: https://github.com/vvlad-islavs/multi-view-desktop

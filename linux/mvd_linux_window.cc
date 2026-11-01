@@ -6,42 +6,22 @@
 #include <gdk/gdkx.h>
 #endif
 
-#include <dlfcn.h>
-
 #include <cstdint>
-#include <cstring>
 #include <memory>
 #include <vector>
-
-// ABI-compatible copies of embedder.h types.
-struct MvdRemoveViewResult {
-  size_t struct_size;
-  bool removed;
-  void* user_data;
-};
-
-struct MvdRemoveViewInfo {
-  size_t struct_size;
-  int64_t view_id;
-  void* user_data;
-  void (*remove_view_callback)(const MvdRemoveViewResult* result);
-};
-
-using MvdEmbedderRemoveViewFn = int (*)(void* engine,
-                                        const MvdRemoveViewInfo* info);
 
 // Teardown order (shared FlEngine, X11 GLX and Wayland EGL):
 //   1. Caller unregisters the Dart view but does not unmap yet. Close can
 //      reenter from GTK draw (fl_task_runner_wait); a synchronous hide frees
-//      the Wayland/X11 surface while gdk_cairo_draw_from_gl is still on the
-//      stack.
-//   2. On the next GTK idle: hide (unmap), then embedder RemoveView.
-//   3. After the RemoveView callback, wait kPostRemoveViewDrainMs. The
-//      callback can fire before the raster queue is idle (#164564).
-//   4. gtk_widget_destroy one window at a time, then kInterDestroyGapMs
-//      before the next. FlView dispose may RemoveView again (harmless).
+//      the surface while gdk_cairo_draw_from_gl is still on the stack.
+//   2. On the next GTK idle: hide (unmap), then destroy the FlView. Its
+//      dispose owns RemoveView, including the engine's renderable registry.
+//   3. Keep the native window alive for kPostRemoveViewDrainMs, then destroy
+//      it. Serialize windows with kInterDestroyGapMs between requests.
 // Render descendants of FlView are retained until view finalization
-// (mvd_view_render_lifetime). X11 GLX errors are still suppressed in the runner.
+// (mvd_view_render_lifetime), so in-flight raster callbacks retain their
+// compositor. Never call embedder RemoveView separately: FlView would remove
+// the same view again on dispose. X11 GLX errors are suppressed in the runner.
 
 #define MVD_LOG MVD_LOG_WINDOW
 
@@ -465,17 +445,11 @@ namespace {
 
 int g_safe_destroy_inflight = 0;
 
-constexpr size_t kEmbedderRemoveViewIndex = 37;
-constexpr size_t kMinProcTableSize =
-    sizeof(size_t) + (kEmbedderRemoveViewIndex + 1) * sizeof(void*);
-
-// Extra time after RemoveView callback before destroying the GdkWindow/XID.
-// #164564: callback can fire before the raster queue is fully idle.
+// Allow outstanding raster work to drain before destroying the native window.
+// Render-child ownership, rather than this delay, protects the compositor.
 constexpr guint kPostRemoveViewDrainMs = 800;
 // Gap after one destroy before starting the next RemoveView/destroy.
 constexpr guint kInterDestroyGapMs = 200;
-// If RemoveView never completes, destroy anyway so windows do not leak forever.
-constexpr guint kRemoveViewFallbackDestroyMs = 4000;
 
 struct SafeDestroyRequest {
   GtkWidget* widget = nullptr;
@@ -483,63 +457,12 @@ struct SafeDestroyRequest {
   bool should_quit = false;
   bool destroy_scheduled = false;
   guint drain_source_id = 0;
-  guint fallback_source_id = 0;
 };
 
 // Serialize GTK/GL teardown across windows. Parallel gtk_widget_destroy of
 // secondary FlViews on a shared FlEngine/GLX display is what crashes on X11.
 std::vector<SafeDestroyRequest*> g_destroy_queue;
 bool g_destroy_pipeline_busy = false;
-
-bool PointerInFlutterSo(void* fn, void* so_base) {
-  if (!fn || !so_base) {
-    return false;
-  }
-  Dl_info info{};
-  if (dladdr(fn, &info) == 0) {
-    return false;
-  }
-  return info.dli_fbase == so_base;
-}
-
-bool FindEmbedderRemoveView(FlEngine* engine,
-                            void** out_flutter_engine,
-                            MvdEmbedderRemoveViewFn* out_remove_view) {
-  if (!engine || !out_flutter_engine || !out_remove_view) {
-    return false;
-  }
-  void* marker = dlsym(RTLD_DEFAULT, "fl_engine_new");
-  Dl_info so_info{};
-  void* so_base = nullptr;
-  if (marker && dladdr(marker, &so_info) != 0) {
-    so_base = so_info.dli_fbase;
-  }
-  auto* base = reinterpret_cast<uint8_t*>(engine);
-  for (size_t off = sizeof(void*); off <= 512; off += sizeof(void*)) {
-    const size_t table_size = *reinterpret_cast<size_t*>(base + off);
-    if (table_size < kMinProcTableSize || table_size > 1024 ||
-        (table_size % sizeof(void*)) != 0) {
-      continue;
-    }
-    void* flutter_engine = *reinterpret_cast<void**>(base + off - sizeof(void*));
-    if (!flutter_engine) {
-      continue;
-    }
-    void* add_view = *reinterpret_cast<void**>(
-        base + off + sizeof(size_t) + 36 * sizeof(void*));
-    void* remove_view = *reinterpret_cast<void**>(
-        base + off + sizeof(size_t) +
-        kEmbedderRemoveViewIndex * sizeof(void*));
-    if (!PointerInFlutterSo(add_view, so_base) ||
-        !PointerInFlutterSo(remove_view, so_base)) {
-      continue;
-    }
-    *out_flutter_engine = flutter_engine;
-    *out_remove_view = reinterpret_cast<MvdEmbedderRemoveViewFn>(remove_view);
-    return true;
-  }
-  return false;
-}
 
 void ReleaseSafeDestroyInflight() {
   if (g_safe_destroy_inflight > 0) {
@@ -554,10 +477,6 @@ void ClearSafeDestroyTimeouts(SafeDestroyRequest* req) {
   if (req->drain_source_id != 0) {
     g_source_remove(req->drain_source_id);
     req->drain_source_id = 0;
-  }
-  if (req->fallback_source_id != 0) {
-    g_source_remove(req->fallback_source_id);
-    req->fallback_source_id = 0;
   }
 }
 
@@ -626,73 +545,20 @@ void ScheduleWidgetDestroy(SafeDestroyRequest* req, guint delay_ms,
       g_timeout_add(delay_ms, DestroyWidgetAfterDrain, req);
 }
 
-gboolean FallbackDestroyTimeout(gpointer data) {
-  auto* req = static_cast<SafeDestroyRequest*>(data);
-  req->fallback_source_id = 0;
-  ScheduleWidgetDestroy(req, 0, "remove_view_fallback");
-  return G_SOURCE_REMOVE;
-}
-
-gboolean OnEmbedderViewRemovedMain(gpointer data) {
-  auto* req = static_cast<SafeDestroyRequest*>(data);
-  ScheduleWidgetDestroy(req, kPostRemoveViewDrainMs, "remove_view_callback");
-  return G_SOURCE_REMOVE;
-}
-
-void OnEmbedderViewRemoved(const MvdRemoveViewResult* result) {
-  auto* req = result ? static_cast<SafeDestroyRequest*>(result->user_data)
-                     : nullptr;
-  MVD_LOG("OnEmbedderViewRemoved  removed=%d  req=%p",
-          static_cast<int>(result && result->removed),
-          static_cast<void*>(req));
-  if (!req) {
-    return;
-  }
-  g_main_context_invoke(g_main_context_default(), OnEmbedderViewRemovedMain,
-                        req);
-}
-
-bool RequestEngineRemoveView(FlEngine* engine, int64_t flutter_view_id,
-                             SafeDestroyRequest* req) {
-  void* flutter_engine = nullptr;
-  MvdEmbedderRemoveViewFn embedder_remove_view = nullptr;
-  // view_id 0 is the implicit/primary view - embedder rejects RemoveView.
-  if (!engine || flutter_view_id <= 0 || !req ||
-      !FindEmbedderRemoveView(engine, &flutter_engine, &embedder_remove_view)) {
-    MVD_LOG("RequestEngineRemoveView  skip  engine=%p  view_id=%"
-            G_GINT64_FORMAT, static_cast<void*>(engine), flutter_view_id);
-    return false;
-  }
-  MvdRemoveViewInfo info{};
-  info.struct_size = sizeof(MvdRemoveViewInfo);
-  info.view_id = flutter_view_id;
-  info.user_data = req;
-  info.remove_view_callback = OnEmbedderViewRemoved;
-  MVD_LOG("RequestEngineRemoveView  calling embedder RemoveView  view_id=%"
-          G_GINT64_FORMAT, flutter_view_id);
-  const int remove_result = embedder_remove_view(flutter_engine, &info);
-  MVD_LOG("RequestEngineRemoveView  returned %d", remove_result);
-  return remove_result == 0;
-}
-
 void StartDestroyRequest(SafeDestroyRequest* req) {
+  // Dispose on the GTK thread after any reentrant draw has unwound. FlView
+  // unregisters its renderable and removes the engine view exactly once.
+  // Destroying it also detaches it from the window, so the later window
+  // destruction cannot dispose it again. Render descendants stay retained
+  // until the final in-flight raster reference releases the FlView.
   FlView* view = req->view;
-  FlEngine* engine = (view && FL_IS_VIEW(view)) ? fl_view_get_engine(view)
-                                                : nullptr;
-  const int64_t flutter_view_id = view ? fl_view_get_id(view) : -1;
-  MVD_LOG("StartDestroyRequest  widget=%p  view=%p  flutter_view_id=%"
-          G_GINT64_FORMAT "  engine=%p  should_quit=%d",
-          static_cast<void*>(req->widget), static_cast<void*>(view),
-          flutter_view_id, static_cast<void*>(engine),
-          static_cast<int>(req->should_quit));
-
-  if (RequestEngineRemoveView(engine, flutter_view_id, req)) {
-    req->fallback_source_id =
-        g_timeout_add(kRemoveViewFallbackDestroyMs, FallbackDestroyTimeout,
-                      req);
-  } else {
-    ScheduleWidgetDestroy(req, kPostRemoveViewDrainMs, "no_remove_view");
+  req->view = nullptr;
+  if (view) {
+    MVD_LOG("StartDestroyRequest  disposing view_id=%" G_GINT64_FORMAT,
+            fl_view_get_id(view));
+    gtk_widget_destroy(GTK_WIDGET(view));
   }
+  ScheduleWidgetDestroy(req, kPostRemoveViewDrainMs, "view_disposed");
 }
 
 void HidePreservingGeometry(GtkWidget* widget) {

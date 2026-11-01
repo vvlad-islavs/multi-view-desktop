@@ -1,3 +1,7 @@
+## 2.0.2+focale.2
+
+- Linux. Let `FlView` own engine-view removal during deferred GTK teardown. This removes duplicate `View #… doesn't exist` errors and unregisters the renderable before disposal, while preserving render-child retention and serialized native-window destruction.
+
 ## 2.0.2+focale.1
 
 Focale fork of 2.0.2. Upstream structure, plus:
