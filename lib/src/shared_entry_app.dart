@@ -1,5 +1,5 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'app_shell/app_shell_patch.dart';
 import 'app_shell/app_shell_registry.dart';
@@ -387,7 +387,7 @@ class _WidgetsAppWithUpstreamProbe extends StatelessWidget {
       onNavigationNotification: app.onNavigationNotification,
       navigatorObservers: app.navigatorObservers ?? const <NavigatorObserver>[],
       initialRoute: app.initialRoute,
-      pageRouteBuilder: app.pageRouteBuilder,
+      pageRouteBuilder: app.pageRouteBuilder ?? _defaultPageRoute,
       home: app.home == null
           ? null
           : _AppShellUpstreamProbe(onUpstreamContext: onUpstreamContext, child: app.home!),
@@ -428,7 +428,15 @@ TransitionBuilder _mergeBuilder(
   };
 }
 
-/// Secondary/dialog shell: global appearance plus optional per-view navigation.
+PageRoute<T> _defaultPageRoute<T>(RouteSettings settings, WidgetBuilder builder) {
+  return PageRouteBuilder<T>(
+    settings: settings,
+    pageBuilder: (BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation) {
+      return builder(context);
+    },
+  );
+}
+
 class SharedEntryApp extends StatelessWidget {
   const SharedEntryApp({
     super.key,
@@ -622,7 +630,7 @@ class SharedEntryApp extends StatelessWidget {
       onNavigationNotification: nav?.onNavigationNotification,
       navigatorObservers: nav?.navigatorObservers ?? const <NavigatorObserver>[],
       initialRoute: nav?.initialRoute,
-      pageRouteBuilder: nav?.pageRouteBuilder,
+      pageRouteBuilder: nav?.pageRouteBuilder ?? _defaultPageRoute,
       home: home,
       routes: nav?.routes ?? const <String, WidgetBuilder>{},
       builder: nav?.builder,

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'app_shell/app_shell_patch.dart';
 import 'app_shell/app_shell_registry.dart';

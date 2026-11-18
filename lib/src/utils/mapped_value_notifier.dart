@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 class MappedValueNotifier<S, T> extends ValueNotifier<T> {
   MappedValueNotifier({required ValueNotifier<S> source, required T Function(S value) transform})

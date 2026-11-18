@@ -515,7 +515,7 @@ void Win32Window::CenterOnScreen() {
 Replace `runApp` with `runMultiApp`. The `home` builder is rendered in the main OS window:
 
 ```dart
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 
 void main() {

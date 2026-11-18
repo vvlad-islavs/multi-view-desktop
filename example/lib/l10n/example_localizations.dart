@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Small demo catalog for secondary windows and dialogs.
 class ExampleLocalizations {
@@ -122,7 +121,5 @@ class _ExampleLocalizationsDelegate extends LocalizationsDelegate<ExampleLocaliz
 /// Delegates shared by main and per-view shell overrides.
 List<LocalizationsDelegate<dynamic>> exampleLocalizationDelegates() => [
   ExampleLocalizations.delegate,
-  GlobalMaterialLocalizations.delegate,
-  GlobalWidgetsLocalizations.delegate,
-  GlobalCupertinoLocalizations.delegate,
+  ...GlobalMaterialLocalizations.delegates,
 ];

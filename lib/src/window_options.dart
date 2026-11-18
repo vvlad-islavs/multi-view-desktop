@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'app_shell/view_shell_overrides.dart';
 import 'title_bar_style.dart';

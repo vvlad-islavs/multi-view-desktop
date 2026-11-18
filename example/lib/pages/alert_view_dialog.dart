@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 class AlertViewDialog extends StatelessWidget {
   const AlertViewDialog({super.key, required this.title, required this.content, this.actions});

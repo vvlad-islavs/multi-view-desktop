@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../screen_retriever/display_matcher.dart';
 import '../screen_retriever/screen_retriever.dart';

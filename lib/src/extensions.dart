@@ -1,4 +1,4 @@
-import 'package:flutter/cupertino.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 import 'run_multi_app.dart' as run_app;
 

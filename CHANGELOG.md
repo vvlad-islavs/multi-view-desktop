@@ -1,3 +1,7 @@
+## 2.1.0
+
+- Breaking. Material and Cupertino moved to `material_ui` and `cupertino_ui`. Flutter >=3.47.
+
 ## 2.0.2
 
 - Fix: MacOS init window show fix.

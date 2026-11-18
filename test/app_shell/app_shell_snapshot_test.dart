@@ -1,5 +1,5 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:multiview_desktop/src/app_shell/app_entry_kind.dart';
 import 'package:multiview_desktop/src/app_shell/app_shell_snapshot.dart';

@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:multiview_desktop/multiview_desktop.dart';
 
 // ignore: depend_on_referenced_packages
