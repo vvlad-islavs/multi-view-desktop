@@ -14,7 +14,7 @@ import 'package:multiview_desktop/src/log/mvd_log.dart';
 /// registered in [ViewRegistry] (proxy invoke guards would skip every call).
 @internal
 class ViewOptionsApplier {
-  ViewOptionsApplier({required FfiBridge ffi}) : _ffi = ffi;
+  ViewOptionsApplier({required this._ffi});
 
   final FfiBridge _ffi;
 

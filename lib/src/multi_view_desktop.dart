@@ -57,7 +57,7 @@ class MultiViewDesktop {
   /// Connected displays, cursor position, and display matching.
   static MultiViewDesktopScreen get screen => MultiViewDesktopScreen.instance;
 
-  MultiViewDesktop._({required int realId}) : _realId = realId;
+  MultiViewDesktop._({required this._realId});
 
   /// Creates an instance bound to the window that owns `context`.
   factory MultiViewDesktop.of(BuildContext context) => MultiViewDesktop._(realId: _getRealId(context));

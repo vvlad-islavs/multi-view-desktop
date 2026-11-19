@@ -15,9 +15,8 @@ import 'package:multiview_desktop/src/view_manager/view_manager_proxies.dart';
 /// merges it over method/policy defaults, and applies native updates via proxies.
 @internal
 class ViewAnimationController {
-  ViewAnimationController({required ViewAnimationConfig config, ViewAnimator? animator})
-    : _config = config,
-      _animator = animator ?? ViewAnimator();
+  ViewAnimationController({required this._config, ViewAnimator? animator})
+    : _animator = animator ?? ViewAnimator();
 
   final ViewAnimationConfig _config;
   final ViewAnimator _animator;

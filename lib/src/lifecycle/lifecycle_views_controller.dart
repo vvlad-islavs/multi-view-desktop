@@ -38,9 +38,9 @@ class LifecycleViewsController {
     required this.proxies,
     required this.ffiBridge,
     required ViewCloseDelegate closeDelegate,
-    required void Function(int parentId, {required int dialogId, required bool isModal}) registerDialog,
-    required bool Function(int parentId) hasPendingDialogCreate,
-    required bool Function(int parentId) hasModalDialog,
+    required this._registerDialog,
+    required this._hasPendingDialogCreate,
+    required this._hasModalDialog,
     required this.animation,
     required this.animationController,
     WindowPositionCalculator? positionCalculator,
@@ -51,10 +51,7 @@ class LifecycleViewsController {
     VoidCallback? onBeforeCloseApp,
     VoidCallback? onCloseAppAborted,
     VoidCallback? onBeforeForceCloseApp,
-  }) : positionCalculator = positionCalculator ?? WindowPositionCalculator.instance,
-       _registerDialog = registerDialog,
-       _hasPendingDialogCreate = hasPendingDialogCreate,
-       _hasModalDialog = hasModalDialog {
+  }) : positionCalculator = positionCalculator ?? WindowPositionCalculator.instance {
     optionsApplier = ViewOptionsApplier(ffi: ffiBridge);
     windowOwner = WindowOwner(this);
     childWindowOwner = ChildWindowOwner(this);

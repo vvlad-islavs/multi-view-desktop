@@ -33,9 +33,7 @@ class PopupContentSizer extends SingleChildRenderObjectWidget {
 }
 
 class RenderPopupContentSizer extends RenderProxyBox {
-  RenderPopupContentSizer({required Size maxSize, required ValueChanged<Size> onSize})
-    : _maxSize = maxSize,
-      _onSize = onSize;
+  RenderPopupContentSizer({required this._maxSize, required this._onSize});
 
   Size _maxSize;
   ValueChanged<Size> _onSize;
